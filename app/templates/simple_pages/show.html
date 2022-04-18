@@ -1,13 +1,16 @@
 {% extends "base.html" %} 
+{% block content %} 
+  {% include "header/header.html" %}
+  {% if current_user.is_authenticated == false %}
+    {% include "users/login.html" %}
+  {% endif %}
 
-{% block content %}
-  {% include "header/header.html" %} 
-  
   <!--Post Content-->
   <section class="post-header">
     <div class="header-content post-container">
-      <!--Back To Home-->
-      <a href="{{ url_for('blog_posts.index') }}" class="back-home">Back To Home</a>
+      {% if error and current_user.is_authenticated == false %}
+        <p style="color: tomato">{{ error }}</p>
+      {% endif %}
       <!--Title-->
       <h2 class="header-title">{{ blog_post.title }}</h2>
       <img src="" alt="" class="header-img" />
