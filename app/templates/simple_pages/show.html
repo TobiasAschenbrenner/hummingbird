@@ -1,0 +1,32 @@
+{% extends "base.html" %} 
+
+{% block content %}
+  {% include "header/header.html" %} 
+  
+  <!--Post Content-->
+  <section class="post-header">
+    <div class="header-content post-container">
+      <!--Back To Home-->
+      <a href="{{ url_for('blog_posts.index') }}" class="back-home">Back To Home</a>
+      <!--Title-->
+      <h2 class="header-title">{{ blog_post.title }}</h2>
+      <img src="" alt="" class="header-img" />
+    </div>
+  </section>
+
+  <!--Posts-->
+  <section class="post-content post-container">
+    <p class="post-text">{{ blog_post.text }}</p>
+  </section>
+  <!--Share-->
+  <div class="share post-container">
+    <span class="share-title">Share this article</span>
+    <div class="social">
+      <a href="#"><i class="bx bxl-facebook"></i></a>
+      <a href="#"><i class="bx bxl-twitter"></i></a>
+      <a href="#"><i class="bx bxl-instagram"></i></a>
+      <a href="#"><i class="bx bxl-linkedin"></i></a>
+    </div>
+  </div>
+
+{% endblock %}

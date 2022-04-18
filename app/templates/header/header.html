@@ -1,0 +1,26 @@
+<!--Header-->
+<header>
+  <!--Nav-->
+  <div class="nav container">
+    <!--Logo-->
+    <a href="{{ url_for('blog_posts.index') }}" class="logo">hummingbird</a>
+    <div class="nav-items">
+      <!--Home-->
+      <a href="{{ url_for('blog_posts.index') }}" class="nav-item">Home</a>
+      {% if current_user.is_authenticated %}
+        <!--New Post-->
+        <a href="{{ url_for('new_posts.get_new_posts') }}" class="nav-item">New Post</a>
+      {% endif %}
+    </div>
+
+    {% if current_user.is_authenticated == false %}
+    <!--Login Btn-->
+    <a href="#" class="login">Log in</a>
+    {% endif %}
+
+    {% if current_user.is_authenticated %}
+      <!--Logout Btn-->
+      <a href="{{ url_for('users.logout') }}" class="login">Log out</a>
+    {% endif %}
+  </div>
+</header>
