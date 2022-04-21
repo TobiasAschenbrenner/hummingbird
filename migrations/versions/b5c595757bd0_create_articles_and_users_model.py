@@ -1,8 +1,8 @@
-"""create atricles and users model
+"""create articles and users model
 
-Revision ID: 19cc8f8c8da7
+Revision ID: b5c595757bd0
 Revises: 
-Create Date: 2022-04-20 22:23:03.828787
+Create Date: 2022-04-21 11:22:29.218131
 
 """
 from alembic import op
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = '19cc8f8c8da7'
+revision = 'b5c595757bd0'
 down_revision = None
 branch_labels = None
 depends_on = None
@@ -31,7 +31,7 @@ def upgrade():
     sa.Column('slug', sa.String(length=80), nullable=True),
     sa.Column('text', sa.Text(), nullable=True),
     sa.Column('description', sa.String(length=250), nullable=True),
-    sa.Column('title', sa.String(length=30), nullable=True),
+    sa.Column('title', sa.String(length=55), nullable=True),
     sa.Column('category', sa.String(length=10), nullable=True),
     sa.Column('created_at', sa.Date(), nullable=True),
     sa.Column('img_url', sa.String(length=250), nullable=True),
