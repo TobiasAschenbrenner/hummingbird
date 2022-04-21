@@ -1,7 +1,7 @@
 from app.new_posts.models import Articles
 from datetime import date
 from flask_login import current_user
-from werkzeug.utils import secure_filename
+
 import os
 from flask import request, current_app
 
@@ -10,7 +10,7 @@ def create_posts(form_data):
     # Saving the uploads
     file = request.files['file']
     filename = file.filename
-    path = os.path.join(current_app.config['UPLOAD_FOLDER'], filename)
+    path = os.path.join("uploads", filename)
     file.save(path)
 
     # Create a new post record
