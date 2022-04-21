@@ -10,7 +10,7 @@ def create_posts(form_data):
     # Saving the uploads
     file = request.files['file']
     filename = file.filename
-    path = os.path.join(app.instance_path, 'uploads', filename)
+    path = os.path.join(current_app.instance_path, 'uploads', filename)
     file.save(path)
 
     # Create a new post record
