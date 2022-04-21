@@ -11,13 +11,15 @@ blueprint = Blueprint('users', __name__)
 def index():
     page_number = request.args.get('page', 1, type=int)
     blog_posts_pagination = Articles.query.order_by(Articles.id.desc()).paginate(page_number, current_app.config['BLOG_POSTS_PER_PAGE'])
-    return render_template('blog_posts/index.html', blog_posts_pagination=blog_posts_pagination)
+    users = Users.query.all()
+    return render_template('blog_posts/index.html', users=users, blog_posts_pagination=blog_posts_pagination)
 
 
 @blueprint.post('/')
 def post_register_or_login():
   page_number = request.args.get('page', 1, type=int)
   blog_posts_pagination = Articles.query.order_by(Articles.id.desc()).paginate(page_number, current_app.config['BLOG_POSTS_PER_PAGE'])
+  users = Users.query.all()
 
   # Login form
   if all([
@@ -38,7 +40,7 @@ def post_register_or_login():
     except Exception as error_message:
       error = error_message or 'An error occurred while logging in. Please verify your email and password.'
       current_app.logger.info(f'Error logging in: {error}')
-      return render_template('blog_posts/index.html', blog_posts_pagination=blog_posts_pagination, error=error) 
+      return render_template('blog_posts/index.html', users=users, blog_posts_pagination=blog_posts_pagination, error=error) 
   
   # Register form
   elif all([
@@ -64,10 +66,10 @@ def post_register_or_login():
     except Exception as error_message:
       error = error_message or 'An error occurred while creating a user. Please make sure to enter valid data.'
       current_app.logger.info(f'Error creating a user: {error}')
-      return render_template('blog_posts/index.html', blog_posts_pagination=blog_posts_pagination, error=error)
+      return render_template('blog_posts/index.html', users=users, blog_posts_pagination=blog_posts_pagination, error=error)
 
   else:
-    return render_template('blog_posts/index.html', blog_posts_pagination=blog_posts_pagination, error='Please fill out all fields!')
+    return render_template('blog_posts/index.html', users=users, blog_posts_pagination=blog_posts_pagination, error='Please fill out all fields!')
 
 
 @blueprint.get('/logout')

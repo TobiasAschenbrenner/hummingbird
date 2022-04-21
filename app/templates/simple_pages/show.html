@@ -1,4 +1,6 @@
 {% extends "base.html" %} 
+{% block title %}Hummingbird | Article{% endblock %}
+
 {% block content %} 
   {% include "header/header.html" %}
   {% if current_user.is_authenticated == false %}
@@ -13,7 +15,7 @@
       {% endif %}
       <!--Title-->
       <h2 class="header-title">{{ blog_post.title }}</h2>
-      <img src="" alt="" class="header-img" />
+      <img src="../../static/images/uploads/{{ blog_post.img_url }}" alt="" class="header-img" />
     </div>
   </section>
 
@@ -25,10 +27,10 @@
   <div class="share post-container">
     <span class="share-title">Share this article</span>
     <div class="social">
-      <a href="#"><i class="bx bxl-facebook"></i></a>
-      <a href="#"><i class="bx bxl-twitter"></i></a>
-      <a href="#"><i class="bx bxl-instagram"></i></a>
-      <a href="#"><i class="bx bxl-linkedin"></i></a>
+      <a href="https://www.facebook.com/"><i class="bx bxl-facebook"></i></a>
+      <a href="https://twitter.com"><i class="bx bxl-twitter"></i></a>
+      <a href="https://www.instagram.com"><i class="bx bxl-instagram"></i></a>
+      <a href="https://linkedin.com"><i class="bx bxl-linkedin"></i></a>
     </div>
   </div>
 

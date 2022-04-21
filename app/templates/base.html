@@ -17,16 +17,21 @@
       href="https://unpkg.com/boxicons@2.1.1/css/boxicons.min.css"
       rel="stylesheet"
     />
+    
+    <!--Material Icons Guide-->
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons"
+      rel="stylesheet">
 
-    <title>Hummingbird | Homepage</title>
+    <link rel="icon" href="../static/images/icons/hum_ico.ico" type="image/x-icon" />
+    <title>{% block title %}{% endblock %}</title>
   </head>
   <body>
     <div>
       {% block content %} 
       
       {% endblock %} 
-      {% include "footer/footer.html" %}
     </div>
+    {% include "footer/footer.html" %}
   <!-- Adding javascript file -->
   <script src="../static/js/script.js"></script>
   </body>

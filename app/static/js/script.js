@@ -31,3 +31,21 @@ $(".signUpBtn").click(function () {
 $(".loginBtn").click(function () {
     $(".signUpForm")[0].reset();
 });
+
+/* Filter posts */
+$(document).ready(function () {
+    $(".filter-item").click(function () {
+        const value = $(this).attr("data-filter");
+        if (value == "all") {
+            $(".post-box").show();
+        } else {
+            $(".post-box").not("." + value).hide();
+            $(".post-box").filter("." + value).show();
+        }
+    })
+    // Add active to btn
+    $(".filter-item").click(function () {
+        $(this).addClass("active-filter")
+        $(this).siblings().removeClass("active-filter");
+    })
+})
