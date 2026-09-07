@@ -3,3 +3,9 @@ venv
 __pycache__
 database.db
 .DS_Store
+
+# Locally uploaded images
+/app/static/images/uploads/
+
+# Locally uploaded images
+/app/static/images/uploads/
