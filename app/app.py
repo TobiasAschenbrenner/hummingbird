@@ -1,4 +1,5 @@
 from flask import Flask
+from app.config import load_config
 from . import blog_posts, simple_pages, new_posts, users
 from app.extensions.database import db, migrate
 from app.extensions.authentication import login_manager
@@ -16,9 +17,9 @@ def register_blueprints(app: Flask):
   app.register_blueprint(new_posts.routes.blueprint)
   app.register_blueprint(users.routes.blueprint)
 
-def create_app():
+def create_app(config_overrides=None):
   app = Flask(__name__)
-  app.config.from_object('app.config')
+  app.config.update(load_config(config_overrides))
 
   register_extensions(app)
   register_blueprints(app)
