@@ -7,6 +7,8 @@ from flask import request, current_app
 
 def create_posts(form_data):
 
+    os.makedirs(current_app.config["UPLOADS_PATH"], exist_ok=True)
+    
     # Saving the uploads
     file = request.files['file']
     filename = file.filename
