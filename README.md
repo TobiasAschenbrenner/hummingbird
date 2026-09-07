@@ -100,6 +100,23 @@ The first command checks dependency compatibility. The second confirms
 that Flask can load the application; it does not verify the database
 connection or create database tables.
 
+### Run locally
+
+From the repository root, activate the virtual environment and start
+the development server:
+
+```bash
+source venv/bin/activate
+FLASK_APP=run.py python -m flask run --port 5001
+```
+
+Open http://127.0.0.1:5001 in your browser.
+
+Keep the terminal running while using the application.
+Press Ctrl+C to stop the server.
+
+A newly created database contains no users or articles.
+
 ## Usage
 
 Visit [hummingbird](https://murmuring-bayou-90231.herokuapp.com/) to see the newest blog posts on the landing page. Filter for articles you like and read them. You can also create an account to write articles yourself.
