@@ -1,6 +1,6 @@
 # hummingbird
 
-hummingbird is a significantly reduced knock-off version of Medium. The application is a simple website that allows anyone to write a blog post for free and publish it. Other users of the website can then read the blog post.
+Hummingbird is a small blogging application built with Flask, SQLAlchemy, and PostgreSQL. Readers can browse articles; registered users can publish articles with cover images.
 
 ## Installation
 
@@ -119,7 +119,87 @@ A newly created database contains no users or articles.
 
 ## Usage
 
-Visit [hummingbird](https://murmuring-bayou-90231.herokuapp.com/) to see the newest blog posts on the landing page. Filter for articles you like and read them. You can also create an account to write articles yourself.
+Open [the local application](http://127.0.0.1:5001), then use **Log in**
+to register or sign in. Choose **New Article** to publish an article.
+The homepage lists the newest articles first with 12 articles per page.
+Category buttons filter only the articles on the current page.
+
+Cover images are stored in `app/static/images/uploads/`. The directory
+is created automatically, and uploaded files are ignored by Git.
+New uploads receive unique filenames. Supported extensions are PNG,
+JPG/JPEG, GIF, and WebP. Existing image filenames remain valid.
+
+The development server does not reload automatically with the command
+above: save your changes and restart it. For local development only,
+you can enable Flask's reloader with:
+
+```bash
+FLASK_APP=run.py FLASK_ENV=development python -m flask run --port 5001
+```
+
+## Optional demo data
+
+After applying migrations, add sample data to your configured development database:
+
+```bash
+FLASK_APP=run.py python -m flask seed-demo
+```
+
+This creates the account `demo@hummingbird.example` and 18 sample articles.
+On the first run, you choose its password at a hidden prompt. Existing
+demo credentials and articles are reused without modification.
+Running the command again fills in missing samples without duplicating them.
+Use `--count 30` to request 30 sample articles in total.
+
+Sample dates begin on January 1, 2024; categories rotate through design,
+tech, and mobile. Samples use a visual placeholder instead of an uploaded
+image. This is a small development dataset, not a performance benchmark.
+
+## Tests
+
+Tests use Python's built-in `unittest` and a separate PostgreSQL database.
+Create that database once:
+
+```bash
+createdb -h localhost --owner=hummingbird hummingbird_test
+```
+
+Activate the virtual environment, then run:
+
+```bash
+TEST_DATABASE_URL=postgresql://hummingbird:hummingbird@localhost:5432/hummingbird_test \
+  python -m unittest discover -v
+```
+
+Adjust the credentials if your local role uses a different password.
+The integration tests apply the existing migrations and reset `users` and
+`articles` in this database between tests. Use a disposable test database;
+its name must end in `_test`. Upload tests use temporary directories.
+Without `TEST_DATABASE_URL`, the database tests are skipped, so a passing
+run without it is not full verification.
+
+The suite covers authentication, article creation and pagination,
+validation, author loading, rollback, upload cleanup, demo seeding, and
+compatibility with the committed database schema.
+
+## Code checks
+
+Optional development tools are separate from application dependencies:
+
+```bash
+python -m pip install -r requirements-dev.txt
+ruff check app tests run.py migrations/env.py
+ruff format --check app tests run.py migrations/env.py
+```
+
+Use `ruff format app tests run.py migrations/env.py` to apply formatting.
+Keep historical migration files unchanged.
+
+## Project structure
+
+Read [the code structure and cleanup notes](docs/code-structure.md) for
+file responsibilities, request flow, compatibility details, and the
+remaining database work.
 
 ## Contact
 

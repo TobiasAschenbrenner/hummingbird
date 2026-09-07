@@ -321,9 +321,90 @@ class ApplicationTests(unittest.TestCase):
     def test_models_match_committed_migration(self):
         with db.engine.connect() as connection:
             context = MigrationContext.configure(
-                connection, opts={"compare_type": True}
+                connection, opts={"compare_type": True, "compare_server_default": True}
             )
             self.assertEqual(compare_metadata(context, db.metadata), [])
+
+    def test_demo_seed_is_repeatable_and_preserves_existing_data(self):
+        existing_user = self.create_user()
+        existing_hash = existing_user.password_hash
+        runner = self.app.test_cli_runner()
+        result = runner.invoke(
+            args=["seed-demo", "--count", "3"], input="demo-password\ndemo-password\n"
+        )
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertEqual(Article.query.count(), 3)
+        self.assertEqual(User.query.count(), 2)
+        demo_user = User.query.filter_by(email="demo@hummingbird.example").one()
+        original_demo_hash = demo_user.password_hash
+        self.assertTrue(check_password_hash(original_demo_hash, "demo-password"))
+        self.assertTrue(
+            all(article.author_id == demo_user.id for article in Article.query.all())
+        )
+        for article in Article.query.all():
+            self.assertEqual(self.client.get(f"/{article.slug}").status_code, 200)
+        result = runner.invoke(args=["seed-demo", "--count", "3"])
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIn("Created 0 articles", result.output)
+        self.assertEqual(Article.query.count(), 3)
+        self.assertEqual(
+            User.query.filter_by(email="demo@hummingbird.example").one().password_hash,
+            original_demo_hash,
+        )
+        self.assertEqual(
+            User.query.filter_by(email="author@example.test").one().password_hash,
+            existing_hash,
+        )
+
+    def test_existing_database_column_names_remain_readable(self):
+        password_hash = generate_password_hash("legacy-password")
+        user_id = db.session.execute(
+            text(
+                "INSERT INTO users (username, email, password) VALUES (:name, :email, :password) RETURNING id"
+            ),
+            {
+                "name": "Existing Author",
+                "email": "existing@example.test",
+                "password": password_hash,
+            },
+        ).scalar_one()
+        db.session.execute(
+            text(
+                "INSERT INTO articles (title, slug, text, img_url, author_id) VALUES (:title, :slug, :body, :image, :author_id)"
+            ),
+            {
+                "title": "Existing article",
+                "slug": "original-url",
+                "body": "Existing body",
+                "image": "original-image.webp",
+                "author_id": user_id,
+            },
+        )
+        db.session.commit()
+        user = db.session.get(User, user_id)
+        self.assertTrue(check_password_hash(user.password_hash, "legacy-password"))
+        response = self.client.get("/original-url")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Existing body", response.data)
+        self.assertIn(b"/static/images/uploads/original-image.webp", response.data)
+        self.assertIn(b"Existing Author", self.client.get("/").data)
+
+    def test_seed_failure_rolls_back_new_demo_user(self):
+        def reject_insert(mapper, connection, article):
+            article.author_id = -1
+
+        event.listen(Article, "before_insert", reject_insert)
+        try:
+            with self.assertLogs(self.app.logger, level="ERROR"):
+                result = self.app.test_cli_runner().invoke(
+                    args=["seed-demo", "--count", "1"],
+                    input="demo-password\ndemo-password\n",
+                )
+        finally:
+            event.remove(Article, "before_insert", reject_insert)
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertEqual(User.query.count(), 0)
+        self.assertEqual(Article.query.count(), 0)
 
     def test_registration_validation(self):
         data = {

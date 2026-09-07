@@ -7,5 +7,4 @@ database.db
 # Locally uploaded images
 /app/static/images/uploads/
 
-# Locally uploaded images
-/app/static/images/uploads/
+.ruff_cache/
