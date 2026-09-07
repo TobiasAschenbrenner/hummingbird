@@ -15,13 +15,13 @@
       {% endif %}
       <!--Title-->
       <h2 class="header-title">{{ blog_post.title }}</h2>
-      <img src="../../static/images/uploads/{{ blog_post.img_url }}" alt="" class="header-img" />
+      <img src="../../static/images/uploads/{{ blog_post.image_filename }}" alt="" class="header-img" />
     </div>
   </section>
 
   <!--Posts-->
   <section class="post-content post-container">
-    <p class="post-text">{{ blog_post.text }}</p>
+    <p class="post-text">{{ blog_post.body }}</p>
   </section>
   <!--Share-->
   <div class="share post-container">

@@ -3,6 +3,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+
 def load_config(overrides=None):
     load_dotenv(Path(__file__).resolve().parent.parent / ".env")
     config = {
@@ -26,7 +27,10 @@ def load_config(overrides=None):
             "postgres://", "postgresql://", 1
         )
 
-    if not config["SECRET_KEY"] or config["SECRET_KEY"] == "replace-with-a-generated-secret":
+    if (
+        not config["SECRET_KEY"]
+        or config["SECRET_KEY"] == "replace-with-a-generated-secret"
+    ):
         raise RuntimeError(
             "SECRET_KEY is missing or still uses the example value. "
             "Set a generated secret in .env."

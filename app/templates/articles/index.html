@@ -30,7 +30,7 @@
 
     {% for blog_post in blog_posts_pagination.items %}
       <li class="post-box {{ blog_post.category }}">
-        <img src="../../static/images/uploads/{{ blog_post.img_url }}" alt="" class="post-img" />
+        <img src="../../static/images/uploads/{{ blog_post.image_filename }}" alt="" class="post-img" />
         <h2 class="category">{{ blog_post.category }}</h2>
         <a href="/{{ blog_post.slug }}" class="post-title">
           {{ blog_post.title }} 
@@ -52,7 +52,7 @@
     
   <nav class="move_page next_post container">
     {% if blog_posts_pagination.prev_num %}
-      <a href="{{ url_for('blog_posts.index', page=blog_posts_pagination.prev_num) }}">Previous Page</a>
+      <a href="{{ url_for('articles.index', page=blog_posts_pagination.prev_num) }}">Previous Page</a>
     {% else %}
       <span>Previous Page</span>
     {% endif %}
@@ -60,7 +60,7 @@
     <span> - </span>
 
     {% if blog_posts_pagination.next_num %}
-      <a href="{{ url_for('blog_posts.index', page=blog_posts_pagination.next_num) }}">Next Page</a>
+      <a href="{{ url_for('articles.index', page=blog_posts_pagination.next_num) }}">Next Page</a>
     {% else %}
       <span>Next Page</span>
     {% endif %}
