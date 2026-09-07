@@ -1,69 +1,79 @@
-from flask import Blueprint, current_app, render_template, request
-from flask_login import login_required
+from flask import (
+    Blueprint,
+    abort,
+    current_app,
+    redirect,
+    render_template,
+    request,
+    url_for,
+)
+from flask_login import current_user, login_required
+from sqlalchemy.exc import SQLAlchemyError
 
-from app.articles.models import Article
+from app.articles.models import CATEGORIES, DESCRIPTION_MAX_LENGTH, TITLE_MAX_LENGTH
+from app.articles.queries import get_article_by_slug, paginate_articles
 from app.articles.services import create_article
-from app.users.models import User
+from app.errors import ValidationError
+from app.extensions import db
 
 blueprint = Blueprint("articles", __name__)
 
 
-@blueprint.route("/")
+@blueprint.get("/")
 def index():
-    page_number = request.args.get("page", 1, type=int)
-    blog_posts_pagination = Article.query.order_by(Article.id.desc()).paginate(
-        page_number, current_app.config["BLOG_POSTS_PER_PAGE"]
+    pagination = paginate_articles(
+        page=request.args.get("page", 1, type=int),
+        per_page=current_app.config["BLOG_POSTS_PER_PAGE"],
     )
-    users = User.query.all()
     return render_template(
-        "articles/index.html", users=users, blog_posts_pagination=blog_posts_pagination
+        "articles/index.html", pagination=pagination, categories=CATEGORIES
     )
+
+
+def render_article_form(*, error=None, status=200):
+    return render_template(
+        "articles/create.html",
+        error=error,
+        form=request.form,
+        categories=CATEGORIES,
+        title_max_length=TITLE_MAX_LENGTH,
+        description_max_length=DESCRIPTION_MAX_LENGTH,
+    ), status
 
 
 @blueprint.get("/new-post")
 @login_required
 def new_article():
-    return render_template("articles/create.html")
+    return render_article_form()
 
 
 @blueprint.post("/new-post")
 @login_required
 def submit_article():
     try:
-        if not all(
-            [
-                request.form.get("title"),
-                request.form.get("description"),
-                request.form.get("category"),
-                request.form.get("text"),
-                request.files["file"],
-            ]
-        ):
-            raise Exception("Please fill out all fields!")
-
-        create_article(request.form)
-        page_number = request.args.get("page", 1, type=int)
-        blog_posts_pagination = Article.query.order_by(Article.id.desc()).paginate(
-            page_number, current_app.config["BLOG_POSTS_PER_PAGE"]
+        create_article(
+            author_id=current_user.id,
+            title=request.form.get("title", ""),
+            description=request.form.get("description", ""),
+            category=request.form.get("category", ""),
+            body=request.form.get("body", ""),
+            image=request.files.get("image"),
+            upload_directory=current_app.config["UPLOADS_PATH"],
         )
-        users = User.query.all()
-        return render_template(
-            "articles/index.html",
-            users=users,
-            blog_posts_pagination=blog_posts_pagination,
+    except ValidationError as error:
+        return render_article_form(error=str(error), status=400)
+    except (SQLAlchemyError, OSError):
+        db.session.rollback()
+        current_app.logger.exception("Article creation failed")
+        return render_article_form(
+            error="Unable to save your article right now. Please try again.", status=500
         )
-
-    except Exception as error_message:
-        error = (
-            error_message
-            or "An error occurred while posting your article! Please make sure to enter valid data!"
-        )
-        current_app.logger.info(f"Error creating an article: {error}")
-
-        return render_template("articles/create.html", error=error)
+    return redirect(url_for("articles.index"))
 
 
-@blueprint.route("/<slug>")
+@blueprint.get("/<slug>")
 def detail(slug):
-    blog_post = Article.query.filter_by(slug=slug).first_or_404()
-    return render_template("articles/detail.html", blog_post=blog_post)
+    article = get_article_by_slug(slug)
+    if article is None:
+        abort(404)
+    return render_template("articles/detail.html", article=article)

@@ -1,7 +1,7 @@
-{% extends "base.html" %} 
+{% extends "base.html" %}
 {% block title %}Hummingbird | Article{% endblock %}
 
-{% block content %} 
+{% block content %}
   {% include "header/header.html" %}
   {% if current_user.is_authenticated == false %}
     {% include "users/login.html" %}
@@ -15,14 +15,14 @@
         <p style="color: tomato">{{ error }}</p>
       {% endif %}
       <!--Title-->
-      <h2 class="header-title">{{ blog_post.title }}</h2>
-      <img src="../../static/images/uploads/{{ blog_post.image_filename }}" alt="" class="header-img" />
+      <h2 class="header-title">{{ article.title }}</h2>
+      <img src="../../static/images/uploads/{{ article.image_filename }}" alt="" class="header-img" />
     </div>
   </section>
 
   <!--Posts-->
   <section class="post-content post-container">
-    <p class="post-text">{{ blog_post.body }}</p>
+    <p class="post-text">{{ article.body }}</p>
   </section>
   <!--Share-->
   <div class="share post-container">

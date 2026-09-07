@@ -88,8 +88,8 @@ class ApplicationTests(unittest.TestCase):
             "title": "First article",
             "description": "A description",
             "category": "tech",
-            "text": "Article body",
-            "file": (io.BytesIO(PNG), "cover.png"),
+            "body": "Article body",
+            "image": (io.BytesIO(PNG), "cover.png"),
         }
         data.update(overrides)
         return data
@@ -155,6 +155,48 @@ class ApplicationTests(unittest.TestCase):
         self.login()
         response = self.client.post("/new-post", data=self.article_data(title=""))
         self.assertIn(b"Please fill out all fields", response.data)
+        self.assertEqual(Article.query.count(), 0)
+
+    def test_article_field_validation(self):
+        self.create_user()
+        self.login()
+        for overrides in [
+            {"title": " "},
+            {"title": "x" * 56},
+            {"description": "x" * 251},
+            {"category": "unknown"},
+            {"body": " "},
+            {"title": "new-post"},
+            {"title": "!!!"},
+        ]:
+            with self.subTest(overrides=overrides):
+                response = self.client.post(
+                    "/new-post", data=self.article_data(**overrides)
+                )
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(Article.query.count(), 0)
+                self.assertEqual(list(Path(self.uploads.name).iterdir()), [])
+
+    def test_creation_redirects_and_duplicate_slug_is_handled(self):
+        self.create_user()
+        self.login()
+        response = self.client.post("/new-post", data=self.article_data())
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.location, "/")
+        response = self.client.post("/new-post", data=self.article_data())
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(b"already exists", response.data)
+        self.assertNotIn(b"INSERT INTO", response.data)
+        self.assertEqual(Article.query.count(), 1)
+
+    def test_missing_image_has_a_useful_error(self):
+        self.create_user()
+        self.login()
+        data = self.article_data()
+        del data["image"]
+        response = self.client.post("/new-post", data=data)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(b"Please choose an image", response.data)
         self.assertEqual(Article.query.count(), 0)
 
     def test_article_order_and_pagination(self):

@@ -1,9 +1,9 @@
 from flask_login import UserMixin
 
-from app.extensions import CRUDMixin, db
+from app.extensions import db
 
 
-class User(db.Model, CRUDMixin, UserMixin):
+class User(db.Model, UserMixin):
     __tablename__ = "users"
 
     id = db.Column(db.Integer, primary_key=True)

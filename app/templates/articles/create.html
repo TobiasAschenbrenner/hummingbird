@@ -1,9 +1,9 @@
-{% extends "base.html" %} 
+{% extends "base.html" %}
 {% block title %}Hummingbird | New Article{% endblock %}
 
 {% block content %}
-  {% include "header/header.html" %} 
-  
+  {% include "header/header.html" %}
+
   <section class="home">
     <div class="home-text ">
       {% if error %}
@@ -17,7 +17,7 @@
   <div class="wrapper">
     <form method="POST" class="form_article" enctype = "multipart/form-data">
       <div class="input_field">
-        <input type="text" name="title" id="title" placeholder="Title" maxlength="55"/>
+        <input type="text" name="title" id="title" placeholder="Title" maxlength="{{ title_max_length }}"/>
       </div>
 
       <div class="input_field">
@@ -27,14 +27,14 @@
           id="description"
           placeholder="Description"
           class="textarea_description"
-          maxlength="350"
+          maxlength="{{ description_max_length }}"
         ></textarea>
       </div>
 
       <div class="input_field">
         <input
           type="file"
-          name="file"
+          name="image"
           accept="image/*"
           id="file"
         />
@@ -56,7 +56,7 @@
       </div>
 
       <div class="input_field">
-        <textarea type="text" name="text" id="text" placeholder="Text" class="textarea_text"></textarea>
+        <textarea type="text" name="body" id="text" placeholder="Text" class="textarea_text"></textarea>
       </div>
 
       <div class="submit_button">

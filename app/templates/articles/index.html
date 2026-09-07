@@ -1,4 +1,4 @@
-{% extends "base.html" %} 
+{% extends "base.html" %}
 {% block title %}Hummingbird | Homepage{% endblock %}
 
 {% block content %}
@@ -6,7 +6,7 @@
   {% if current_user.is_authenticated == false %}
     {% include "users/login.html" %}
   {% endif %}
-  
+
   <!--Home-->
   <section class="home">
     <div class="home-text ">
@@ -26,42 +26,40 @@
     <span class="filter-item" data-filter="mobile">Mobile</span>
   </div>
   <!--Posts-->
-  
+
   <ul class="post container">
 
-    {% for blog_post in blog_posts_pagination.items %}
-      <li class="post-box {{ blog_post.category }}">
-        <img src="../../static/images/uploads/{{ blog_post.image_filename }}" alt="" class="post-img" />
-        <h2 class="category">{{ blog_post.category }}</h2>
-        <a href="/{{ blog_post.slug }}" class="post-title">
-          {{ blog_post.title }} 
+    {% for article in pagination.items %}
+      <li class="post-box {{ article.category }}">
+        <img src="../../static/images/uploads/{{ article.image_filename }}" alt="" class="post-img" />
+        <h2 class="category">{{ article.category }}</h2>
+        <a href="/{{ article.slug }}" class="post-title">
+          {{ article.title }}
         </a>
-        <span class="post-date" type="date">{{ blog_post.created_at }}</span>
-        <p class="post-description">{{ blog_post.description }}</p>
+        <span class="post-date" type="date">{{ article.created_at }}</span>
+        <p class="post-description">{{ article.description }}</p>
         <!--Profile-->
         <div class="profile">
-        {% for user in users%}
-          	{% if user.id == blog_post.author_id %}
-              <span class="profile-name">{{ user.username }}</span>
-            {% endif %}
-        {% endfor %}
+        {% if article.author %}
+          <span class="profile-name">{{ article.author.username }}</span>
+        {% endif %}
         </div>
       </li>
     {% endfor %}
-      
+
   </ul>
-    
+
   <nav class="move_page next_post container">
-    {% if blog_posts_pagination.prev_num %}
-      <a href="{{ url_for('articles.index', page=blog_posts_pagination.prev_num) }}">Previous Page</a>
+    {% if pagination.prev_num %}
+      <a href="{{ url_for('articles.index', page=pagination.prev_num) }}">Previous Page</a>
     {% else %}
       <span>Previous Page</span>
     {% endif %}
 
     <span> - </span>
 
-    {% if blog_posts_pagination.next_num %}
-      <a href="{{ url_for('articles.index', page=blog_posts_pagination.next_num) }}">Next Page</a>
+    {% if pagination.next_num %}
+      <a href="{{ url_for('articles.index', page=pagination.next_num) }}">Next Page</a>
     {% else %}
       <span>Next Page</span>
     {% endif %}

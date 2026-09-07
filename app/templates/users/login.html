@@ -10,16 +10,16 @@
         <form method="POST" action="{{ url_for('users.register') }}" class="signUpForm">
             <input type="hidden" name="return_to" value="{{ request.path }}">
             <div class="formGroup">
-                <input type="text" name="register_name" id="user name" placeholder="User Name" autocomplete="off"> 
+                <input type="text" name="register_name" id="user name" placeholder="User Name" autocomplete="off">
             </div>
             <div class="formGroup">
-                <input type="email" name="register_email" id="Email" placeholder="Email" autocomplete="off"> 
+                <input type="email" name="register_email" id="Email" placeholder="Email" autocomplete="off">
             </div>
             <div class="formGroup">
-                <input type="password" name="register_password" id="password" placeholder="Password" autocomplete="off">  
+                <input type="password" name="register_password" id="password" placeholder="Password" autocomplete="off">
             </div>
             <div class="formGroup">
-                <input type="password" name="register_password_confirmation" id="confirmPassword" placeholder="Confirm Password" autocomplete="off"> 
+                <input type="password" name="register_password_confirmation" id="confirmPassword" placeholder="Confirm Password" autocomplete="off">
             </div>
             <div class="formGroup">
                 <button class="btn2" type="submit" >REGISTER</button>
@@ -29,10 +29,10 @@
         <form method="POST" action="{{ url_for('users.login') }}" class="loginForm">
             <input type="hidden" name="return_to" value="{{ request.path }}">
             <div class="formGroup">
-                <input type="email" name="login_email" id="Email" placeholder="Email" autocomplete="off"> 
+                <input type="email" name="login_email" id="Email" placeholder="Email" autocomplete="off">
             </div>
             <div class="formGroup">
-                <input type="password" name="login_password" id="password" placeholder="Password" autocomplete="off">  
+                <input type="password" name="login_password" id="password" placeholder="Password" autocomplete="off">
             </div>
             <div class="formGroup">
                 <button class="btn2" type="submit" >LOG IN</button>
