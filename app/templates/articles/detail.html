@@ -10,6 +10,7 @@
   <!--Post Content-->
   <section class="post-header">
     <div class="header-content post-container">
+      {% include "partials/messages.html" %}
       {% if error and current_user.is_authenticated == false %}
         <p style="color: tomato">{{ error }}</p>
       {% endif %}

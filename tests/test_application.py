@@ -14,10 +14,9 @@ from sqlalchemy.engine import make_url
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from app import create_app
-from app.extensions import db
 from app.articles.models import Article
+from app.extensions import db
 from app.users.models import User
-
 
 PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8"
@@ -77,7 +76,7 @@ class ApplicationTests(unittest.TestCase):
 
     def login(self):
         return self.client.post(
-            "/",
+            "/auth/login",
             data={
                 "login_email": "author@example.test",
                 "login_password": "password123",
@@ -101,12 +100,12 @@ class ApplicationTests(unittest.TestCase):
 
     def test_registration_stores_password_hash(self):
         response = self.client.post(
-            "/",
+            "/auth/register",
             data={
                 "register_name": "Author",
                 "register_email": "author@example.test",
                 "register_password": "password123",
-                "register_confirmPassword": "password123",
+                "register_password_confirmation": "password123",
             },
         )
         self.assertEqual(response.status_code, 302)
@@ -117,11 +116,12 @@ class ApplicationTests(unittest.TestCase):
     def test_login_and_logout(self):
         self.create_user()
         response = self.client.post(
-            "/",
+            "/auth/login",
             data={
                 "login_email": "author@example.test",
                 "login_password": "incorrect",
             },
+            follow_redirects=True,
         )
         self.assertIn(b"Invalid email or password", response.data)
         self.assertEqual(self.login().status_code, 302)
@@ -186,6 +186,54 @@ class ApplicationTests(unittest.TestCase):
                 connection, opts={"compare_type": True}
             )
             self.assertEqual(compare_metadata(context, db.metadata), [])
+
+    def test_registration_validation(self):
+        data = {
+            "register_name": "Author",
+            "register_email": "author@example.test",
+            "register_password": "password123",
+            "register_password_confirmation": "password123",
+        }
+        for field, value in [
+            ("register_name", "   "),
+            ("register_email", "invalid"),
+            ("register_password_confirmation", "different"),
+            ("register_name", "x" * 81),
+        ]:
+            with self.subTest(field=field):
+                response = self.client.post(
+                    "/auth/register", data={**data, field: value}, follow_redirects=True
+                )
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(User.query.count(), 0)
+        self.create_user()
+        response = self.client.post("/auth/register", data=data, follow_redirects=True)
+        self.assertIn(b"already registered", response.data)
+        self.assertEqual(User.query.count(), 1)
+
+    def test_authentication_errors_return_to_article(self):
+        user = self.create_user()
+        db.session.add(
+            Article(title="Story", slug="story", body="Body", author_id=user.id)
+        )
+        db.session.commit()
+        response = self.client.post(
+            "/auth/login", data={"return_to": "/story"}, follow_redirects=True
+        )
+        self.assertEqual(response.request.path, "/story")
+        self.assertIn(b"Please fill out all fields", response.data)
+        self.assertIn(b"/auth/register", response.data)
+
+    def test_authentication_redirect_cannot_leave_the_site(self):
+        for target in [
+            "https://example.com",
+            "//example.com",
+            "/\\example.com",
+            "/new-post",
+        ]:
+            with self.subTest(target=target):
+                response = self.client.post("/auth/login", data={"return_to": target})
+                self.assertEqual(response.location, "/")
 
 
 if __name__ == "__main__":

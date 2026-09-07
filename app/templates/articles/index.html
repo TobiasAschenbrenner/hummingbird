@@ -10,6 +10,7 @@
   <!--Home-->
   <section class="home">
     <div class="home-text ">
+      {% include "partials/messages.html" %}
       {% if error and current_user.is_authenticated == false %}
         <p style="color: tomato;">{{ error }}</p>
       {% endif %}

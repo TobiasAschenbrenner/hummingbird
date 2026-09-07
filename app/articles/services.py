@@ -1,9 +1,10 @@
-from app.articles.models import Article
-from datetime import date
-from flask_login import current_user
-from werkzeug.utils import secure_filename
 import os
-from flask import request, current_app
+from datetime import date
+
+from flask import current_app, request
+from flask_login import current_user
+
+from app.articles.models import Article
 
 
 def create_article(form_data):

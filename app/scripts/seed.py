@@ -1,7 +1,8 @@
+import datetime
+
 from app import create_app
 from app.articles.models import Article
 from app.extensions import db
-import datetime
 
 app = create_app()
 app.app_context().push()
