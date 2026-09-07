@@ -11,7 +11,7 @@ def load_config(overrides=None):
         "SECRET_KEY": environ.get("SECRET_KEY"),
         "SQLALCHEMY_TRACK_MODIFICATIONS": False,
         "BLOG_POSTS_PER_PAGE": 12,
-        "ALLOWED_EXTENSIONS": {"png", "jpg", "jpeg", "gif"},
+        "ALLOWED_EXTENSIONS": {"png", "jpg", "jpeg", "gif", "webp"},
         "UPLOADS_PATH": Path(__file__).resolve().parent / "static/images/uploads",
     }
     config.update(overrides or {})

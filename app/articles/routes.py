@@ -38,6 +38,7 @@ def render_article_form(*, error=None, status=200):
         categories=CATEGORIES,
         title_max_length=TITLE_MAX_LENGTH,
         description_max_length=DESCRIPTION_MAX_LENGTH,
+        allowed_extensions=sorted(current_app.config["ALLOWED_EXTENSIONS"]),
     ), status
 
 
@@ -59,6 +60,7 @@ def submit_article():
             body=request.form.get("body", ""),
             image=request.files.get("image"),
             upload_directory=current_app.config["UPLOADS_PATH"],
+            allowed_extensions=current_app.config["ALLOWED_EXTENSIONS"],
         )
     except ValidationError as error:
         return render_article_form(error=str(error), status=400)

@@ -9,7 +9,7 @@ from pathlib import Path
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
 from flask_migrate import upgrade
-from sqlalchemy import text
+from sqlalchemy import event, text
 from sqlalchemy.engine import make_url
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -198,6 +198,102 @@ class ApplicationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn(b"Please choose an image", response.data)
         self.assertEqual(Article.query.count(), 0)
+
+    def test_rejected_upload_does_not_create_an_article(self):
+        self.create_user()
+        self.login()
+        response = self.client.post(
+            "/new-post", data=self.article_data(image=(io.BytesIO(b"text"), "bad.html"))
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(b"Unsupported image extension", response.data)
+        self.assertEqual(Article.query.count(), 0)
+        self.assertEqual(list(Path(self.uploads.name).iterdir()), [])
+
+    def test_database_failure_rolls_back_and_removes_new_upload(self):
+        self.create_user()
+        self.login()
+        self.client.post("/new-post", data=self.article_data())
+        existing_files = set(Path(self.uploads.name).iterdir())
+
+        def force_duplicate_slug(mapper, connection, article):
+            article.slug = "first-article"
+
+        event.listen(Article, "before_insert", force_duplicate_slug)
+        try:
+            response = self.client.post(
+                "/new-post", data=self.article_data(title="Concurrent article")
+            )
+        finally:
+            event.remove(Article, "before_insert", force_duplicate_slug)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(b"already exists", response.data)
+        self.assertEqual(Article.query.count(), 1)
+        self.assertEqual(set(Path(self.uploads.name).iterdir()), existing_files)
+        response = self.client.post(
+            "/new-post", data=self.article_data(title="After rollback")
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(Article.query.count(), 2)
+
+    def test_concurrent_registration_duplicate_is_handled(self):
+        self.create_user()
+
+        def force_duplicate_email(mapper, connection, user):
+            user.email = "author@example.test"
+
+        event.listen(User, "before_insert", force_duplicate_email)
+        try:
+            response = self.client.post(
+                "/auth/register",
+                data={
+                    "register_name": "Another Author",
+                    "register_email": "new@example.test",
+                    "register_password": "password123",
+                    "register_password_confirmation": "password123",
+                },
+                follow_redirects=True,
+            )
+        finally:
+            event.remove(User, "before_insert", force_duplicate_email)
+        self.assertIn(b"already registered", response.data)
+        self.assertEqual(User.query.count(), 1)
+
+    def test_author_loading_does_not_add_per_article_queries(self):
+        from app.articles.queries import paginate_articles
+
+        users = [
+            self.create_user(email=f"author{number}@example.test")
+            for number in range(3)
+        ]
+        db.session.add_all(
+            [
+                Article(
+                    title=f"Article {number}",
+                    slug=f"article-{number}",
+                    author_id=user.id,
+                )
+                for number, user in enumerate(users)
+            ]
+        )
+        db.session.commit()
+        db.session.expire_all()
+        statements = []
+
+        def record_statement(
+            connection, cursor, statement, parameters, context, executemany
+        ):
+            statements.append(statement)
+
+        event.listen(db.engine, "before_cursor_execute", record_statement)
+        try:
+            articles = paginate_articles(page=1, per_page=12).items
+            self.assertEqual(
+                [article.author.username for article in articles], ["Author"] * 3
+            )
+        finally:
+            event.remove(db.engine, "before_cursor_execute", record_statement)
+        self.assertLessEqual(len(statements), 2)
 
     def test_article_order_and_pagination(self):
         user = self.create_user()

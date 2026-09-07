@@ -1,6 +1,5 @@
 import re
 from datetime import date
-from pathlib import Path
 
 from sqlalchemy.exc import IntegrityError
 
@@ -10,6 +9,7 @@ from app.articles.models import (
     TITLE_MAX_LENGTH,
     Article,
 )
+from app.articles.uploads import remove_image, save_image
 from app.errors import ValidationError
 from app.extensions import db
 
@@ -41,40 +41,46 @@ def validate_article(*, title, description, category, body):
 
 
 def create_article(
-    *, author_id, title, description, category, body, image, upload_directory
+    *,
+    author_id,
+    title,
+    description,
+    category,
+    body,
+    image,
+    upload_directory,
+    allowed_extensions,
 ):
     values = validate_article(
         title=title, description=description, category=category, body=body
     )
-    if image is None or not image.filename:
-        raise ValidationError("Please choose an image.")
     if Article.query.filter_by(slug=values["slug"]).first():
         raise ValidationError(
             "An article with this URL already exists. Please choose a different title."
         )
-    directory = Path(upload_directory)
-    directory.mkdir(parents=True, exist_ok=True)
-    image.save(directory / image.filename)
+    filename = save_image(
+        image, directory=upload_directory, allowed_extensions=allowed_extensions
+    )
     article = Article(
         **values,
         author_id=author_id,
         created_at=date.today(),
-        image_filename=image.filename,
+        image_filename=filename,
     )
     try:
         db.session.add(article)
         db.session.commit()
-    except IntegrityError as error:
-        db.session.rollback()
-        if (
+    except Exception as error:
+        try:
+            db.session.rollback()
+        finally:
+            remove_image(filename, directory=upload_directory)
+        if isinstance(error, IntegrityError) and (
             getattr(getattr(error.orig, "diag", None), "constraint_name", None)
             == "articles_slug_key"
         ):
             raise ValidationError(
                 "An article with this URL already exists. Please choose a different title."
             ) from error
-        raise
-    except Exception:
-        db.session.rollback()
         raise
     return article
