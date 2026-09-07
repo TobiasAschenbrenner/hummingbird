@@ -41,6 +41,54 @@ python -c 'import secrets; print(secrets.token_hex(32))'
 Paste the generated value into `SECRET_KEY` in `.env`.
 Keep `.env` private; it is excluded from Git.
 
+### Local PostgreSQL setup
+
+PostgreSQL must be installed and running. For an existing Homebrew
+PostgreSQL 14 installation on macOS:
+
+```bash
+brew services start postgresql@14
+pg_isready -h localhost -p 5432
+```
+
+Create a dedicated application role and database once:
+
+```bash
+createuser -h localhost --pwprompt hummingbird
+createdb -h localhost --owner=hummingbird hummingbird
+```
+
+These commands assume your local macOS user has PostgreSQL permission
+to create roles and databases.
+
+For the local development settings in `.env.example`, enter
+`hummingbird` as the new role's password. If you choose different
+credentials, update `DATABASE_URL` in `.env` accordingly.
+
+Verify the application connection:
+
+```bash
+psql -h localhost -U hummingbird -d hummingbird \
+  -c "SELECT current_database(), current_user;"
+```
+
+With the Python virtual environment activated and `.env` configured,
+apply the committed migrations:
+
+```bash
+FLASK_APP=run.py python -m flask db upgrade
+```
+
+Verify the migration version and database tables:
+
+```bash
+FLASK_APP=run.py python -m flask db current
+psql -h localhost -U hummingbird -d hummingbird -c '\dt'
+```
+
+On the initial schema, the tables are `users`, `articles`, and
+`alembic_version`. The last table records the applied migration version.
+
 ### Verify installation
 
 ```bash
