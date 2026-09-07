@@ -13,6 +13,7 @@ def get_new_posts():
     return render_template('new_posts/new.html')
 
 @blueprint.post('/new-post')
+@login_required
 def post_new_posts():
     try:
         if not all([
