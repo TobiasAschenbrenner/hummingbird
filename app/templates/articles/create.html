@@ -1,68 +1,41 @@
 {% extends "base.html" %}
-{% block title %}Hummingbird | New Article{% endblock %}
-
+{% block title %}New Article | Hummingbird{% endblock %}
 {% block content %}
-  {% include "header/header.html" %}
-
   <section class="home">
-    <div class="home-text ">
-      {% if error %}
-        <p style="color: tomato;">{{ error }}</p>
-      {% endif %}
-      <h2 class="home-title">New Article</h2>
-      <span class="home-subtitle">Tell your story</span>
+    <div class="home-text container">
+      {% include "partials/messages.html" %}
+      <h1 class="home-title">New Article</h1>
+      <p class="home-subtitle">Tell your story</p>
     </div>
   </section>
-
-  <div class="wrapper">
-    <form method="POST" class="form_article" enctype = "multipart/form-data">
-      <div class="input_field">
-        <input type="text" name="title" id="title" placeholder="Title" maxlength="{{ title_max_length }}"/>
+  <div class="form-container container">
+    <form method="post" action="{{ url_for('articles.submit_article') }}" class="article-form" enctype="multipart/form-data">
+      <div class="form-field">
+        <label class="visually-hidden" for="article-title">Title</label>
+        <input id="article-title" name="title" placeholder="Title" maxlength="{{ title_max_length }}" value="{{ form.get('title', '') }}" required>
       </div>
-
-      <div class="input_field">
-        <textarea
-          type="text"
-          name="description"
-          id="description"
-          placeholder="Description"
-          class="textarea_description"
-          maxlength="{{ description_max_length }}"
-        ></textarea>
+      <div class="form-field">
+        <label class="visually-hidden" for="article-description">Description</label>
+        <textarea id="article-description" name="description" placeholder="Description" class="description-input" maxlength="{{ description_max_length }}" required>{{ form.get('description', '') }}</textarea>
       </div>
-
-      <div class="input_field">
-        <input
-          type="file"
-          name="image"
-          accept="image/*"
-          id="file"
-        />
-        <label for="file" class="file">
-          <div class="label_text">Choose an Image</div>
-          <i class="material-icons">add_photo_alternate</i>
-        </label>
+      <div class="form-field">
+        <label for="article-image">Choose an image</label>
+        <input id="article-image" name="image" type="file" accept="{% for extension in allowed_extensions %}.{{ extension }}{% if not loop.last %},{% endif %}{% endfor %}" required>
       </div>
-
-      <div class="input_field">
-        <div class="custom_select">
-          <select type="text" name="category" id="category">
-            <option value="">Select a Category</option>
-            <option value="design">Design</option>
-            <option value="tech">Tech</option>
-            <option value="mobile">Mobile</option>
-          </select>
-        </div>
+      <div class="form-field">
+        <label class="visually-hidden" for="article-category">Category</label>
+        <select id="article-category" name="category" required>
+          <option value="">Select a Category</option>
+          {% for category in categories %}
+            <option value="{{ category }}" {% if form.get('category') == category %}selected{% endif %}>{{ category|title }}</option>
+          {% endfor %}
+        </select>
       </div>
-
-      <div class="input_field">
-        <textarea type="text" name="body" id="text" placeholder="Text" class="textarea_text"></textarea>
+      <div class="form-field">
+        <label class="visually-hidden" for="article-body">Article text</label>
+        <textarea id="article-body" name="body" placeholder="Text" class="body-input" required>{{ form.get('body', '') }}</textarea>
       </div>
-
-      <div class="submit_button">
-          <button type="submit" class="button">Post Article</button>
-      </div>
+      <div class="form-submit"><button type="submit" class="button">Post Article</button></div>
     </form>
   </div>
-
 {% endblock %}

@@ -1,0 +1,27 @@
+<dialog id="auth-dialog" class="auth-dialog" aria-label="Sign up or log in">
+  <button type="button" class="auth-close" data-close-auth aria-label="Close">&times;</button>
+  <div class="auth-tabs">
+    <button type="button" data-auth-view="signup" aria-pressed="true">Sign up</button>
+    <button type="button" data-auth-view="login" aria-pressed="false">Log in</button>
+  </div>
+  <form method="post" action="{{ url_for('users.register') }}" class="auth-form" data-auth-form="signup">
+    <input type="hidden" name="return_to" value="{{ request.path }}">
+    <label class="visually-hidden" for="register-name">Name</label>
+    <input id="register-name" name="register_name" placeholder="User name" autocomplete="nickname" maxlength="80" required>
+    <label class="visually-hidden" for="register-email">Email</label>
+    <input id="register-email" name="register_email" type="email" placeholder="Email" autocomplete="email" maxlength="120" required>
+    <label class="visually-hidden" for="register-password">Password</label>
+    <input id="register-password" name="register_password" type="password" placeholder="Password" autocomplete="new-password" minlength="8" required>
+    <label class="visually-hidden" for="register-password-confirmation">Confirm password</label>
+    <input id="register-password-confirmation" name="register_password_confirmation" type="password" placeholder="Confirm password" autocomplete="new-password" minlength="8" required>
+    <button type="submit" class="button">Register</button>
+  </form>
+  <form method="post" action="{{ url_for('users.login') }}" class="auth-form" data-auth-form="login" hidden>
+    <input type="hidden" name="return_to" value="{{ request.path }}">
+    <label class="visually-hidden" for="login-email">Email</label>
+    <input id="login-email" name="login_email" type="email" placeholder="Email" autocomplete="email" required>
+    <label class="visually-hidden" for="login-password">Password</label>
+    <input id="login-password" name="login_password" type="password" placeholder="Password" autocomplete="current-password" required>
+    <button type="submit" class="button">Log in</button>
+  </form>
+</dialog>

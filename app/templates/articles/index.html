@@ -1,68 +1,57 @@
 {% extends "base.html" %}
 {% block title %}Hummingbird | Homepage{% endblock %}
-
+{% block scripts %}
+  <script src="{{ url_for('static', filename='js/article_filters.js') }}" defer></script>
+{% endblock %}
 {% block content %}
-  {% include "header/header.html" %}
-  {% if current_user.is_authenticated == false %}
-    {% include "users/login.html" %}
-  {% endif %}
-
-  <!--Home-->
   <section class="home">
-    <div class="home-text ">
+    <div class="home-text container">
       {% include "partials/messages.html" %}
-      {% if error and current_user.is_authenticated == false %}
-        <p style="color: tomato;">{{ error }}</p>
-      {% endif %}
-      <h2 class="home-title">The Hummingbird Blog</h2>
-      <span class="home-subtitle">Your source for great content</span>
+      <h1 class="home-title">The Hummingbird Blog</h1>
+      <p class="home-subtitle">Your source for great content</p>
     </div>
   </section>
-  <!--Post Filter-->
-  <div class="post-filter container">
-    <span class="filter-item active-filter" data-filter="all">All</span>
-    <span class="filter-item" data-filter="design">Design</span>
-    <span class="filter-item" data-filter="tech">Tech</span>
-    <span class="filter-item" data-filter="mobile">Mobile</span>
-  </div>
-  <!--Posts-->
-
-  <ul class="post container">
-
-    {% for article in pagination.items %}
-      <li class="post-box {{ article.category }}">
-        <img src="../../static/images/uploads/{{ article.image_filename }}" alt="" class="post-img" />
-        <h2 class="category">{{ article.category }}</h2>
-        <a href="/{{ article.slug }}" class="post-title">
-          {{ article.title }}
-        </a>
-        <span class="post-date" type="date">{{ article.created_at }}</span>
-        <p class="post-description">{{ article.description }}</p>
-        <!--Profile-->
-        <div class="profile">
-        {% if article.author %}
-          <span class="profile-name">{{ article.author.username }}</span>
-        {% endif %}
-        </div>
-      </li>
+  <div class="article-filters container" aria-label="Filter articles on this page">
+    <button type="button" class="filter-button active-filter" data-filter="all" aria-pressed="true">All</button>
+    {% for category in categories %}
+      <button type="button" class="filter-button" data-filter="{{ category }}" aria-pressed="false">{{ category|title }}</button>
     {% endfor %}
-
+  </div>
+  <p class="filter-note">Filters apply to the current page.</p>
+  <ul class="article-grid container">
+    {% for article in pagination.items %}
+      <li class="article-card" data-category="{{ article.category }}">
+        {% if article.image_filename %}
+          <img src="{{ url_for('static', filename='images/uploads/' ~ article.image_filename) }}" alt="" class="article-image">
+        {% else %}
+          <div class="article-image image-placeholder" aria-hidden="true">hummingbird</div>
+        {% endif %}
+        <p class="category">{{ article.category }}</p>
+        <h2><a href="{{ url_for('articles.detail', slug=article.slug) }}" class="article-title">{{ article.title }}</a></h2>
+        {% if article.created_at %}
+          <time class="article-date" datetime="{{ article.created_at.isoformat() }}">{{ article.created_at }}</time>
+        {% endif %}
+        <p class="article-description">{{ article.description }}</p>
+        {% if article.author %}
+          <p class="author-name">{{ article.author.username }}</p>
+        {% endif %}
+      </li>
+    {% else %}
+      <li class="empty-state">No articles yet. Log in and write the first one.</li>
+    {% endfor %}
   </ul>
-
-  <nav class="move_page next_post container">
-    {% if pagination.prev_num %}
+  <p class="empty-state" data-filter-empty hidden>No articles in this category on this page.</p>
+  <nav class="pagination container" aria-label="Article pages">
+    {% if pagination.has_prev %}
       <a href="{{ url_for('articles.index', page=pagination.prev_num) }}">Previous Page</a>
     {% else %}
       <span>Previous Page</span>
     {% endif %}
-
-    <span> - </span>
-
-    {% if pagination.next_num %}
+    <span aria-hidden="true">–</span>
+    {% if pagination.has_next %}
       <a href="{{ url_for('articles.index', page=pagination.next_num) }}">Next Page</a>
     {% else %}
       <span>Next Page</span>
     {% endif %}
   </nav>
-
 {% endblock %}

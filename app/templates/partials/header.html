@@ -1,26 +1,16 @@
-<!--Header-->
-<header>
-  <!--Nav-->
-  <div class="nav container">
-    <!--Logo-->
+<header class="site-header">
+  <nav class="nav container" aria-label="Main navigation">
     <a href="{{ url_for('articles.index') }}" class="logo">hummingbird</a>
     <div class="nav-items">
-      <!--Home-->
       <a href="{{ url_for('articles.index') }}" class="nav-item">Home</a>
       {% if current_user.is_authenticated %}
-        <!--New Post-->
         <a href="{{ url_for('articles.new_article') }}" class="nav-item">New Article</a>
       {% endif %}
     </div>
-
-    {% if current_user.is_authenticated == false %}
-    <!--Login Btn-->
-    <a href="#" class="login">Log in</a>
-    {% endif %}
-
     {% if current_user.is_authenticated %}
-      <!--Logout Btn-->
-      <a href="{{ url_for('users.logout') }}" class="login">Log out</a>
+      <a href="{{ url_for('users.logout') }}" class="nav-button">Log out</a>
+    {% else %}
+      <button type="button" class="nav-button" data-open-auth>Log in</button>
     {% endif %}
-  </div>
+  </nav>
 </header>

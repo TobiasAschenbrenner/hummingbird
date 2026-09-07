@@ -1,0 +1,225 @@
+.article-filters {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 2rem;
+}
+.filter-button {
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+.active-filter {
+  color: var(--background);
+  background: var(--accent);
+}
+.filter-note {
+  margin-top: 0.5rem;
+  text-align: center;
+  font-size: 0.75rem;
+  color: #606760;
+}
+.article-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: 1.5rem;
+  padding-top: 3rem;
+}
+.article-card {
+  padding: 15px;
+  border-radius: 0.5rem;
+  background: var(--background);
+  box-shadow: 0 4px 14px hsl(355deg 25% 15% / 10%);
+}
+.article-image {
+  width: 100%;
+  height: 200px;
+  border-radius: 0.5rem;
+  object-fit: cover;
+}
+.category {
+  margin-top: 0.5rem;
+  color: var(--accent);
+  font-size: 0.9rem;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+.article-title,
+.article-description {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.article-title {
+  -webkit-line-clamp: 2;
+  font-size: 1.3rem;
+  font-weight: 600;
+}
+.article-date {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.875rem;
+}
+.article-description {
+  -webkit-line-clamp: 3;
+  margin: 5px 0 10px;
+  font-size: 0.9rem;
+  line-height: 1.5rem;
+}
+.author-name {
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+.image-placeholder {
+  display: grid;
+  place-items: center;
+  background: var(--surface-dark);
+  color: var(--accent);
+  font-weight: 600;
+}
+.pagination {
+  display: flex;
+  justify-content: center;
+  gap: 1.5rem;
+  margin-top: 2rem;
+  font-size: 0.9rem;
+}
+.pagination span {
+  color: #606760;
+}
+.empty-state {
+  grid-column: 1 / -1;
+  padding: 2rem;
+  text-align: center;
+}
+
+.reading-container {
+  width: min(95%, 800px);
+  margin-inline: auto;
+}
+.article-header {
+  padding-top: 7rem;
+  background: linear-gradient(
+    to bottom,
+    var(--surface-dark) calc(100% - 140px),
+    var(--background) 0
+  );
+}
+.article-header-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.article-heading {
+  width: 90%;
+  margin: 1rem 0;
+  color: var(--background);
+  font-size: 2.6rem;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+.article-cover {
+  width: 100%;
+  height: 420px;
+  margin-top: 1rem;
+  object-fit: cover;
+}
+.article-content {
+  padding: 3rem 0 2rem;
+}
+.article-body {
+  margin-block: 1rem;
+  font-size: 1rem;
+  line-height: 1.7rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.form-container {
+  margin-block: 20px;
+  padding: 30px;
+}
+.form-field {
+  margin-bottom: 15px;
+}
+.form-field input,
+.form-field textarea,
+.form-field select {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text);
+  background: var(--background);
+  font-size: 15px;
+}
+.form-field label:not(.visually-hidden) {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 0.9rem;
+}
+.form-field input::placeholder,
+.form-field textarea::placeholder {
+  color: var(--text);
+}
+.form-field input:focus,
+.form-field textarea:focus,
+.form-field select:focus {
+  border-color: var(--accent);
+}
+.description-input {
+  min-height: 85px;
+  resize: vertical;
+}
+.body-input {
+  min-height: 500px;
+  resize: vertical;
+}
+.form-submit {
+  margin-top: 15px;
+  text-align: center;
+}
+
+@media (max-width: 768px) {
+  .article-header {
+    padding-top: 6rem;
+  }
+  .article-heading {
+    font-size: 2rem;
+  }
+  .article-cover {
+    height: 370px;
+  }
+}
+@media (max-width: 600px) {
+  .article-heading {
+    width: 100%;
+  }
+  .article-cover {
+    height: 340px;
+  }
+  .form-container {
+    padding: 15px;
+  }
+}
+@media (max-width: 480px) {
+  .article-card {
+    padding: 10px;
+  }
+  .article-heading {
+    font-size: 1.4rem;
+  }
+  .article-cover {
+    height: 240px;
+  }
+  .article-body {
+    font-size: 0.875rem;
+    line-height: 1.5rem;
+  }
+}

@@ -1,0 +1,63 @@
+.auth-dialog {
+  width: min(350px, 92vw);
+  margin: auto;
+  padding: 30px;
+  border: 0;
+  border-radius: 20px;
+  color: var(--background);
+  background: var(--surface-dark);
+  box-shadow: 0 5px 30px #000;
+}
+.auth-dialog::backdrop {
+  background: rgb(0 0 0 / 85%);
+}
+.auth-close {
+  position: absolute;
+  top: 8px;
+  right: 16px;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font-size: 1.5rem;
+}
+.auth-tabs {
+  display: flex;
+  justify-content: space-around;
+  gap: 1rem;
+  margin: 10px 0 25px;
+}
+.auth-tabs button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-transform: uppercase;
+  font-size: 18px;
+  font-weight: 500;
+}
+.auth-tabs button[aria-pressed="true"],
+.auth-tabs button:hover {
+  color: var(--accent);
+}
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.auth-form input:not([type="hidden"]) {
+  width: 100%;
+  padding: 10px;
+  border: 0;
+  border-bottom: 2px solid var(--background);
+  background: transparent;
+  color: inherit;
+  font-size: 15px;
+}
+.auth-form input::placeholder {
+  color: var(--background);
+}
+.auth-form .button {
+  align-self: center;
+  min-width: 150px;
+  margin-top: 10px;
+  text-transform: uppercase;
+}

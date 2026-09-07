@@ -1,38 +1,18 @@
 {% extends "base.html" %}
-{% block title %}Hummingbird | Article{% endblock %}
-
+{% block title %}{{ article.title }} | Hummingbird{% endblock %}
 {% block content %}
-  {% include "header/header.html" %}
-  {% if current_user.is_authenticated == false %}
-    {% include "users/login.html" %}
-  {% endif %}
-
-  <!--Post Content-->
-  <section class="post-header">
-    <div class="header-content post-container">
+  <section class="article-header">
+    <div class="article-header-content reading-container">
       {% include "partials/messages.html" %}
-      {% if error and current_user.is_authenticated == false %}
-        <p style="color: tomato">{{ error }}</p>
+      <h1 class="article-heading">{{ article.title }}</h1>
+      {% if article.image_filename %}
+        <img src="{{ url_for('static', filename='images/uploads/' ~ article.image_filename) }}" alt="" class="article-cover">
+      {% else %}
+        <div class="article-cover image-placeholder" aria-hidden="true">hummingbird</div>
       {% endif %}
-      <!--Title-->
-      <h2 class="header-title">{{ article.title }}</h2>
-      <img src="../../static/images/uploads/{{ article.image_filename }}" alt="" class="header-img" />
     </div>
   </section>
-
-  <!--Posts-->
-  <section class="post-content post-container">
-    <p class="post-text">{{ article.body }}</p>
+  <section class="article-content reading-container">
+    <p class="article-body">{{ article.body }}</p>
   </section>
-  <!--Share-->
-  <div class="share post-container">
-    <span class="share-title">Share this article</span>
-    <div class="social">
-      <a href="https://www.facebook.com/"><i class="bx bxl-facebook"></i></a>
-      <a href="https://twitter.com"><i class="bx bxl-twitter"></i></a>
-      <a href="https://www.instagram.com"><i class="bx bxl-instagram"></i></a>
-      <a href="https://linkedin.com"><i class="bx bxl-linkedin"></i></a>
-    </div>
-  </div>
-
 {% endblock %}
