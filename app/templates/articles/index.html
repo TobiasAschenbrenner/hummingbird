@@ -10,8 +10,8 @@
   </section>
   <nav class="article-filters container" aria-label="Filter articles by category">
     <a href="{{ url_for('articles.index') }}" class="filter-button{% if not selected_category %} active-filter{% endif %}" {% if not selected_category %}aria-current="page"{% endif %}>All</a>
-    {% for category in categories %}
-      <a href="{{ url_for('articles.index', category=category.slug) }}" class="filter-button{% if selected_category and selected_category.id == category.id %} active-filter{% endif %}" {% if selected_category and selected_category.id == category.id %}aria-current="page"{% endif %}>{{ category.name }}</a>
+    {% for category, article_count in category_counts %}
+      <a href="{{ url_for('articles.index', category=category.slug) }}" class="filter-button{% if selected_category and selected_category.id == category.id %} active-filter{% endif %}" {% if selected_category and selected_category.id == category.id %}aria-current="page"{% endif %}>{{ category.name }} ({{ article_count }})</a>
     {% endfor %}
   </nav>
   <ul class="article-grid container">

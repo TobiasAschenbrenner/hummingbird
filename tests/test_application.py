@@ -355,7 +355,7 @@ class ApplicationTests(unittest.TestCase):
         self.assertIn(b'href="/tech-12"', first_page.data)
         self.assertNotIn(b'href="/design-', first_page.data)
         self.assertIn(b"page=2&amp;category=tech", first_page.data)
-        self.assertIn(b'aria-current="page">Tech</a>', first_page.data)
+        self.assertIn(b'aria-current="page">Tech (13)</a>', first_page.data)
         self.assertNotIn(b"article_filters.js", first_page.data)
         second_page = self.client.get("/?category=tech&page=2")
         self.assertEqual(second_page.data.count(b'class="article-card"'), 1)
@@ -370,6 +370,48 @@ class ApplicationTests(unittest.TestCase):
         self.assertEqual(self.client.get("/?category=unknown").status_code, 404)
         self.assertEqual(self.client.get("/?category=").status_code, 200)
         self.assertEqual(self.client.get("/?category=tech&page=999").status_code, 404)
+
+    def test_category_counts_include_empty_categories_and_all_pages(self):
+        from app.articles.queries import list_categories_with_article_counts
+
+        for slug, count in (("tech", 13), ("design", 2)):
+            category = Category.query.filter_by(slug=slug).one()
+            db.session.add_all(
+                Article(slug=f"{slug}-{number}", category=category)
+                for number in range(count)
+            )
+        db.session.add(Article(slug="uncategorized"))
+        db.session.commit()
+        db.session.remove()
+        statements = []
+
+        def record_statement(
+            connection, cursor, statement, parameters, context, executemany
+        ):
+            statements.append(statement)
+
+        event.listen(db.engine, "before_cursor_execute", record_statement)
+        try:
+            counts = {
+                category.slug: count
+                for category, count in list_categories_with_article_counts()
+            }
+        finally:
+            event.remove(db.engine, "before_cursor_execute", record_statement)
+        self.assertEqual(counts, {"design": 2, "mobile": 0, "tech": 13})
+        self.assertEqual(len(statements), 1)
+        for path in ("/", "/?category=tech", "/?category=tech&page=2"):
+            with self.subTest(path=path):
+                response = self.client.get(path)
+                self.assertEqual(response.status_code, 200)
+                self.assertIn(b"Tech (13)", response.data)
+                self.assertIn(b"Design (2)", response.data)
+                self.assertIn(b"Mobile (0)", response.data)
+
+    def test_category_counts_are_zero_without_articles(self):
+        response = self.client.get("/")
+        for name in ("Design", "Tech", "Mobile"):
+            self.assertIn(f"{name} (0)".encode(), response.data)
 
     def test_models_match_committed_migration(self):
         with db.engine.connect() as connection:

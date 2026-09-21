@@ -1,6 +1,8 @@
+from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 
 from app.articles.models import Article, Category
+from app.extensions import db
 
 
 def list_categories():
@@ -9,6 +11,16 @@ def list_categories():
 
 def get_category_by_slug(slug):
     return Category.query.filter_by(slug=slug).first()
+
+
+def list_categories_with_article_counts():
+    return (
+        db.session.query(Category, func.count(Article.id).label("article_count"))
+        .outerjoin(Category.articles)
+        .group_by(Category.id)
+        .order_by(Category.name, Category.id)
+        .all()
+    )
 
 
 def paginate_articles(*, page, per_page, category_id=None):

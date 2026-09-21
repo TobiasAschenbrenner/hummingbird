@@ -13,11 +13,11 @@ Readers can browse articles, and registered users can publish articles with cove
 - Read individual articles
 - Choose categories stored in the database
 - Filter articles by category across all pages
+- See the total number of articles in each category
 - Responsive frontend
 
 ### Planned features
 
-- Article counts by category
 - Multiple tags per article and filtering by tag
 - Editing and deleting your own articles
 - Adding and deleting your own comments
@@ -198,6 +198,10 @@ the database before pagination, so they include matching articles from all pages
 The selected category stays active when moving between pages. Choose **All** to
 clear the filter. These links also work without JavaScript.
 
+The number beside each category counts all its articles, not just the current
+page. Empty categories show zero. The counts come from one database query using
+a left join, `COUNT`, and `GROUP BY`.
+
 Cover images are stored in `app/static/images/uploads/`. The folder is created
 when needed and its contents are ignored by Git. New files receive unique names.
 Supported extensions are PNG, JPG/JPEG, GIF, and WebP.
@@ -253,7 +257,7 @@ Without `TEST_DATABASE_URL`, the database tests are skipped; that is not full
 verification. Upload tests use temporary folders.
 
 The suite covers authentication, article creation, pagination, validation,
-query loading, category filtering, rollback, image cleanup, repeatable seeding,
+query loading, category filtering and counts, rollback, image cleanup, repeatable seeding,
 schema compatibility, and migration round trips.
 
 Install the optional development tools and check the code:

@@ -15,6 +15,7 @@ from app.articles.queries import (
     get_article_by_slug,
     get_category_by_slug,
     list_categories,
+    list_categories_with_article_counts,
     paginate_articles,
 )
 from app.articles.services import create_article
@@ -38,7 +39,7 @@ def index():
     return render_template(
         "articles/index.html",
         pagination=pagination,
-        categories=list_categories(),
+        category_counts=list_categories_with_article_counts(),
         selected_category=selected_category,
     )
 
