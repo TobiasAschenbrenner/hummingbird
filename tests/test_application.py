@@ -11,7 +11,7 @@ from alembic.migration import MigrationContext
 from flask_migrate import downgrade, upgrade
 from sqlalchemy import event, text
 from sqlalchemy.engine import make_url
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from app import create_app
@@ -154,6 +154,7 @@ class ApplicationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         article = Article.query.one()
         self.assertEqual(article.author_id, user.id)
+        self.assertEqual(article.category.slug, "tech")
         self.assertTrue((Path(self.uploads.name) / article.image_filename).exists())
         detail = self.client.get(f"/{article.slug}")
         self.assertIn(b"Article body", detail.data)
@@ -173,6 +174,7 @@ class ApplicationTests(unittest.TestCase):
             {"title": "x" * 56},
             {"description": "x" * 251},
             {"category": "unknown"},
+            {"category": ""},
             {"body": " "},
             {"title": "new-post"},
             {"title": "!!!"},
@@ -274,12 +276,14 @@ class ApplicationTests(unittest.TestCase):
             self.create_user(email=f"author{number}@example.test")
             for number in range(3)
         ]
+        category = Category.query.filter_by(slug="tech").one()
         db.session.add_all(
             [
                 Article(
                     title=f"Article {number}",
                     slug=f"article-{number}",
                     author_id=user.id,
+                    category=category,
                 )
                 for number, user in enumerate(users)
             ]
@@ -299,12 +303,16 @@ class ApplicationTests(unittest.TestCase):
             self.assertEqual(
                 [article.author.username for article in articles], ["Author"] * 3
             )
+            self.assertEqual(
+                [article.category.name for article in articles], ["Tech"] * 3
+            )
         finally:
             event.remove(db.engine, "before_cursor_execute", record_statement)
         self.assertLessEqual(len(statements), 2)
 
     def test_article_order_and_pagination(self):
         user = self.create_user()
+        category = Category.query.filter_by(slug="tech").one()
         db.session.add_all(
             [
                 Article(
@@ -312,7 +320,7 @@ class ApplicationTests(unittest.TestCase):
                     slug=f"article-{number}",
                     body="Body",
                     description="Description",
-                    category="tech",
+                    category=category,
                     created_at=date.today(),
                     image_filename="cover.png",
                     author_id=user.id,
@@ -347,23 +355,106 @@ class ApplicationTests(unittest.TestCase):
             db.session.execute(
                 text(
                     "INSERT INTO articles (slug, title, text, category, img_url) "
-                    "VALUES ('old-story', 'Old story', 'Original body', 'tech', 'old.webp')"
-                )
+                    "VALUES (:slug, 'Old story', 'Original body', :category, 'old.webp')"
+                ),
+                [
+                    {"slug": "old-story", "category": "tech"},
+                    {"slug": "custom-topic", "category": "science"},
+                    {"slug": "no-category", "category": None},
+                ],
+            )
+            original_rows = (
+                db.session.execute(text("SELECT * FROM articles ORDER BY id"))
+                .mappings()
+                .all()
             )
             db.session.commit()
             db.session.remove()
             upgrade(directory=MIGRATIONS_DIRECTORY)
             self.assertEqual(
                 {category.slug for category in Category.query.all()},
-                {"design", "tech", "mobile"},
+                {"design", "tech", "mobile", "science"},
             )
             article = Article.query.filter_by(slug="old-story").one()
             self.assertEqual(article.body, "Original body")
             self.assertEqual(article.image_filename, "old.webp")
+            self.assertEqual(article.category.slug, "tech")
+            self.assertEqual(
+                Article.query.filter_by(slug="custom-topic").one().category.slug,
+                "science",
+            )
+            self.assertIsNone(
+                Article.query.filter_by(slug="no-category").one().category
+            )
+            db.session.remove()
+            downgrade(directory=MIGRATIONS_DIRECTORY, revision="b5c595757bd0")
+            restored_rows = (
+                db.session.execute(text("SELECT * FROM articles ORDER BY id"))
+                .mappings()
+                .all()
+            )
+            self.assertEqual(restored_rows, original_rows)
         finally:
             db.session.rollback()
             db.session.remove()
             upgrade(directory=MIGRATIONS_DIRECTORY)
+
+    def test_category_downgrade_refuses_to_truncate_slugs(self):
+        category = Category(slug="long-category-slug", name="Long category")
+        db.session.add(Article(slug="long-category-article", category=category))
+        db.session.commit()
+        db.session.remove()
+        with self.assertRaisesRegex(DBAPIError, "exceeds the old 10-character limit"):
+            downgrade(directory=MIGRATIONS_DIRECTORY, revision="a13c9e821001")
+        self.assertEqual(Article.query.one().category.slug, "long-category-slug")
+
+    def test_article_categories_come_from_database(self):
+        self.create_user()
+        self.login()
+        category = Category(slug="science", name="Science & Research")
+        db.session.add(category)
+        db.session.commit()
+        form = self.client.get("/new-post").data
+        self.assertIn(b'value="science"', form)
+        self.assertIn(b"Science &amp; Research", form)
+        invalid = self.client.post(
+            "/new-post", data=self.article_data(category="science", body="")
+        )
+        self.assertIn(b'value="science" selected', invalid.data)
+        response = self.client.post(
+            "/new-post", data=self.article_data(category="science")
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(Article.query.one().category_id, category.id)
+        self.assertIn(b"Science &amp; Research", self.client.get("/").data)
+
+    def test_category_relationship_enforces_references_and_restricts_deletion(self):
+        db.session.add(Article(slug="invalid-category", category_id=-1))
+        with self.assertRaises(IntegrityError):
+            db.session.commit()
+        db.session.rollback()
+        category = Category.query.filter_by(slug="tech").one()
+        article = Article(slug="classified-article", category=category)
+        db.session.add(article)
+        db.session.commit()
+        self.assertEqual(category.articles, [article])
+        db.session.delete(category)
+        with self.assertRaises(IntegrityError):
+            db.session.commit()
+        db.session.rollback()
+        self.assertEqual(Article.query.one().category.slug, "tech")
+
+    def test_demo_seed_without_categories_rolls_back(self):
+        Category.query.delete()
+        db.session.commit()
+        result = self.app.test_cli_runner().invoke(
+            args=["seed-demo", "--count", "1"],
+            input="demo-password\ndemo-password\n",
+        )
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("No categories found", result.output)
+        self.assertEqual(User.query.count(), 0)
+        self.assertEqual(Article.query.count(), 0)
 
     def test_demo_seed_is_repeatable_and_preserves_existing_data(self):
         existing_user = self.create_user()

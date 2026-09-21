@@ -27,7 +27,7 @@
         <select id="article-category" name="category" required>
           <option value="">Select a Category</option>
           {% for category in categories %}
-            <option value="{{ category }}" {% if form.get('category') == category %}selected{% endif %}>{{ category|title }}</option>
+            <option value="{{ category.slug }}" {% if form.get('category') == category.slug %}selected{% endif %}>{{ category.name }}</option>
           {% endfor %}
         </select>
       </div>

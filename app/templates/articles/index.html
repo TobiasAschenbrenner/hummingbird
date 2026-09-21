@@ -14,19 +14,19 @@
   <div class="article-filters container" aria-label="Filter articles on this page">
     <button type="button" class="filter-button active-filter" data-filter="all" aria-pressed="true">All</button>
     {% for category in categories %}
-      <button type="button" class="filter-button" data-filter="{{ category }}" aria-pressed="false">{{ category|title }}</button>
+      <button type="button" class="filter-button" data-filter="{{ category.slug }}" aria-pressed="false">{{ category.name }}</button>
     {% endfor %}
   </div>
   <p class="filter-note">Filters apply to the current page.</p>
   <ul class="article-grid container">
     {% for article in pagination.items %}
-      <li class="article-card" data-category="{{ article.category }}">
+      <li class="article-card" data-category="{{ article.category.slug if article.category else '' }}">
         {% if article.image_filename %}
           <img src="{{ url_for('static', filename='images/uploads/' ~ article.image_filename) }}" alt="" class="article-image">
         {% else %}
           <div class="article-image image-placeholder" aria-hidden="true">hummingbird</div>
         {% endif %}
-        <p class="category">{{ article.category }}</p>
+        <p class="category">{{ article.category.name if article.category else 'Uncategorized' }}</p>
         <h2><a href="{{ url_for('articles.detail', slug=article.slug) }}" class="article-title">{{ article.title }}</a></h2>
         {% if article.created_at %}
           <time class="article-date" datetime="{{ article.created_at.isoformat() }}">{{ article.created_at }}</time>

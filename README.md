@@ -11,12 +11,13 @@ Readers can browse articles, and registered users can publish articles with cove
 - Publish articles with cover images
 - Browse the newest articles with pagination
 - Read individual articles
+- Choose categories stored in the database
 - Filter the articles on the current page by category
 - Responsive frontend
 
 ### Planned features
 
-- Categories stored in the database and filtering across all pages
+- Category filtering across all pages
 - Article counts by category
 - Multiple tags per article and filtering by tag
 - Editing and deleting your own articles
@@ -154,6 +155,15 @@ FLASK_APP=run.py python -m flask db current
 Run the upgrade command after pulling changes that introduce new migrations.
 Back up any database containing data you want to keep before upgrading it.
 
+The category migrations keep existing articles and create records for their
+existing category values. Legacy articles with no category keep that missing
+value and display as "Uncategorized"; new article submissions require a category.
+Deleting a category still used by articles is blocked by the database.
+There is no category-management screen yet.
+
+Downgrading to the old schema is blocked if an article uses a category slug
+longer than its former 10-character limit, to avoid truncating data.
+
 ---
 
 ## ▶️ Running the Application
@@ -210,7 +220,8 @@ On the first run, choose the demo account's password at the hidden prompt.
 Rerunning the command fills in missing samples without changing existing demo
 articles or credentials. Use `--count 30` to request 30 sample articles in total.
 
-Sample dates start on January 1, 2024. Articles use an image placeholder.
+Sample dates start on January 1, 2024. Articles use an image placeholder and
+cycle through the categories currently stored in the database.
 These are generated sample counts, not a report of your current database size.
 The dataset is intended for development, not performance measurement.
 

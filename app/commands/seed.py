@@ -6,7 +6,8 @@ from flask.cli import with_appcontext
 from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.security import generate_password_hash
 
-from app.articles.models import CATEGORIES, Article
+from app.articles.models import Article
+from app.articles.queries import list_categories
 from app.extensions import db
 from app.users.models import User
 
@@ -14,6 +15,11 @@ DEMO_EMAIL = "demo@hummingbird.example"
 
 
 def add_demo_articles(*, author, count):
+    categories = list_categories()
+    if not categories:
+        raise click.ClickException(
+            "No categories found. Run flask db upgrade before generating demo data."
+        )
     existing_slugs = {
         slug
         for (slug,) in db.session.query(Article.slug).filter(
@@ -25,12 +31,12 @@ def add_demo_articles(*, author, count):
         slug = f"hummingbird-demo-{number:03d}"
         if slug in existing_slugs:
             continue
-        category = CATEGORIES[(number - 1) % len(CATEGORIES)]
+        category = categories[(number - 1) % len(categories)]
         db.session.add(
             Article(
                 title=f"Demo article {number}",
                 slug=slug,
-                description=f"A sample article about {category} for local development.",
+                description=f"A sample article about {category.name} for local development.",
                 body=f"This is demo article {number}.\n\nUse it to explore article pages, authors, and pagination.",
                 category=category,
                 created_at=date(2024, 1, 1) + timedelta(days=number - 1),
