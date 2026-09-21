@@ -1,8 +1,5 @@
 {% extends "base.html" %}
 {% block title %}Hummingbird | Homepage{% endblock %}
-{% block scripts %}
-  <script src="{{ url_for('static', filename='js/article_filters.js') }}" defer></script>
-{% endblock %}
 {% block content %}
   <section class="home">
     <div class="home-text container">
@@ -11,16 +8,15 @@
       <p class="home-subtitle">Your source for great content</p>
     </div>
   </section>
-  <div class="article-filters container" aria-label="Filter articles on this page">
-    <button type="button" class="filter-button active-filter" data-filter="all" aria-pressed="true">All</button>
+  <nav class="article-filters container" aria-label="Filter articles by category">
+    <a href="{{ url_for('articles.index') }}" class="filter-button{% if not selected_category %} active-filter{% endif %}" {% if not selected_category %}aria-current="page"{% endif %}>All</a>
     {% for category in categories %}
-      <button type="button" class="filter-button" data-filter="{{ category.slug }}" aria-pressed="false">{{ category.name }}</button>
+      <a href="{{ url_for('articles.index', category=category.slug) }}" class="filter-button{% if selected_category and selected_category.id == category.id %} active-filter{% endif %}" {% if selected_category and selected_category.id == category.id %}aria-current="page"{% endif %}>{{ category.name }}</a>
     {% endfor %}
-  </div>
-  <p class="filter-note">Filters apply to the current page.</p>
+  </nav>
   <ul class="article-grid container">
     {% for article in pagination.items %}
-      <li class="article-card" data-category="{{ article.category.slug if article.category else '' }}">
+      <li class="article-card">
         {% if article.image_filename %}
           <img src="{{ url_for('static', filename='images/uploads/' ~ article.image_filename) }}" alt="" class="article-image">
         {% else %}
@@ -37,19 +33,18 @@
         {% endif %}
       </li>
     {% else %}
-      <li class="empty-state">No articles yet. Log in and write the first one.</li>
+      <li class="empty-state">{% if selected_category %}No articles in this category yet.{% else %}No articles yet. Log in and write the first one.{% endif %}</li>
     {% endfor %}
   </ul>
-  <p class="empty-state" data-filter-empty hidden>No articles in this category on this page.</p>
   <nav class="pagination container" aria-label="Article pages">
     {% if pagination.has_prev %}
-      <a href="{{ url_for('articles.index', page=pagination.prev_num) }}">Previous Page</a>
+      <a href="{{ url_for('articles.index', page=pagination.prev_num, category=selected_category.slug if selected_category else None) }}">Previous Page</a>
     {% else %}
       <span>Previous Page</span>
     {% endif %}
     <span aria-hidden="true">–</span>
     {% if pagination.has_next %}
-      <a href="{{ url_for('articles.index', page=pagination.next_num) }}">Next Page</a>
+      <a href="{{ url_for('articles.index', page=pagination.next_num, category=selected_category.slug if selected_category else None) }}">Next Page</a>
     {% else %}
       <span>Next Page</span>
     {% endif %}

@@ -11,7 +11,12 @@ from flask_login import current_user, login_required
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.articles.models import DESCRIPTION_MAX_LENGTH, TITLE_MAX_LENGTH
-from app.articles.queries import get_article_by_slug, list_categories, paginate_articles
+from app.articles.queries import (
+    get_article_by_slug,
+    get_category_by_slug,
+    list_categories,
+    paginate_articles,
+)
 from app.articles.services import create_article
 from app.errors import ValidationError
 from app.extensions import db
@@ -21,12 +26,20 @@ blueprint = Blueprint("articles", __name__)
 
 @blueprint.get("/")
 def index():
+    category_slug = request.args.get("category", "")
+    selected_category = get_category_by_slug(category_slug) if category_slug else None
+    if category_slug and selected_category is None:
+        abort(404)
     pagination = paginate_articles(
         page=request.args.get("page", 1, type=int),
         per_page=current_app.config["BLOG_POSTS_PER_PAGE"],
+        category_id=selected_category.id if selected_category else None,
     )
     return render_template(
-        "articles/index.html", pagination=pagination, categories=list_categories()
+        "articles/index.html",
+        pagination=pagination,
+        categories=list_categories(),
+        selected_category=selected_category,
     )
 
 

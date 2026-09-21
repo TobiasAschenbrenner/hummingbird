@@ -11,12 +11,13 @@ def get_category_by_slug(slug):
     return Category.query.filter_by(slug=slug).first()
 
 
-def paginate_articles(*, page, per_page):
-    return (
-        Article.query.options(joinedload(Article.author), joinedload(Article.category))
-        .order_by(Article.id.desc())
-        .paginate(page=page, per_page=per_page)
+def paginate_articles(*, page, per_page, category_id=None):
+    query = Article.query.options(
+        joinedload(Article.author), joinedload(Article.category)
     )
+    if category_id is not None:
+        query = query.filter(Article.category_id == category_id)
+    return query.order_by(Article.id.desc()).paginate(page=page, per_page=per_page)
 
 
 def get_article_by_slug(slug):

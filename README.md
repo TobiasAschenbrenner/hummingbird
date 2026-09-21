@@ -12,12 +12,11 @@ Readers can browse articles, and registered users can publish articles with cove
 - Browse the newest articles with pagination
 - Read individual articles
 - Choose categories stored in the database
-- Filter the articles on the current page by category
+- Filter articles by category across all pages
 - Responsive frontend
 
 ### Planned features
 
-- Category filtering across all pages
 - Article counts by category
 - Multiple tags per article and filtering by tag
 - Editing and deleting your own articles
@@ -194,8 +193,10 @@ loading; it does not test the database connection.
 ## 📝 Using Hummingbird
 
 Choose **Log in** to register or sign in, then **New Article** to publish.
-The homepage shows 12 articles per page, newest first. Category buttons currently
-filter only the displayed page.
+The homepage shows 12 articles per page, newest first. Category links filter in
+the database before pagination, so they include matching articles from all pages.
+The selected category stays active when moving between pages. Choose **All** to
+clear the filter. These links also work without JavaScript.
 
 Cover images are stored in `app/static/images/uploads/`. The folder is created
 when needed and its contents are ignored by Git. New files receive unique names.
@@ -252,7 +253,8 @@ Without `TEST_DATABASE_URL`, the database tests are skipped; that is not full
 verification. Upload tests use temporary folders.
 
 The suite covers authentication, article creation, pagination, validation,
-query loading, rollback, image cleanup, repeatable seeding, and schema compatibility.
+query loading, category filtering, rollback, image cleanup, repeatable seeding,
+schema compatibility, and migration round trips.
 
 Install the optional development tools and check the code:
 

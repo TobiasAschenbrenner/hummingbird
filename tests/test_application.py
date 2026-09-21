@@ -334,6 +334,43 @@ class ApplicationTests(unittest.TestCase):
         self.assertNotIn(b'"/article-0"', first_page)
         self.assertIn(b'"/article-0"', self.client.get("/?page=2").data)
 
+    def test_category_filtering_happens_before_pagination(self):
+        user = self.create_user()
+        for slug in ("tech", "design"):
+            category = Category.query.filter_by(slug=slug).one()
+            db.session.add_all(
+                Article(
+                    title=f"{slug} article {number}",
+                    slug=f"{slug}-{number}",
+                    author=user,
+                    category=category,
+                )
+                for number in range(13)
+            )
+        db.session.commit()
+        self.assertNotIn(b'href="/tech-', self.client.get("/").data)
+        first_page = self.client.get("/?category=tech")
+        self.assertEqual(first_page.status_code, 200)
+        self.assertEqual(first_page.data.count(b'class="article-card"'), 12)
+        self.assertIn(b'href="/tech-12"', first_page.data)
+        self.assertNotIn(b'href="/design-', first_page.data)
+        self.assertIn(b"page=2&amp;category=tech", first_page.data)
+        self.assertIn(b'aria-current="page">Tech</a>', first_page.data)
+        self.assertNotIn(b"article_filters.js", first_page.data)
+        second_page = self.client.get("/?category=tech&page=2")
+        self.assertEqual(second_page.data.count(b'class="article-card"'), 1)
+        self.assertIn(b'href="/tech-0"', second_page.data)
+        self.assertIn(b"page=1&amp;category=tech", second_page.data)
+        self.assertIn(b'href="/?category=design"', second_page.data)
+
+    def test_empty_and_unknown_category_filters(self):
+        empty = self.client.get("/?category=mobile")
+        self.assertEqual(empty.status_code, 200)
+        self.assertIn(b"No articles in this category yet", empty.data)
+        self.assertEqual(self.client.get("/?category=unknown").status_code, 404)
+        self.assertEqual(self.client.get("/?category=").status_code, 200)
+        self.assertEqual(self.client.get("/?category=tech&page=999").status_code, 404)
+
     def test_models_match_committed_migration(self):
         with db.engine.connect() as connection:
             context = MigrationContext.configure(
