@@ -8,13 +8,14 @@ from pathlib import Path
 
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
-from flask_migrate import upgrade
+from flask_migrate import downgrade, upgrade
 from sqlalchemy import event, text
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import IntegrityError
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from app import create_app
-from app.articles.models import Article
+from app.articles.models import Article, Category
 from app.extensions import db
 from app.users.models import User
 
@@ -22,6 +23,7 @@ PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8"
     "/x8AAwMCAO+a5WQAAAAASUVORK5CYII="
 )
+MIGRATIONS_DIRECTORY = str(Path(__file__).resolve().parents[1] / "migrations")
 
 
 class ApplicationTests(unittest.TestCase):
@@ -50,14 +52,20 @@ class ApplicationTests(unittest.TestCase):
             }
         )
         with cls.app.app_context():
-            upgrade(directory=str(Path(__file__).resolve().parents[1] / "migrations"))
+            upgrade(directory=MIGRATIONS_DIRECTORY)
 
     def setUp(self):
         self.context = self.app.app_context()
         self.context.push()
         self.addCleanup(self.context.pop)
         self.addCleanup(db.session.remove)
-        db.session.execute(text("TRUNCATE articles, users RESTART IDENTITY CASCADE"))
+        db.session.execute(
+            text("TRUNCATE articles, users, categories RESTART IDENTITY CASCADE")
+        )
+        db.session.add_all(
+            Category(slug=slug, name=slug.title())
+            for slug in ("design", "tech", "mobile")
+        )
         db.session.commit()
         for image in Path(self.uploads.name).iterdir():
             if image.is_file():
@@ -324,6 +332,38 @@ class ApplicationTests(unittest.TestCase):
                 connection, opts={"compare_type": True, "compare_server_default": True}
             )
             self.assertEqual(compare_metadata(context, db.metadata), [])
+
+    def test_category_slugs_are_unique(self):
+        db.session.add(Category(slug="tech", name="Another tech category"))
+        with self.assertRaises(IntegrityError):
+            db.session.commit()
+        db.session.rollback()
+        self.assertEqual(Category.query.filter_by(slug="tech").one().name, "Tech")
+
+    def test_category_migrations_preserve_existing_articles(self):
+        db.session.remove()
+        try:
+            downgrade(directory=MIGRATIONS_DIRECTORY, revision="b5c595757bd0")
+            db.session.execute(
+                text(
+                    "INSERT INTO articles (slug, title, text, category, img_url) "
+                    "VALUES ('old-story', 'Old story', 'Original body', 'tech', 'old.webp')"
+                )
+            )
+            db.session.commit()
+            db.session.remove()
+            upgrade(directory=MIGRATIONS_DIRECTORY)
+            self.assertEqual(
+                {category.slug for category in Category.query.all()},
+                {"design", "tech", "mobile"},
+            )
+            article = Article.query.filter_by(slug="old-story").one()
+            self.assertEqual(article.body, "Original body")
+            self.assertEqual(article.image_filename, "old.webp")
+        finally:
+            db.session.rollback()
+            db.session.remove()
+            upgrade(directory=MIGRATIONS_DIRECTORY)
 
     def test_demo_seed_is_repeatable_and_preserves_existing_data(self):
         existing_user = self.create_user()

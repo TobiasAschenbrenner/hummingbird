@@ -5,6 +5,14 @@ DESCRIPTION_MAX_LENGTH = 250
 CATEGORIES = ("design", "tech", "mobile")
 
 
+class Category(db.Model):
+    __tablename__ = "categories"
+
+    id = db.Column(db.Integer, primary_key=True)
+    slug = db.Column(db.String(80), nullable=False, unique=True)
+    name = db.Column(db.String(80), nullable=False)
+
+
 class Article(db.Model):
     __tablename__ = "articles"
 
