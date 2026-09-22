@@ -15,11 +15,12 @@ Readers can browse articles, and registered users can publish articles with cove
 - Filter articles by category across all pages
 - See the total number of articles in each category
 - Add up to five tags when publishing an article
+- Read tags on article cards and detail pages
 - Responsive frontend
 
 ### Planned features
 
-- Displaying tags and filtering by tag
+- Filtering by tag
 - Editing and deleting your own articles
 - Adding and deleting your own comments
 - Article search

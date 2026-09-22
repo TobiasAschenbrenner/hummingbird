@@ -28,6 +28,7 @@
           <time class="article-date" datetime="{{ article.created_at.isoformat() }}">{{ article.created_at }}</time>
         {% endif %}
         <p class="article-description">{{ article.description }}</p>
+        {% include "articles/_tags.html" %}
         {% if article.author %}
           <p class="author-name">{{ article.author.username }}</p>
         {% endif %}

@@ -1,0 +1,7 @@
+{% if article.tags %}
+  <ul class="article-tags" aria-label="Article tags">
+    {% for tag in article.tags %}
+      <li><span class="tag-label">{{ tag.name }}</span></li>
+    {% endfor %}
+  </ul>
+{% endif %}

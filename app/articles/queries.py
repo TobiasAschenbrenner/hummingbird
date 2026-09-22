@@ -1,5 +1,5 @@
 from sqlalchemy import func
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.articles.models import Article, Category
 from app.extensions import db
@@ -25,7 +25,9 @@ def list_categories_with_article_counts():
 
 def paginate_articles(*, page, per_page, category_id=None):
     query = Article.query.options(
-        joinedload(Article.author), joinedload(Article.category)
+        joinedload(Article.author),
+        joinedload(Article.category),
+        selectinload(Article.tags),
     )
     if category_id is not None:
         query = query.filter(Article.category_id == category_id)
@@ -34,7 +36,11 @@ def paginate_articles(*, page, per_page, category_id=None):
 
 def get_article_by_slug(slug):
     return (
-        Article.query.options(joinedload(Article.author), joinedload(Article.category))
+        Article.query.options(
+            joinedload(Article.author),
+            joinedload(Article.category),
+            selectinload(Article.tags),
+        )
         .filter_by(slug=slug)
         .first()
     )

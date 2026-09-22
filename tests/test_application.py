@@ -383,7 +383,7 @@ class ApplicationTests(unittest.TestCase):
         self.assertIn(b"already registered", response.data)
         self.assertEqual(User.query.count(), 1)
 
-    def test_author_loading_does_not_add_per_article_queries(self):
+    def test_related_data_loading_does_not_add_per_article_queries(self):
         from app.articles.queries import paginate_articles
 
         users = [
@@ -391,6 +391,7 @@ class ApplicationTests(unittest.TestCase):
             for number in range(3)
         ]
         category = Category.query.filter_by(slug="tech").one()
+        tags = [Tag(slug="python", name="Python"), Tag(slug="flask", name="Flask")]
         db.session.add_all(
             [
                 Article(
@@ -398,6 +399,7 @@ class ApplicationTests(unittest.TestCase):
                     slug=f"article-{number}",
                     author_id=user.id,
                     category=category,
+                    tags=tags,
                 )
                 for number, user in enumerate(users)
             ]
@@ -420,9 +422,37 @@ class ApplicationTests(unittest.TestCase):
             self.assertEqual(
                 [article.category.name for article in articles], ["Tech"] * 3
             )
+            self.assertEqual(
+                [[tag.name for tag in article.tags] for article in articles],
+                [["Flask", "Python"]] * 3,
+            )
         finally:
             event.remove(db.engine, "before_cursor_execute", record_statement)
-        self.assertLessEqual(len(statements), 2)
+        self.assertLessEqual(len(statements), 3)
+
+    def test_tags_are_visible_and_escaped_on_article_pages(self):
+        db.session.add(
+            Article(
+                title="Tagged story",
+                slug="tagged-story",
+                body="Body",
+                tags=[Tag(slug="unsafe-label", name="<script>alert(1)</script>")],
+            )
+        )
+        db.session.commit()
+        for path in ("/", "/tagged-story"):
+            with self.subTest(path=path):
+                response = self.client.get(path)
+                self.assertEqual(response.status_code, 200)
+                self.assertIn(b'aria-label="Article tags"', response.data)
+                self.assertIn(b"&lt;script&gt;alert(1)&lt;/script&gt;", response.data)
+                self.assertNotIn(b"<script>alert(1)</script>", response.data)
+
+    def test_articles_without_tags_do_not_render_an_empty_tag_list(self):
+        db.session.add(Article(title="No tags", slug="no-tags", body="Body"))
+        db.session.commit()
+        for path in ("/", "/no-tags"):
+            self.assertNotIn(b'aria-label="Article tags"', self.client.get(path).data)
 
     def test_article_order_and_pagination(self):
         user = self.create_user()
