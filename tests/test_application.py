@@ -15,7 +15,7 @@ from sqlalchemy.exc import DBAPIError, IntegrityError
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from app import create_app
-from app.articles.models import Article, Category
+from app.articles.models import Article, Category, Tag, article_tags
 from app.extensions import db
 from app.users.models import User
 
@@ -60,7 +60,7 @@ class ApplicationTests(unittest.TestCase):
         self.addCleanup(self.context.pop)
         self.addCleanup(db.session.remove)
         db.session.execute(
-            text("TRUNCATE articles, users, categories RESTART IDENTITY CASCADE")
+            text("TRUNCATE articles, users, categories, tags RESTART IDENTITY CASCADE")
         )
         db.session.add_all(
             Category(slug=slug, name=slug.title())
@@ -419,6 +419,83 @@ class ApplicationTests(unittest.TestCase):
                 connection, opts={"compare_type": True, "compare_server_default": True}
             )
             self.assertEqual(compare_metadata(context, db.metadata), [])
+
+    def test_tag_associations_enforce_unique_pairs_and_valid_references(self):
+        tag = Tag(slug="python", name="Python")
+        article = Article(slug="tagged-story", tags=[tag])
+        db.session.add(article)
+        db.session.commit()
+        for article_id, tag_id in (
+            (article.id, tag.id),
+            (-1, tag.id),
+            (article.id, -1),
+        ):
+            with self.subTest(article_id=article_id, tag_id=tag_id):
+                with self.assertRaises(IntegrityError):
+                    db.session.execute(
+                        article_tags.insert().values(
+                            article_id=article_id, tag_id=tag_id
+                        )
+                    )
+                    db.session.commit()
+                db.session.rollback()
+        self.assertEqual(
+            db.session.execute(db.select(article_tags)).all(), [(article.id, tag.id)]
+        )
+
+    def test_tag_deletion_cascades_only_to_associations(self):
+        shared = Tag(slug="python", name="Python")
+        other = Tag(slug="flask", name="Flask")
+        first = Article(slug="first", tags=[shared, other])
+        second = Article(slug="second", tags=[shared])
+        db.session.add_all([first, second])
+        db.session.commit()
+        first_id, shared_id = first.id, shared.id
+        db.session.execute(
+            text("DELETE FROM articles WHERE id = :id"), {"id": first_id}
+        )
+        db.session.commit()
+        self.assertEqual(Tag.query.count(), 2)
+        self.assertEqual(second.tags, [shared])
+        db.session.execute(text("DELETE FROM tags WHERE id = :id"), {"id": shared_id})
+        db.session.commit()
+        self.assertEqual(Article.query.count(), 1)
+        self.assertEqual(second.tags, [])
+        self.assertEqual(Tag.query.one().slug, "flask")
+
+    def test_tag_constraints_reject_duplicate_slugs_and_blank_values(self):
+        db.session.add(Tag(slug="python", name="Python"))
+        db.session.commit()
+        for values in (
+            {"slug": "python", "name": "Duplicate"},
+            {"slug": "", "name": "Empty slug"},
+            {"slug": "blank", "name": " "},
+            {"slug": "missing", "name": None},
+        ):
+            with self.subTest(values=values):
+                db.session.add(Tag(**values))
+                with self.assertRaises(IntegrityError):
+                    db.session.commit()
+                db.session.rollback()
+        self.assertEqual(Tag.query.count(), 1)
+
+    def test_tag_migration_preserves_existing_articles(self):
+        user = self.create_user()
+        db.session.add(Article(title="Existing article", slug="existing", author=user))
+        db.session.commit()
+        before = db.session.execute(text("SELECT * FROM articles ORDER BY id")).all()
+        db.session.remove()
+        try:
+            downgrade(directory=MIGRATIONS_DIRECTORY, revision="b24d0f932002")
+            upgrade(directory=MIGRATIONS_DIRECTORY)
+            after = db.session.execute(text("SELECT * FROM articles ORDER BY id")).all()
+            self.assertEqual(after, before)
+            self.assertEqual(Article.query.one().tags, [])
+            self.assertEqual(Tag.query.count(), 0)
+        finally:
+            db.session.rollback()
+            db.session.remove()
+            upgrade(directory=MIGRATIONS_DIRECTORY)
 
     def test_category_slugs_are_unique(self):
         db.session.add(Category(slug="tech", name="Another tech category"))

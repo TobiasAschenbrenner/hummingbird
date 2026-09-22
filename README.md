@@ -163,6 +163,10 @@ There is no category-management screen yet.
 Downgrading to the old schema is blocked if an article uses a category slug
 longer than its former 10-character limit, to avoid truncating data.
 
+The tag migration adds empty storage without changing existing articles.
+Downgrading that migration removes all tags and their article associations;
+back up that data before any downgrade.
+
 ---
 
 ## ▶️ Running the Application
