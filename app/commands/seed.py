@@ -8,10 +8,16 @@ from werkzeug.security import generate_password_hash
 
 from app.articles.models import Article
 from app.articles.queries import list_categories
+from app.articles.tags import get_or_create_tags, parse_tag_names
 from app.extensions import db
 from app.users.models import User
 
 DEMO_EMAIL = "demo@hummingbird.example"
+DEMO_TAG_GROUPS = (
+    "Getting Started, Tutorials",
+    "Databases, Tutorials",
+    "Web Development, Databases",
+)
 
 
 def add_demo_articles(*, author, count):
@@ -26,25 +32,39 @@ def add_demo_articles(*, author, count):
             Article.slug.like("hummingbird-demo-%")
         )
     }
-    created = 0
-    for number in range(1, count + 1):
-        slug = f"hummingbird-demo-{number:03d}"
-        if slug in existing_slugs:
-            continue
+    missing_numbers = [
+        number
+        for number in range(1, count + 1)
+        if f"hummingbird-demo-{number:03d}" not in existing_slugs
+    ]
+    if not missing_numbers:
+        return 0
+    tag_groups = [parse_tag_names(group) for group in DEMO_TAG_GROUPS]
+    needed_tags = {
+        tag_slug: name
+        for number in missing_numbers
+        for tag_slug, name in tag_groups[(number - 1) % len(tag_groups)].items()
+    }
+    tags_by_slug = {tag.slug: tag for tag in get_or_create_tags(needed_tags)}
+    for number in missing_numbers:
+        article_slug = f"hummingbird-demo-{number:03d}"
         category = categories[(number - 1) % len(categories)]
         db.session.add(
             Article(
                 title=f"Demo article {number}",
-                slug=slug,
+                slug=article_slug,
                 description=f"A sample article about {category.name} for local development.",
                 body=f"This is demo article {number}.\n\nUse it to explore article pages, authors, and pagination.",
                 category=category,
+                tags=[
+                    tags_by_slug[tag_slug]
+                    for tag_slug in tag_groups[(number - 1) % len(tag_groups)]
+                ],
                 created_at=date(2024, 1, 1) + timedelta(days=number - 1),
                 author=author,
             )
         )
-        created += 1
-    return created
+    return len(missing_numbers)
 
 
 @click.command("seed-demo")

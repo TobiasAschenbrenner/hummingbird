@@ -872,12 +872,28 @@ class ApplicationTests(unittest.TestCase):
         self.assertTrue(
             all(article.author_id == demo_user.id for article in Article.query.all())
         )
+        self.assertEqual(Tag.query.count(), 4)
+        self.assertEqual(len(db.session.execute(db.select(article_tags)).all()), 6)
         for article in Article.query.all():
+            self.assertEqual(len(article.tags), 2)
             self.assertEqual(self.client.get(f"/{article.slug}").status_code, 200)
+        first_demo = Article.query.filter_by(slug="hummingbird-demo-001").one()
+        first_demo.tags = [Tag(slug="personal", name="Personal")]
+        first_demo.body = "My edited demo article"
+        db.session.commit()
+        existing_associations = set(db.session.execute(db.select(article_tags)).all())
         result = runner.invoke(args=["seed-demo", "--count", "3"])
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertIn("Created 0 articles", result.output)
         self.assertEqual(Article.query.count(), 3)
+        self.assertEqual(Tag.query.count(), 5)
+        self.assertEqual(
+            set(db.session.execute(db.select(article_tags)).all()),
+            existing_associations,
+        )
+        first_demo = Article.query.filter_by(slug="hummingbird-demo-001").one()
+        self.assertEqual(first_demo.body, "My edited demo article")
+        self.assertEqual([tag.slug for tag in first_demo.tags], ["personal"])
         self.assertEqual(
             User.query.filter_by(email="demo@hummingbird.example").one().password_hash,
             original_demo_hash,
@@ -885,6 +901,24 @@ class ApplicationTests(unittest.TestCase):
         self.assertEqual(
             User.query.filter_by(email="author@example.test").one().password_hash,
             existing_hash,
+        )
+        result = runner.invoke(args=["seed-demo", "--count", "4"])
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIn("Created 1 articles", result.output)
+        self.assertEqual(Tag.query.count(), 5)
+        self.assertTrue(
+            existing_associations.issubset(
+                set(db.session.execute(db.select(article_tags)).all())
+            )
+        )
+        self.assertEqual(
+            {
+                tag.slug
+                for tag in Article.query.filter_by(slug="hummingbird-demo-004")
+                .one()
+                .tags
+            },
+            {"getting-started", "tutorials"},
         )
 
     def test_existing_database_column_names_remain_readable(self):
@@ -936,6 +970,8 @@ class ApplicationTests(unittest.TestCase):
         self.assertNotEqual(result.exit_code, 0)
         self.assertEqual(User.query.count(), 0)
         self.assertEqual(Article.query.count(), 0)
+        self.assertEqual(Tag.query.count(), 0)
+        self.assertEqual(db.session.execute(db.select(article_tags)).all(), [])
 
     def test_registration_validation(self):
         data = {

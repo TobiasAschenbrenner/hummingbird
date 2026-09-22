@@ -235,10 +235,14 @@ By default, this creates:
 
 - One demo account: `demo@hummingbird.example`
 - 18 sample articles across design, tech, and mobile
+- Four reusable tags and 36 article/tag associations on a fresh database
 
 On the first run, choose the demo account's password at the hidden prompt.
 Rerunning the command fills in missing samples without changing existing demo
 articles or credentials. Use `--count 30` to request 30 sample articles in total.
+New demo articles receive two tags from a fixed sequence: Getting Started,
+Tutorials, Databases, and Web Development. Existing articles keep their tags,
+including any changes you made; rerunning the seed does not backfill older samples.
 
 Sample dates start on January 1, 2024. Articles use an image placeholder and
 cycle through the categories currently stored in the database.
@@ -272,8 +276,9 @@ Without `TEST_DATABASE_URL`, the database tests are skipped; that is not full
 verification. Upload tests use temporary folders.
 
 The suite covers authentication, article creation, pagination, validation,
-query loading, category filtering and counts, rollback, image cleanup, repeatable seeding,
-schema compatibility, and migration round trips.
+query loading, category/tag filtering, counts, rollback, image cleanup, repeatable
+seeding, schema compatibility, and migration round trips. Tag tests also check
+concurrent publishing, duplicate prevention, and association cleanup on deletion.
 
 Install the optional development tools and check the code:
 
