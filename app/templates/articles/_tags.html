@@ -1,7 +1,7 @@
 {% if article.tags %}
   <ul class="article-tags" aria-label="Article tags">
     {% for tag in article.tags %}
-      <li><span class="tag-label">{{ tag.name }}</span></li>
+      <li><a class="tag-label" href="{{ url_for('articles.index', tag=tag.slug, category=selected_category.slug if selected_category else None) }}">{{ tag.name }}</a></li>
     {% endfor %}
   </ul>
 {% endif %}

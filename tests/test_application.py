@@ -515,6 +515,106 @@ class ApplicationTests(unittest.TestCase):
         self.assertEqual(self.client.get("/?category=").status_code, 200)
         self.assertEqual(self.client.get("/?category=tech&page=999").status_code, 404)
 
+    def test_tag_filtering_combines_with_categories_and_pagination(self):
+        from app.articles.queries import (
+            list_categories_with_article_counts,
+            paginate_articles,
+        )
+
+        python = Tag(slug="python", name="Python")
+        flask = Tag(slug="flask", name="Flask")
+        tech = Category.query.filter_by(slug="tech").one()
+        design = Category.query.filter_by(slug="design").one()
+        db.session.add_all(
+            Article(
+                title=f"Tech {number}",
+                slug=f"tech-{number}",
+                category=tech,
+                tags=[python, flask],
+            )
+            for number in range(13)
+        )
+        db.session.add_all(
+            Article(
+                title=f"Design {number}",
+                slug=f"design-{number}",
+                category=design,
+                tags=[python],
+            )
+            for number in range(2)
+        )
+        db.session.add(
+            Article(
+                title="Flask only", slug="flask-only", category=design, tags=[flask]
+            )
+        )
+        db.session.commit()
+        pagination = paginate_articles(page=1, per_page=12, tag_id=python.id)
+        self.assertEqual(pagination.total, 15)
+        self.assertEqual(len({article.id for article in pagination.items}), 12)
+        self.assertEqual(
+            {
+                category.slug: count
+                for category, count in list_categories_with_article_counts(
+                    tag_id=python.id
+                )
+            },
+            {"tech": 13, "design": 2, "mobile": 0},
+        )
+        tagged = self.client.get("/?tag=python")
+        self.assertEqual(tagged.status_code, 200)
+        self.assertIn(b"Design (2)", tagged.data)
+        self.assertIn(b"Mobile (0)", tagged.data)
+        self.assertIn(b'href="/?page=2&amp;tag=python"', tagged.data)
+        self.assertNotIn(b'href="/flask-only"', tagged.data)
+        self.assertEqual(
+            self.client.get("/?tag=python&page=2").data.count(b'class="article-card"'),
+            3,
+        )
+        combined = self.client.get("/?category=tech&tag=python")
+        self.assertEqual(combined.data.count(b'class="article-card"'), 12)
+        self.assertNotIn(b'href="/design-', combined.data)
+        self.assertIn(
+            b'href="/?page=2&amp;category=tech&amp;tag=python"', combined.data
+        )
+        self.assertIn(b'href="/?tag=python"', combined.data)
+        self.assertIn(b'href="/?category=tech">Clear tag filter', combined.data)
+        self.assertIn(b'href="/?tag=flask&amp;category=tech"', combined.data)
+        second = self.client.get("/?category=tech&tag=python&page=2")
+        self.assertEqual(second.data.count(b'class="article-card"'), 1)
+        self.assertIn(b'href="/?category=design&amp;tag=python"', second.data)
+        self.assertEqual(
+            self.client.get("/?category=mobile&tag=python").status_code, 200
+        )
+
+    def test_empty_and_unknown_tag_filters(self):
+        db.session.add(Tag(slug="unused", name="Unused"))
+        db.session.commit()
+        response = self.client.get("/?tag=unused")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"No articles match these filters", response.data)
+        self.assertIn(b"Design (0)", response.data)
+        self.assertEqual(self.client.get("/?tag=unknown").status_code, 404)
+        self.assertEqual(
+            self.client.get("/?tag=unused&category=unknown").status_code, 404
+        )
+        self.assertEqual(self.client.get("/?tag=").status_code, 200)
+
+    def test_tag_links_work_with_unicode_names(self):
+        db.session.add(
+            Article(
+                title="Coffee story",
+                slug="coffee-story",
+                tags=[Tag(slug="café", name="Café")],
+            )
+        )
+        db.session.commit()
+        for path in ("/", "/coffee-story"):
+            self.assertIn(b'href="/?tag=caf%C3%A9"', self.client.get(path).data)
+        response = self.client.get("/", query_string={"tag": "café"})
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Coffee story", response.data)
+
     def test_category_counts_include_empty_categories_and_all_pages(self):
         from app.articles.queries import list_categories_with_article_counts
 

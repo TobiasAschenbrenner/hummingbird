@@ -16,11 +16,11 @@ Readers can browse articles, and registered users can publish articles with cove
 - See the total number of articles in each category
 - Add up to five tags when publishing an article
 - Read tags on article cards and detail pages
+- Filter by tag, optionally combined with a category
 - Responsive frontend
 
 ### Planned features
 
-- Filtering by tag
 - Editing and deleting your own articles
 - Adding and deleting your own comments
 - Article search
@@ -207,11 +207,14 @@ are saved in one transaction. A failed save rolls them back and removes the new 
 
 The homepage shows 12 articles per page, newest first. Category links filter in
 the database before pagination, so they include matching articles from all pages.
-The selected category stays active when moving between pages. Choose **All** to
-clear the filter. These links also work without JavaScript.
+The selected filters stay active when moving between pages. Click a tag on an
+article to find related articles. Choose **All** to clear the category, **Clear
+tag filter** to clear the tag, or **Home** to clear both. These links also work
+without JavaScript.
 
 The number beside each category counts all its articles, not just the current
-page. Empty categories show zero. The counts come from one database query using
+page. With a tag selected, counts include only articles with that tag.
+Empty categories show zero. The counts come from one database query using
 a left join, `COUNT`, and `GROUP BY`.
 
 Cover images are stored in `app/static/images/uploads/`. The folder is created

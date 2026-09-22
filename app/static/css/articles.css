@@ -80,6 +80,18 @@
 .article-tags li {
   max-width: 100%;
 }
+.active-tag {
+  margin-top: 1rem;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+.active-tag a {
+  text-decoration: underline;
+}
+.tag-label:hover,
+.tag-label:focus-visible {
+  border-color: var(--accent);
+}
 .tag-label {
   display: inline-block;
   padding: 0.2rem 0.5rem;

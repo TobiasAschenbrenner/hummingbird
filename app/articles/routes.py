@@ -14,6 +14,7 @@ from app.articles.models import DESCRIPTION_MAX_LENGTH, TITLE_MAX_LENGTH
 from app.articles.queries import (
     get_article_by_slug,
     get_category_by_slug,
+    get_tag_by_slug,
     list_categories,
     list_categories_with_article_counts,
     paginate_articles,
@@ -32,16 +33,23 @@ def index():
     selected_category = get_category_by_slug(category_slug) if category_slug else None
     if category_slug and selected_category is None:
         abort(404)
+    tag_slug = request.args.get("tag", "")
+    selected_tag = get_tag_by_slug(tag_slug) if tag_slug else None
+    if tag_slug and selected_tag is None:
+        abort(404)
+    tag_id = selected_tag.id if selected_tag else None
     pagination = paginate_articles(
         page=request.args.get("page", 1, type=int),
         per_page=current_app.config["BLOG_POSTS_PER_PAGE"],
         category_id=selected_category.id if selected_category else None,
+        tag_id=tag_id,
     )
     return render_template(
         "articles/index.html",
         pagination=pagination,
-        category_counts=list_categories_with_article_counts(),
+        category_counts=list_categories_with_article_counts(tag_id=tag_id),
         selected_category=selected_category,
+        selected_tag=selected_tag,
     )
 
 
