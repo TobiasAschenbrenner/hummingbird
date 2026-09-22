@@ -32,6 +32,11 @@
         </select>
       </div>
       <div class="form-field">
+        <label for="article-tags">Tags (optional)</label>
+        <input id="article-tags" name="tags" placeholder="Python, Databases" maxlength="{{ max_tag_input_length }}" value="{{ form.get('tags', '') }}" aria-describedby="article-tags-help">
+        <small id="article-tags-help">Separate up to {{ max_article_tags }} tags with commas. Use letters, numbers, spaces, or single hyphens.</small>
+      </div>
+      <div class="form-field">
         <label class="visually-hidden" for="article-body">Article text</label>
         <textarea id="article-body" name="body" placeholder="Text" class="body-input" required>{{ form.get('body', '') }}</textarea>
       </div>

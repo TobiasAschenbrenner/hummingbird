@@ -9,6 +9,7 @@ from app.articles.models import (
     Article,
 )
 from app.articles.queries import get_category_by_slug
+from app.articles.tags import get_or_create_tags, parse_tag_names
 from app.articles.uploads import remove_image, save_image
 from app.errors import ValidationError
 from app.extensions import db
@@ -45,8 +46,10 @@ def create_article(
     image,
     upload_directory,
     allowed_extensions,
+    tag_names="",
 ):
     values = validate_article(title=title, description=description, body=body)
+    parsed_tags = parse_tag_names(tag_names)
     category = get_category_by_slug(category_slug.strip())
     if category is None:
         raise ValidationError("Please choose a supported category.")
@@ -57,14 +60,16 @@ def create_article(
     filename = save_image(
         image, directory=upload_directory, allowed_extensions=allowed_extensions
     )
-    article = Article(
-        **values,
-        category=category,
-        author_id=author_id,
-        created_at=date.today(),
-        image_filename=filename,
-    )
     try:
+        tags = get_or_create_tags(parsed_tags)
+        article = Article(
+            **values,
+            category=category,
+            author_id=author_id,
+            created_at=date.today(),
+            image_filename=filename,
+            tags=tags,
+        )
         db.session.add(article)
         db.session.commit()
     except Exception as error:

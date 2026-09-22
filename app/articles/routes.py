@@ -19,6 +19,7 @@ from app.articles.queries import (
     paginate_articles,
 )
 from app.articles.services import create_article
+from app.articles.tags import MAX_ARTICLE_TAGS, MAX_TAG_INPUT_LENGTH
 from app.errors import ValidationError
 from app.extensions import db
 
@@ -52,6 +53,8 @@ def render_article_form(*, error=None, status=200):
         categories=list_categories(),
         title_max_length=TITLE_MAX_LENGTH,
         description_max_length=DESCRIPTION_MAX_LENGTH,
+        max_article_tags=MAX_ARTICLE_TAGS,
+        max_tag_input_length=MAX_TAG_INPUT_LENGTH,
         allowed_extensions=sorted(current_app.config["ALLOWED_EXTENSIONS"]),
     ), status
 
@@ -72,6 +75,7 @@ def submit_article():
             description=request.form.get("description", ""),
             category_slug=request.form.get("category", ""),
             body=request.form.get("body", ""),
+            tag_names=request.form.get("tags", ""),
             image=request.files.get("image"),
             upload_directory=current_app.config["UPLOADS_PATH"],
             allowed_extensions=current_app.config["ALLOWED_EXTENSIONS"],

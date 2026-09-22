@@ -14,11 +14,12 @@ Readers can browse articles, and registered users can publish articles with cove
 - Choose categories stored in the database
 - Filter articles by category across all pages
 - See the total number of articles in each category
+- Add up to five tags when publishing an article
 - Responsive frontend
 
 ### Planned features
 
-- Multiple tags per article and filtering by tag
+- Displaying tags and filtering by tag
 - Editing and deleting your own articles
 - Adding and deleting your own comments
 - Article search
@@ -197,6 +198,12 @@ loading; it does not test the database connection.
 ## 📝 Using Hummingbird
 
 Choose **Log in** to register or sign in, then **New Article** to publish.
+Tags are optional: enter up to five names separated by commas, such as
+`Python, Databases`. Each name can contain up to 40 letters, numbers, spaces,
+or single hyphens. Capitalization and equivalent spacing do not create duplicate
+tags; existing display names are kept. Articles, new tags, and their associations
+are saved in one transaction. A failed save rolls them back and removes the new upload.
+
 The homepage shows 12 articles per page, newest first. Category links filter in
 the database before pagination, so they include matching articles from all pages.
 The selected category stays active when moving between pages. Choose **All** to

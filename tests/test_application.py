@@ -3,8 +3,10 @@ import io
 import os
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from pathlib import Path
+from threading import Barrier
 
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
@@ -232,19 +234,131 @@ class ApplicationTests(unittest.TestCase):
         event.listen(Article, "before_insert", force_duplicate_slug)
         try:
             response = self.client.post(
-                "/new-post", data=self.article_data(title="Concurrent article")
+                "/new-post",
+                data=self.article_data(title="Concurrent article", tags="New Topic"),
             )
         finally:
             event.remove(Article, "before_insert", force_duplicate_slug)
         self.assertEqual(response.status_code, 400)
         self.assertIn(b"already exists", response.data)
         self.assertEqual(Article.query.count(), 1)
+        self.assertEqual(Tag.query.count(), 0)
+        self.assertEqual(db.session.execute(db.select(article_tags)).all(), [])
         self.assertEqual(set(Path(self.uploads.name).iterdir()), existing_files)
         response = self.client.post(
-            "/new-post", data=self.article_data(title="After rollback")
+            "/new-post",
+            data=self.article_data(title="After rollback", tags="New Topic"),
         )
         self.assertEqual(response.status_code, 302)
         self.assertEqual(Article.query.count(), 2)
+        self.assertEqual(Tag.query.one().slug, "new-topic")
+
+    def test_article_tags_are_normalized_deduplicated_and_shared(self):
+        self.create_user()
+        self.login()
+        response = self.client.post(
+            "/new-post",
+            data=self.article_data(
+                tags=" Python, python, Machine  Learning, machine-learning, Café, Cafe\u0301, , "
+            ),
+        )
+        self.assertEqual(response.status_code, 302)
+        first = Article.query.one()
+        self.assertEqual(
+            {tag.slug for tag in first.tags}, {"python", "machine-learning", "café"}
+        )
+        response = self.client.post(
+            "/new-post", data=self.article_data(title="Second article", tags="PYTHON")
+        )
+        self.assertEqual(response.status_code, 302)
+        python_tag = Tag.query.filter_by(slug="python").one()
+        self.assertEqual(python_tag.name, "Python")
+        self.assertEqual(len(python_tag.articles), 2)
+        self.assertEqual(Tag.query.count(), 3)
+        self.assertEqual(len(db.session.execute(db.select(article_tags)).all()), 4)
+
+    def test_invalid_tags_do_not_write_articles_tags_or_images(self):
+        self.create_user()
+        self.login()
+        for tags in (
+            "a" * 251,
+            "a" * 41,
+            "a,b,c,d,e,f",
+            "<script>",
+            "two--hyphens",
+            "under_score",
+        ):
+            with self.subTest(tags=tags):
+                response = self.client.post(
+                    "/new-post", data=self.article_data(tags=tags)
+                )
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(Article.query.count(), 0)
+                self.assertEqual(Tag.query.count(), 0)
+                self.assertEqual(list(Path(self.uploads.name).iterdir()), [])
+        valid = self.client.post(
+            "/new-post", data=self.article_data(tags=f"{'a' * 40},b,c,d,e")
+        )
+        self.assertEqual(valid.status_code, 302)
+        self.assertEqual(len(Article.query.one().tags), 5)
+
+    def test_tag_form_preserves_input_after_validation_errors(self):
+        self.create_user()
+        self.login()
+        self.assertIn(b'name="tags"', self.client.get("/new-post").data)
+        response = self.client.post(
+            "/new-post", data=self.article_data(title="", tags="Python, Databases")
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(b'value="Python, Databases"', response.data)
+        self.assertEqual(Tag.query.count(), 0)
+
+    def test_concurrent_posts_reuse_the_same_tags(self):
+        self.create_user()
+        db.session.remove()
+        barrier = Barrier(2)
+
+        def synchronize_tag_inserts(
+            connection, cursor, statement, parameters, context, executemany
+        ):
+            if statement.startswith("INSERT INTO tags"):
+                barrier.wait(timeout=5)
+
+        def publish(number, tags):
+            with self.app.test_client() as client:
+                response = client.post(
+                    "/auth/login",
+                    data={
+                        "login_email": "author@example.test",
+                        "login_password": "password123",
+                    },
+                )
+                if response.status_code != 302:
+                    raise AssertionError("Worker login failed")
+                response = client.post(
+                    "/new-post",
+                    data=self.article_data(
+                        title=f"Concurrent post {number}", tags=tags
+                    ),
+                )
+                return response.status_code
+
+        engine = db.engine
+        event.listen(engine, "before_cursor_execute", synchronize_tag_inserts)
+        try:
+            with ThreadPoolExecutor(max_workers=2) as workers:
+                results = [
+                    workers.submit(publish, 1, "Python, Databases"),
+                    workers.submit(publish, 2, "Databases, python"),
+                ]
+                self.assertEqual(
+                    [result.result(timeout=10) for result in results], [302, 302]
+                )
+        finally:
+            event.remove(engine, "before_cursor_execute", synchronize_tag_inserts)
+        self.assertEqual(Tag.query.count(), 2)
+        self.assertEqual(Article.query.count(), 2)
+        self.assertEqual(len(db.session.execute(db.select(article_tags)).all()), 4)
 
     def test_concurrent_registration_duplicate_is_handled(self):
         self.create_user()
