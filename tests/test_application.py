@@ -664,6 +664,138 @@ class ApplicationTests(unittest.TestCase):
             )
             self.assertEqual(compare_metadata(context, db.metadata), [])
 
+    def test_user_required_fields_reject_invalid_inserts_and_updates(self):
+        user = self.create_user()
+        user_id = user.id
+        valid_values = {
+            "username": "Another Author",
+            "email": "another@example.test",
+            "password": user.password_hash,
+        }
+        before = db.session.execute(text("SELECT * FROM users ORDER BY id")).all()
+        for column in valid_values:
+            for value in (None, "", "   ", " \t\n\r\f\v "):
+                statements = {
+                    "insert": User.__table__.insert().values(
+                        {**valid_values, column: value}
+                    ),
+                    "update": User.__table__.update()
+                    .where(User.id == user_id)
+                    .values({column: value}),
+                }
+                for operation, statement in statements.items():
+                    with self.subTest(column=column, value=value, operation=operation):
+                        with self.assertRaises(IntegrityError) as raised:
+                            db.session.execute(statement)
+                            db.session.commit()
+                        db.session.rollback()
+                        if value is None:
+                            self.assertEqual(raised.exception.orig.pgcode, "23502")
+                            self.assertEqual(
+                                raised.exception.orig.diag.column_name, column
+                            )
+                        else:
+                            self.assertEqual(raised.exception.orig.pgcode, "23514")
+                            self.assertEqual(
+                                raised.exception.orig.diag.constraint_name,
+                                f"users_{column}_not_blank",
+                            )
+        self.assertEqual(
+            db.session.execute(text("SELECT * FROM users ORDER BY id")).all(), before
+        )
+
+    def test_user_field_migration_preserves_users_and_articles(self):
+        user = self.create_user(email="Mixed.Case@example.test")
+        user.username = "  Zoë Author  "
+        db.session.add(Article(title="Existing story", slug="existing", author=user))
+        db.session.commit()
+        before_users = db.session.execute(text("SELECT * FROM users ORDER BY id")).all()
+        before_articles = db.session.execute(
+            text("SELECT * FROM articles ORDER BY id")
+        ).all()
+        db.session.remove()
+        try:
+            downgrade(directory=MIGRATIONS_DIRECTORY, revision="c35e1fa43003")
+            upgrade(directory=MIGRATIONS_DIRECTORY)
+            self.assertEqual(
+                db.session.execute(text("SELECT * FROM users ORDER BY id")).all(),
+                before_users,
+            )
+            self.assertEqual(
+                db.session.execute(text("SELECT * FROM articles ORDER BY id")).all(),
+                before_articles,
+            )
+            self.assertTrue(
+                check_password_hash(User.query.one().password_hash, "password123")
+            )
+            self.assertEqual(self.client.get("/existing").status_code, 200)
+            db.session.remove()
+            downgrade(directory=MIGRATIONS_DIRECTORY, revision="c35e1fa43003")
+            self.assertEqual(
+                db.session.execute(text("SELECT * FROM users ORDER BY id")).all(),
+                before_users,
+            )
+            self.assertEqual(
+                db.session.execute(text("SELECT * FROM articles ORDER BY id")).all(),
+                before_articles,
+            )
+        finally:
+            db.session.remove()
+            upgrade(directory=MIGRATIONS_DIRECTORY)
+
+    def test_user_field_migration_refuses_invalid_existing_users(self):
+        self.create_user()
+        valid_values = {
+            "username": "Legacy Author",
+            "email": "legacy@example.test",
+            "password": generate_password_hash("legacy-password"),
+        }
+        db.session.remove()
+        try:
+            downgrade(directory=MIGRATIONS_DIRECTORY, revision="c35e1fa43003")
+            for column in valid_values:
+                for value in (None, "", "   ", " \t\n\r\f\v "):
+                    with self.subTest(column=column, value=value):
+                        invalid_user_id = db.session.execute(
+                            User.__table__.insert()
+                            .values({**valid_values, column: value})
+                            .returning(User.id)
+                        ).scalar_one()
+                        db.session.commit()
+                        before = db.session.execute(
+                            text("SELECT * FROM users ORDER BY id")
+                        ).all()
+                        db.session.remove()
+                        try:
+                            with self.assertRaisesRegex(
+                                DBAPIError, "Cannot enforce required user fields"
+                            ):
+                                upgrade(directory=MIGRATIONS_DIRECTORY)
+                            self.assertEqual(
+                                db.session.execute(
+                                    text("SELECT version_num FROM alembic_version")
+                                ).scalar_one(),
+                                "c35e1fa43003",
+                            )
+                            self.assertEqual(
+                                db.session.execute(
+                                    text("SELECT * FROM users ORDER BY id")
+                                ).all(),
+                                before,
+                            )
+                        finally:
+                            db.session.rollback()
+                            db.session.execute(
+                                User.__table__.delete().where(
+                                    User.id == invalid_user_id
+                                )
+                            )
+                            db.session.commit()
+                            db.session.remove()
+        finally:
+            db.session.remove()
+            upgrade(directory=MIGRATIONS_DIRECTORY)
+
     def test_tag_associations_enforce_unique_pairs_and_valid_references(self):
         tag = Tag(slug="python", name="Python")
         article = Article(slug="tagged-story", tags=[tag])

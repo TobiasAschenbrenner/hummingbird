@@ -156,6 +156,11 @@ FLASK_APP=run.py python -m flask db current
 Run the upgrade command after pulling changes that introduce new migrations.
 Back up any database containing data you want to keep before upgrading it.
 
+Usernames, email addresses, and stored password hashes are required and cannot
+be empty or contain only whitespace. The user-field migration stops if existing
+records violate these rules; review and correct those records before retrying.
+It does not rewrite or delete user data.
+
 The category migrations keep existing articles and create records for their
 existing category values. Legacy articles with no category keep that missing
 value and display as "Uncategorized"; new article submissions require a category.
