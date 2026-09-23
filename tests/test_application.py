@@ -105,6 +105,16 @@ class ApplicationTests(unittest.TestCase):
         data.update(overrides)
         return data
 
+    def build_article(self, *, slug, **overrides):
+        values = {
+            "slug": slug,
+            "title": "Test article",
+            "description": "Test description",
+            "body": "Test article body",
+        }
+        values.update(overrides)
+        return Article(**values)
+
     def test_homepage_and_missing_article(self):
         self.assertEqual(self.client.get("/").status_code, 200)
         self.assertEqual(self.client.get("/missing-article").status_code, 404)
@@ -458,7 +468,7 @@ class ApplicationTests(unittest.TestCase):
         tags = [Tag(slug="python", name="Python"), Tag(slug="flask", name="Flask")]
         db.session.add_all(
             [
-                Article(
+                self.build_article(
                     title=f"Article {number}",
                     slug=f"article-{number}",
                     author_id=user.id,
@@ -496,7 +506,7 @@ class ApplicationTests(unittest.TestCase):
 
     def test_tags_are_visible_and_escaped_on_article_pages(self):
         db.session.add(
-            Article(
+            self.build_article(
                 title="Tagged story",
                 slug="tagged-story",
                 body="Body",
@@ -513,7 +523,7 @@ class ApplicationTests(unittest.TestCase):
                 self.assertNotIn(b"<script>alert(1)</script>", response.data)
 
     def test_articles_without_tags_do_not_render_an_empty_tag_list(self):
-        db.session.add(Article(title="No tags", slug="no-tags", body="Body"))
+        db.session.add(self.build_article(title="No tags", slug="no-tags", body="Body"))
         db.session.commit()
         for path in ("/", "/no-tags"):
             self.assertNotIn(b'aria-label="Article tags"', self.client.get(path).data)
@@ -523,7 +533,7 @@ class ApplicationTests(unittest.TestCase):
         category = Category.query.filter_by(slug="tech").one()
         db.session.add_all(
             [
-                Article(
+                self.build_article(
                     title=f"Article {number}",
                     slug=f"article-{number}",
                     body="Body",
@@ -547,7 +557,7 @@ class ApplicationTests(unittest.TestCase):
         for slug in ("tech", "design"):
             category = Category.query.filter_by(slug=slug).one()
             db.session.add_all(
-                Article(
+                self.build_article(
                     title=f"{slug} article {number}",
                     slug=f"{slug}-{number}",
                     author=user,
@@ -590,7 +600,7 @@ class ApplicationTests(unittest.TestCase):
         tech = Category.query.filter_by(slug="tech").one()
         design = Category.query.filter_by(slug="design").one()
         db.session.add_all(
-            Article(
+            self.build_article(
                 title=f"Tech {number}",
                 slug=f"tech-{number}",
                 category=tech,
@@ -599,7 +609,7 @@ class ApplicationTests(unittest.TestCase):
             for number in range(13)
         )
         db.session.add_all(
-            Article(
+            self.build_article(
                 title=f"Design {number}",
                 slug=f"design-{number}",
                 category=design,
@@ -608,7 +618,7 @@ class ApplicationTests(unittest.TestCase):
             for number in range(2)
         )
         db.session.add(
-            Article(
+            self.build_article(
                 title="Flask only", slug="flask-only", category=design, tags=[flask]
             )
         )
@@ -666,7 +676,7 @@ class ApplicationTests(unittest.TestCase):
 
     def test_tag_links_work_with_unicode_names(self):
         db.session.add(
-            Article(
+            self.build_article(
                 title="Coffee story",
                 slug="coffee-story",
                 tags=[Tag(slug="café", name="Café")],
@@ -685,10 +695,10 @@ class ApplicationTests(unittest.TestCase):
         for slug, count in (("tech", 13), ("design", 2)):
             category = Category.query.filter_by(slug=slug).one()
             db.session.add_all(
-                Article(slug=f"{slug}-{number}", category=category)
+                self.build_article(slug=f"{slug}-{number}", category=category)
                 for number in range(count)
             )
-        db.session.add(Article(slug="uncategorized"))
+        db.session.add(self.build_article(slug="uncategorized"))
         db.session.commit()
         db.session.remove()
         statements = []
@@ -727,6 +737,176 @@ class ApplicationTests(unittest.TestCase):
                 connection, opts={"compare_type": True, "compare_server_default": True}
             )
             self.assertEqual(compare_metadata(context, db.metadata), [])
+
+    def test_article_content_constraints_reject_invalid_inserts_and_updates(self):
+        article = self.build_article(slug="existing-story")
+        db.session.add(article)
+        db.session.commit()
+        article_id = article.id
+        valid_values = {
+            "title": "Another story",
+            "slug": "another-story",
+            "description": "Another description",
+            "text": "Another article body",
+        }
+        before = db.session.execute(text("SELECT * FROM articles ORDER BY id")).all()
+        for column in valid_values:
+            for value in (None, "", "   ", " \t\n\r\f\v "):
+                statements = {
+                    "insert": Article.__table__.insert().values(
+                        {**valid_values, column: value}
+                    ),
+                    "update": Article.__table__.update()
+                    .where(Article.id == article_id)
+                    .values({column: value}),
+                }
+                for operation, statement in statements.items():
+                    with self.subTest(column=column, value=value, operation=operation):
+                        with self.assertRaises(IntegrityError) as raised:
+                            db.session.execute(statement)
+                            db.session.commit()
+                        db.session.rollback()
+                        if value is None:
+                            self.assertEqual(raised.exception.orig.pgcode, "23502")
+                            self.assertEqual(
+                                raised.exception.orig.diag.column_name, column
+                            )
+                        else:
+                            self.assertEqual(raised.exception.orig.pgcode, "23514")
+                            self.assertEqual(
+                                raised.exception.orig.diag.constraint_name,
+                                f"articles_{column}_not_blank",
+                            )
+        self.assertEqual(
+            db.session.execute(text("SELECT * FROM articles ORDER BY id")).all(), before
+        )
+        valid_values.update(
+            title="É" * 55,
+            slug="s" * 80,
+            description="D" * 250,
+            text=" \nFirst paragraph about café.\n\nSecond paragraph.\t ",
+        )
+        db.session.execute(
+            Article.__table__.update()
+            .where(Article.id == article_id)
+            .values(valid_values)
+        )
+        db.session.commit()
+        updated = Article.query.one()
+        self.assertEqual(
+            (updated.title, updated.slug, updated.description, updated.body),
+            tuple(valid_values.values()),
+        )
+
+    def test_article_content_migration_preserves_records_and_relationships(self):
+        user = self.create_user()
+        category = Category.query.filter_by(slug="tech").one()
+        db.session.add_all(
+            [
+                self.build_article(
+                    slug="existing-story",
+                    title="  Existing story  ",
+                    description=" A description ",
+                    body="\nA paragraph about café.\n\nAnother paragraph.\n",
+                    author=user,
+                    category=category,
+                    tags=[Tag(slug="python", name="Python")],
+                    created_at=date(2024, 1, 2),
+                    image_filename="existing.webp",
+                ),
+                self.build_article(slug="uncategorized"),
+            ]
+        )
+        db.session.commit()
+        tables = ("users", "articles", "categories", "tags", "article_tags")
+        before = {
+            table: db.session.execute(
+                text(f"SELECT * FROM {table} ORDER BY 1, 2")
+            ).all()
+            for table in tables
+        }
+        db.session.remove()
+        try:
+            downgrade(directory=MIGRATIONS_DIRECTORY, revision="e57031c65005")
+            upgrade(directory=MIGRATIONS_DIRECTORY)
+            after = {
+                table: db.session.execute(
+                    text(f"SELECT * FROM {table} ORDER BY 1, 2")
+                ).all()
+                for table in tables
+            }
+            self.assertEqual(after, before)
+            self.assertEqual(self.client.get("/existing-story").status_code, 200)
+            self.assertIsNone(
+                Article.query.filter_by(slug="uncategorized").one().category_id
+            )
+            db.session.remove()
+            downgrade(directory=MIGRATIONS_DIRECTORY, revision="e57031c65005")
+            restored = {
+                table: db.session.execute(
+                    text(f"SELECT * FROM {table} ORDER BY 1, 2")
+                ).all()
+                for table in tables
+            }
+            self.assertEqual(restored, before)
+        finally:
+            db.session.remove()
+            upgrade(directory=MIGRATIONS_DIRECTORY)
+
+    def test_article_content_migration_refuses_invalid_existing_articles(self):
+        db.session.add(self.build_article(slug="valid-story"))
+        db.session.commit()
+        valid_values = {
+            "title": "Legacy story",
+            "slug": "legacy-story",
+            "description": "Legacy description",
+            "text": "Legacy body",
+        }
+        db.session.remove()
+        try:
+            downgrade(directory=MIGRATIONS_DIRECTORY, revision="e57031c65005")
+            for column in valid_values:
+                for value in (None, "", "   ", " \t\n\r\f\v "):
+                    with self.subTest(column=column, value=value):
+                        invalid_article_id = db.session.execute(
+                            Article.__table__.insert()
+                            .values({**valid_values, column: value})
+                            .returning(Article.id)
+                        ).scalar_one()
+                        db.session.commit()
+                        before = db.session.execute(
+                            text("SELECT * FROM articles ORDER BY id")
+                        ).all()
+                        db.session.remove()
+                        try:
+                            with self.assertRaisesRegex(
+                                DBAPIError, "Cannot enforce required article content"
+                            ):
+                                upgrade(directory=MIGRATIONS_DIRECTORY)
+                            self.assertEqual(
+                                db.session.execute(
+                                    text("SELECT version_num FROM alembic_version")
+                                ).scalar_one(),
+                                "e57031c65005",
+                            )
+                            self.assertEqual(
+                                db.session.execute(
+                                    text("SELECT * FROM articles ORDER BY id")
+                                ).all(),
+                                before,
+                            )
+                        finally:
+                            db.session.rollback()
+                            db.session.execute(
+                                Article.__table__.delete().where(
+                                    Article.id == invalid_article_id
+                                )
+                            )
+                            db.session.commit()
+                            db.session.remove()
+        finally:
+            db.session.remove()
+            upgrade(directory=MIGRATIONS_DIRECTORY)
 
     def test_user_required_fields_reject_invalid_inserts_and_updates(self):
         user = self.create_user()
@@ -808,7 +988,7 @@ class ApplicationTests(unittest.TestCase):
 
     def test_email_migration_preserves_users_and_article_links(self):
         user = self.create_user(email=" \tMixed.Case@example.test\r\n")
-        db.session.add(Article(slug="existing-story", author=user))
+        db.session.add(self.build_article(slug="existing-story", author=user))
         db.session.commit()
         before_users = db.session.execute(text("SELECT * FROM users ORDER BY id")).all()
         before_articles = db.session.execute(
@@ -884,7 +1064,9 @@ class ApplicationTests(unittest.TestCase):
     def test_user_field_migration_preserves_users_and_articles(self):
         user = self.create_user(email="Mixed.Case@example.test")
         user.username = "  Zoë Author  "
-        db.session.add(Article(title="Existing story", slug="existing", author=user))
+        db.session.add(
+            self.build_article(title="Existing story", slug="existing", author=user)
+        )
         db.session.commit()
         before_users = db.session.execute(text("SELECT * FROM users ORDER BY id")).all()
         before_articles = db.session.execute(
@@ -975,7 +1157,7 @@ class ApplicationTests(unittest.TestCase):
 
     def test_tag_associations_enforce_unique_pairs_and_valid_references(self):
         tag = Tag(slug="python", name="Python")
-        article = Article(slug="tagged-story", tags=[tag])
+        article = self.build_article(slug="tagged-story", tags=[tag])
         db.session.add(article)
         db.session.commit()
         for article_id, tag_id in (
@@ -999,8 +1181,8 @@ class ApplicationTests(unittest.TestCase):
     def test_tag_deletion_cascades_only_to_associations(self):
         shared = Tag(slug="python", name="Python")
         other = Tag(slug="flask", name="Flask")
-        first = Article(slug="first", tags=[shared, other])
-        second = Article(slug="second", tags=[shared])
+        first = self.build_article(slug="first", tags=[shared, other])
+        second = self.build_article(slug="second", tags=[shared])
         db.session.add_all([first, second])
         db.session.commit()
         first_id, shared_id = first.id, shared.id
@@ -1034,7 +1216,9 @@ class ApplicationTests(unittest.TestCase):
 
     def test_tag_migration_preserves_existing_articles(self):
         user = self.create_user()
-        db.session.add(Article(title="Existing article", slug="existing", author=user))
+        db.session.add(
+            self.build_article(title="Existing article", slug="existing", author=user)
+        )
         db.session.commit()
         before = db.session.execute(text("SELECT * FROM articles ORDER BY id")).all()
         db.session.remove()
@@ -1063,8 +1247,8 @@ class ApplicationTests(unittest.TestCase):
             downgrade(directory=MIGRATIONS_DIRECTORY, revision="b5c595757bd0")
             db.session.execute(
                 text(
-                    "INSERT INTO articles (slug, title, text, category, img_url) "
-                    "VALUES (:slug, 'Old story', 'Original body', :category, 'old.webp')"
+                    "INSERT INTO articles (slug, title, description, text, category, img_url) "
+                    "VALUES (:slug, 'Old story', 'Original description', 'Original body', :category, 'old.webp')"
                 ),
                 [
                     {"slug": "old-story", "category": "tech"},
@@ -1110,7 +1294,9 @@ class ApplicationTests(unittest.TestCase):
 
     def test_category_downgrade_refuses_to_truncate_slugs(self):
         category = Category(slug="long-category-slug", name="Long category")
-        db.session.add(Article(slug="long-category-article", category=category))
+        db.session.add(
+            self.build_article(slug="long-category-article", category=category)
+        )
         db.session.commit()
         db.session.remove()
         with self.assertRaisesRegex(DBAPIError, "exceeds the old 10-character limit"):
@@ -1138,12 +1324,12 @@ class ApplicationTests(unittest.TestCase):
         self.assertIn(b"Science &amp; Research", self.client.get("/").data)
 
     def test_category_relationship_enforces_references_and_restricts_deletion(self):
-        db.session.add(Article(slug="invalid-category", category_id=-1))
+        db.session.add(self.build_article(slug="invalid-category", category_id=-1))
         with self.assertRaises(IntegrityError):
             db.session.commit()
         db.session.rollback()
         category = Category.query.filter_by(slug="tech").one()
-        article = Article(slug="classified-article", category=category)
+        article = self.build_article(slug="classified-article", category=category)
         db.session.add(article)
         db.session.commit()
         self.assertEqual(category.articles, [article])
@@ -1260,11 +1446,13 @@ class ApplicationTests(unittest.TestCase):
         ).scalar_one()
         db.session.execute(
             text(
-                "INSERT INTO articles (title, slug, text, img_url, author_id) VALUES (:title, :slug, :body, :image, :author_id)"
+                "INSERT INTO articles (title, slug, description, text, img_url, author_id) "
+                "VALUES (:title, :slug, :description, :body, :image, :author_id)"
             ),
             {
                 "title": "Existing article",
                 "slug": "original-url",
+                "description": "Existing description",
                 "body": "Existing body",
                 "image": "original-image.webp",
                 "author_id": user_id,
@@ -1326,7 +1514,9 @@ class ApplicationTests(unittest.TestCase):
     def test_authentication_errors_return_to_article(self):
         user = self.create_user()
         db.session.add(
-            Article(title="Story", slug="story", body="Body", author_id=user.id)
+            self.build_article(
+                title="Story", slug="story", body="Body", author_id=user.id
+            )
         )
         db.session.commit()
         response = self.client.post(

@@ -161,6 +161,10 @@ be empty or contain only whitespace. The user-field migration stops if existing
 records violate these rules; review and correct those records before retrying.
 It does not rewrite or delete user data.
 
+Article titles, URL slugs, descriptions, and bodies are also required and cannot
+be empty or contain only whitespace. The article-content migration stops if
+existing records violate these rules; it does not rewrite or delete articles.
+
 Email lookup and uniqueness ignore capitalization and surrounding spaces, tabs,
 and line breaks. Registration trims that whitespace but keeps the entered spelling;
 existing addresses are not rewritten. Login and demo seeding use the same lookup.

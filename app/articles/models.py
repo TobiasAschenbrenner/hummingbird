@@ -51,12 +51,20 @@ class Category(db.Model):
 
 class Article(db.Model):
     __tablename__ = "articles"
+    __table_args__ = (
+        db.CheckConstraint("title ~ '[^[:space:]]'", name="articles_title_not_blank"),
+        db.CheckConstraint("slug ~ '[^[:space:]]'", name="articles_slug_not_blank"),
+        db.CheckConstraint(
+            "description ~ '[^[:space:]]'", name="articles_description_not_blank"
+        ),
+        db.CheckConstraint("text ~ '[^[:space:]]'", name="articles_text_not_blank"),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
-    slug = db.Column(db.String(80), unique=True)
-    body = db.Column("text", db.Text)
-    description = db.Column(db.String(DESCRIPTION_MAX_LENGTH))
-    title = db.Column(db.String(TITLE_MAX_LENGTH))
+    slug = db.Column(db.String(80), unique=True, nullable=False)
+    body = db.Column("text", db.Text, nullable=False)
+    description = db.Column(db.String(DESCRIPTION_MAX_LENGTH), nullable=False)
+    title = db.Column(db.String(TITLE_MAX_LENGTH), nullable=False)
     category_id = db.Column(
         db.Integer, db.ForeignKey("categories.id", ondelete="RESTRICT"), index=True
     )
