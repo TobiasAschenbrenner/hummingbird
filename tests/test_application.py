@@ -20,6 +20,7 @@ from app import create_app
 from app.articles.models import Article, Category, Tag, article_tags
 from app.extensions import db
 from app.users.models import User
+from app.users.queries import get_user_by_email
 
 PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8"
@@ -113,13 +114,14 @@ class ApplicationTests(unittest.TestCase):
             "/auth/register",
             data={
                 "register_name": "Author",
-                "register_email": "author@example.test",
+                "register_email": " \tAuthor@Example.test\r\n",
                 "register_password": "password123",
                 "register_password_confirmation": "password123",
             },
         )
         self.assertEqual(response.status_code, 302)
         user = User.query.one()
+        self.assertEqual(user.email, "Author@Example.test")
         self.assertNotEqual(user.password_hash, "password123")
         self.assertTrue(check_password_hash(user.password_hash, "password123"))
 
@@ -138,6 +140,41 @@ class ApplicationTests(unittest.TestCase):
         self.assertEqual(self.client.get("/new-post").status_code, 200)
         self.client.get("/logout")
         self.assertEqual(self.client.get("/new-post").status_code, 401)
+
+    def test_email_login_ignores_case_and_surrounding_whitespace(self):
+        stored_email = " \tAuthor@Example.Test\r\n"
+        self.create_user(email=stored_email)
+        for email in ("author@example.test", " \vAUTHOR@EXAMPLE.TEST\f "):
+            with self.subTest(email=email):
+                response = self.client.post(
+                    "/auth/login",
+                    data={"login_email": email, "login_password": "password123"},
+                )
+                self.assertEqual(response.status_code, 302)
+                self.assertEqual(self.client.get("/new-post").status_code, 200)
+                self.client.get("/logout")
+        self.assertEqual(User.query.one().email, stored_email)
+
+    def test_registration_rejects_existing_email_variants(self):
+        self.create_user(email=" \tAuthor@Example.Test\r\n")
+        before = db.session.execute(text("SELECT * FROM users ORDER BY id")).all()
+        for email in ("author@example.test", " \vAUTHOR@EXAMPLE.TEST\f "):
+            with self.subTest(email=email):
+                response = self.client.post(
+                    "/auth/register",
+                    data={
+                        "register_name": "Another Author",
+                        "register_email": email,
+                        "register_password": "different-password",
+                        "register_password_confirmation": "different-password",
+                    },
+                    follow_redirects=True,
+                )
+                self.assertIn(b"already registered", response.data)
+                self.assertEqual(self.client.get("/new-post").status_code, 401)
+        self.assertEqual(
+            db.session.execute(text("SELECT * FROM users ORDER BY id")).all(), before
+        )
 
     def test_anonymous_article_creation_is_rejected(self):
         self.assertEqual(self.client.get("/new-post").status_code, 401)
@@ -361,27 +398,54 @@ class ApplicationTests(unittest.TestCase):
         self.assertEqual(len(db.session.execute(db.select(article_tags)).all()), 4)
 
     def test_concurrent_registration_duplicate_is_handled(self):
-        self.create_user()
+        db.session.remove()
+        barrier = Barrier(2)
 
-        def force_duplicate_email(mapper, connection, user):
-            user.email = "author@example.test"
+        def synchronize_user_inserts(
+            connection, cursor, statement, parameters, context, executemany
+        ):
+            if statement.startswith("INSERT INTO users"):
+                barrier.wait(timeout=5)
 
-        event.listen(User, "before_insert", force_duplicate_email)
+        def register(email):
+            with self.app.test_client() as client:
+                response = client.post(
+                    "/auth/register",
+                    data={
+                        "register_name": "Author",
+                        "register_email": email,
+                        "register_password": "password123",
+                        "register_password_confirmation": "password123",
+                    },
+                    follow_redirects=True,
+                )
+                return (
+                    response.status_code,
+                    b"already registered" in response.data,
+                    client.get("/new-post").status_code,
+                )
+
+        engine = db.engine
+        event.listen(engine, "before_cursor_execute", synchronize_user_inserts)
         try:
-            response = self.client.post(
-                "/auth/register",
-                data={
-                    "register_name": "Another Author",
-                    "register_email": "new@example.test",
-                    "register_password": "password123",
-                    "register_password_confirmation": "password123",
-                },
-                follow_redirects=True,
-            )
+            with ThreadPoolExecutor(max_workers=2) as workers:
+                results = [
+                    workers.submit(register, email)
+                    for email in (
+                        "Concurrent@Example.test",
+                        " \tCONCURRENT@EXAMPLE.TEST ",
+                    )
+                ]
+                self.assertEqual(
+                    sorted(result.result(timeout=10) for result in results),
+                    [(200, False, 200), (200, True, 401)],
+                )
         finally:
-            event.remove(User, "before_insert", force_duplicate_email)
-        self.assertIn(b"already registered", response.data)
+            event.remove(engine, "before_cursor_execute", synchronize_user_inserts)
         self.assertEqual(User.query.count(), 1)
+        self.assertTrue(
+            check_password_hash(User.query.one().password_hash, "password123")
+        )
 
     def test_related_data_loading_does_not_add_per_article_queries(self):
         from app.articles.queries import paginate_articles
@@ -703,6 +767,119 @@ class ApplicationTests(unittest.TestCase):
         self.assertEqual(
             db.session.execute(text("SELECT * FROM users ORDER BY id")).all(), before
         )
+
+    def test_database_email_uniqueness_covers_inserts_and_updates(self):
+        self.create_user(email="Author@Example.test")
+        other = self.create_user(email="other@example.test")
+        other_id, password_hash = other.id, other.password_hash
+        before = db.session.execute(text("SELECT * FROM users ORDER BY id")).all()
+        for email in (
+            "Author@Example.test",
+            "author@example.test",
+            "AUTHOR@EXAMPLE.TEST",
+            " \t\n\r\f\vAUTHOR@EXAMPLE.TEST\v\f\r\n\t ",
+        ):
+            statements = {
+                "insert": User.__table__.insert().values(
+                    username="Duplicate", email=email, password=password_hash
+                ),
+                "update": User.__table__.update()
+                .where(User.id == other_id)
+                .values(email=email),
+            }
+            for operation, statement in statements.items():
+                with self.subTest(email=email, operation=operation):
+                    with self.assertRaises(IntegrityError) as raised:
+                        db.session.execute(statement)
+                        db.session.commit()
+                    db.session.rollback()
+                    self.assertEqual(raised.exception.orig.pgcode, "23505")
+                    self.assertEqual(
+                        raised.exception.orig.diag.constraint_name,
+                        "ix_users_email_normalized",
+                    )
+        self.assertEqual(
+            db.session.execute(text("SELECT * FROM users ORDER BY id")).all(), before
+        )
+        for email in ("author+notes@example.test", "a.uthor@example.test"):
+            user = self.create_user(email=email)
+            self.assertEqual(get_user_by_email(email.upper()).id, user.id)
+        self.assertEqual(User.query.count(), 4)
+
+    def test_email_migration_preserves_users_and_article_links(self):
+        user = self.create_user(email=" \tMixed.Case@example.test\r\n")
+        db.session.add(Article(slug="existing-story", author=user))
+        db.session.commit()
+        before_users = db.session.execute(text("SELECT * FROM users ORDER BY id")).all()
+        before_articles = db.session.execute(
+            text("SELECT * FROM articles ORDER BY id")
+        ).all()
+        db.session.remove()
+        try:
+            downgrade(directory=MIGRATIONS_DIRECTORY, revision="d46f20b54004")
+            upgrade(directory=MIGRATIONS_DIRECTORY)
+            self.assertEqual(
+                get_user_by_email("MIXED.CASE@example.test").id, before_users[0].id
+            )
+            db.session.remove()
+            downgrade(directory=MIGRATIONS_DIRECTORY, revision="d46f20b54004")
+            self.assertEqual(
+                db.session.execute(text("SELECT * FROM users ORDER BY id")).all(),
+                before_users,
+            )
+            self.assertEqual(
+                db.session.execute(text("SELECT * FROM articles ORDER BY id")).all(),
+                before_articles,
+            )
+        finally:
+            db.session.remove()
+            upgrade(directory=MIGRATIONS_DIRECTORY)
+
+    def test_email_migration_refuses_conflicting_accounts(self):
+        user = self.create_user(email="Author@Example.test")
+        password_hash = user.password_hash
+        db.session.remove()
+        try:
+            downgrade(directory=MIGRATIONS_DIRECTORY, revision="d46f20b54004")
+            for email in ("author@example.test", " \t\vAUTHOR@EXAMPLE.TEST\f\r\n "):
+                with self.subTest(email=email):
+                    conflicting_id = db.session.execute(
+                        User.__table__.insert()
+                        .values(username="Legacy", email=email, password=password_hash)
+                        .returning(User.id)
+                    ).scalar_one()
+                    db.session.commit()
+                    before = db.session.execute(
+                        text("SELECT * FROM users ORDER BY id")
+                    ).all()
+                    db.session.remove()
+                    try:
+                        with self.assertRaisesRegex(
+                            DBAPIError, "Cannot enforce email uniqueness"
+                        ):
+                            upgrade(directory=MIGRATIONS_DIRECTORY)
+                        self.assertEqual(
+                            db.session.execute(
+                                text("SELECT * FROM users ORDER BY id")
+                            ).all(),
+                            before,
+                        )
+                        self.assertEqual(
+                            db.session.execute(
+                                text("SELECT version_num FROM alembic_version")
+                            ).scalar_one(),
+                            "d46f20b54004",
+                        )
+                    finally:
+                        db.session.rollback()
+                        db.session.execute(
+                            User.__table__.delete().where(User.id == conflicting_id)
+                        )
+                        db.session.commit()
+                        db.session.remove()
+        finally:
+            db.session.remove()
+            upgrade(directory=MIGRATIONS_DIRECTORY)
 
     def test_user_field_migration_preserves_users_and_articles(self):
         user = self.create_user(email="Mixed.Case@example.test")
@@ -1053,6 +1230,22 @@ class ApplicationTests(unittest.TestCase):
             {"getting-started", "tutorials"},
         )
 
+    def test_demo_seed_reuses_email_variants_without_changing_credentials(self):
+        user = self.create_user(email=" \tDEMO@Hummingbird.Example\r\n")
+        user_id, stored_email, password_hash = user.id, user.email, user.password_hash
+        result = self.app.test_cli_runner().invoke(args=["seed-demo", "--count", "2"])
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIn("Existing demo account reused", result.output)
+        self.assertEqual(User.query.count(), 1)
+        user = User.query.one()
+        self.assertEqual(
+            (user.id, user.email, user.password_hash),
+            (user_id, stored_email, password_hash),
+        )
+        self.assertEqual(
+            [article.author_id for article in Article.query.all()], [user_id, user_id]
+        )
+
     def test_existing_database_column_names_remain_readable(self):
         password_hash = generate_password_hash("legacy-password")
         user_id = db.session.execute(
@@ -1115,6 +1308,7 @@ class ApplicationTests(unittest.TestCase):
         for field, value in [
             ("register_name", "   "),
             ("register_email", "invalid"),
+            ("register_email", "author name@example.test"),
             ("register_password_confirmation", "different"),
             ("register_name", "x" * 81),
         ]:

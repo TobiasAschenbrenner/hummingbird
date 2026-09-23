@@ -161,6 +161,17 @@ be empty or contain only whitespace. The user-field migration stops if existing
 records violate these rules; review and correct those records before retrying.
 It does not rewrite or delete user data.
 
+Email lookup and uniqueness ignore capitalization and surrounding spaces, tabs,
+and line breaks. Registration trims that whitespace but keeps the entered spelling;
+existing addresses are not rewritten. Login and demo seeding use the same lookup.
+A unique expression index enforces the rule in PostgreSQL. Its migration stops
+if existing accounts conflict, without merging or deleting them. This is
+Hummingbird's account policy; dots and `+suffixes` remain distinct.
+
+The currently pinned SQLAlchemy/Alembic versions warn that automatic schema
+comparison skips expression indexes. This index is managed by an explicit
+migration and verified by database tests for duplicate inserts and updates.
+
 The category migrations keep existing articles and create records for their
 existing category values. Legacy articles with no category keep that missing
 value and display as "Uncategorized"; new article submissions require a category.

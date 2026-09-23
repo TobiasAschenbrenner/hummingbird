@@ -11,6 +11,7 @@ from app.articles.queries import list_categories
 from app.articles.tags import get_or_create_tags, parse_tag_names
 from app.extensions import db
 from app.users.models import User
+from app.users.queries import get_user_by_email
 
 DEMO_EMAIL = "demo@hummingbird.example"
 DEMO_TAG_GROUPS = (
@@ -73,7 +74,7 @@ def add_demo_articles(*, author, count):
 def seed_demo(count):
     """Add repeatable sample data to the configured development database."""
     try:
-        author = User.query.filter_by(email=DEMO_EMAIL).first()
+        author = get_user_by_email(DEMO_EMAIL)
         created_user = author is None
         if created_user:
             password = click.prompt(

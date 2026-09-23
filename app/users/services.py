@@ -3,13 +3,15 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from app.errors import ValidationError
 from app.extensions import db
-from app.users.models import User
+from app.users.models import EMAIL_WHITESPACE, User
+from app.users.queries import get_user_by_email
 
 
 def authenticate_user(*, email, password):
+    email = email.strip(EMAIL_WHITESPACE)
     if not email or not password:
         raise ValidationError("Please fill out all fields.")
-    user = User.query.filter_by(email=email.strip()).first()
+    user = get_user_by_email(email)
     if (
         not user
         or not user.password_hash
@@ -20,7 +22,7 @@ def authenticate_user(*, email, password):
 
 
 def register_user(*, username, email, password, password_confirmation):
-    username, email = username.strip(), email.strip()
+    username, email = username.strip(), email.strip(EMAIL_WHITESPACE)
     if not all((username, email, password, password_confirmation)):
         raise ValidationError("Please fill out all fields.")
     if len(username) > 80 or len(email) > 120:
@@ -33,7 +35,7 @@ def register_user(*, username, email, password, password_confirmation):
         raise ValidationError("The password confirmation must match the password.")
     if len(password) < 8:
         raise ValidationError("The password must be at least 8 characters long.")
-    if User.query.filter_by(email=email).first():
+    if get_user_by_email(email):
         raise ValidationError("The email address is already registered.")
 
     user = User(
@@ -46,7 +48,7 @@ def register_user(*, username, email, password, password_confirmation):
         db.session.rollback()
         if (
             getattr(getattr(error.orig, "diag", None), "constraint_name", None)
-            == "ix_users_email"
+            == "ix_users_email_normalized"
         ):
             raise ValidationError("The email address is already registered.") from error
         raise
