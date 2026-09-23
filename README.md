@@ -43,6 +43,7 @@ Readers can browse articles, and registered users can publish articles with cove
 - SQLAlchemy
 - Flask-Migrate and Alembic
 - Flask-Login
+- Flask-WTF for CSRF protection
 
 ### Development
 
@@ -299,6 +300,8 @@ The suite covers authentication, article creation, pagination, validation,
 query loading, category/tag filtering, counts, rollback, image cleanup, repeatable
 seeding, schema compatibility, and migration round trips. Tag tests also check
 concurrent publishing, duplicate prevention, and association cleanup on deletion.
+CSRF protection remains enabled during application tests, including checks for
+missing, invalid, expired, and another session's tokens.
 
 Install the optional development tools and check the code:
 
@@ -318,7 +321,12 @@ Do not rewrite previously committed migrations; add a new migration instead.
 Passwords are hashed, article creation requires authentication, and database
 failures trigger rollback. Uploads use generated filenames and an extension allowlist.
 
-CSRF protection, image-content validation, request limits, dependency upgrades,
+Registration, login, article creation, and logout require a session-bound CSRF
+token. Logout uses a POST form, so visiting a link cannot log you out. Tokens
+expire after one hour; if form verification fails, refresh the original page
+before trying again. The server returns HTTP 400 without performing the action.
+
+Image-content validation, request limits, dependency upgrades,
 and durable image storage remain work to complete before deployment. The Flask
 development server is for local use only.
 

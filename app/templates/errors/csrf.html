@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Form verification failed | Hummingbird{% endblock %}
+{% block content %}
+  <section class="home">
+    <div class="home-text container">
+      <h1 class="home-title">Your form could not be verified</h1>
+      <p class="message" role="alert">Nothing was submitted. Your form may have expired. Go back, refresh the page, and try again.</p>
+      <a href="{{ url_for('articles.index') }}" class="button">Return to home</a>
+    </div>
+  </section>
+{% endblock %}

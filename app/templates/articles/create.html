@@ -10,6 +10,7 @@
   </section>
   <div class="form-container container">
     <form method="post" action="{{ url_for('articles.submit_article') }}" class="article-form" enctype="multipart/form-data">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="form-field">
         <label class="visually-hidden" for="article-title">Title</label>
         <input id="article-title" name="title" placeholder="Title" maxlength="{{ title_max_length }}" value="{{ form.get('title', '') }}" required>

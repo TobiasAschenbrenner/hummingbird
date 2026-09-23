@@ -1,12 +1,15 @@
 import base64
 import io
 import os
+import re
 import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from pathlib import Path
 from threading import Barrier
+from time import time
+from unittest.mock import patch
 
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
@@ -85,8 +88,21 @@ class ApplicationTests(unittest.TestCase):
         db.session.commit()
         return user
 
+    def csrf_token(self, *, client=None, page="/"):
+        client = client or self.client
+        response = client.get(page)
+        self.assertEqual(response.status_code, 200)
+        match = re.search(rb'name="csrf_token" value="([^"]+)"', response.data)
+        self.assertIsNotNone(match, "The page must render a CSRF token")
+        return match.group(1).decode("ascii")
+
+    def post_form(self, path, *, data=None, client=None, **kwargs):
+        client = client or self.client
+        form_data = {**(data or {}), "csrf_token": self.csrf_token(client=client)}
+        return client.post(path, data=form_data, **kwargs)
+
     def login(self):
-        return self.client.post(
+        return self.post_form(
             "/auth/login",
             data={
                 "login_email": "author@example.test",
@@ -120,7 +136,7 @@ class ApplicationTests(unittest.TestCase):
         self.assertEqual(self.client.get("/missing-article").status_code, 404)
 
     def test_registration_stores_password_hash(self):
-        response = self.client.post(
+        response = self.post_form(
             "/auth/register",
             data={
                 "register_name": "Author",
@@ -137,7 +153,7 @@ class ApplicationTests(unittest.TestCase):
 
     def test_login_and_logout(self):
         self.create_user()
-        response = self.client.post(
+        response = self.post_form(
             "/auth/login",
             data={
                 "login_email": "author@example.test",
@@ -148,7 +164,128 @@ class ApplicationTests(unittest.TestCase):
         self.assertIn(b"Invalid email or password", response.data)
         self.assertEqual(self.login().status_code, 302)
         self.assertEqual(self.client.get("/new-post").status_code, 200)
-        self.client.get("/logout")
+        self.post_form("/logout")
+        self.assertEqual(self.client.get("/new-post").status_code, 401)
+
+    def test_all_post_forms_render_csrf_tokens(self):
+        pages = [self.client.get("/")]
+        self.create_user()
+        self.login()
+        pages.append(self.client.get("/new-post"))
+        forms = {}
+        for page in pages:
+            self.assertEqual(page.status_code, 200)
+            forms.update(
+                re.findall(
+                    rb'<form\b[^>]*action="([^"]+)"[^>]*>(.*?)</form>',
+                    page.data,
+                    flags=re.DOTALL,
+                )
+            )
+        self.assertEqual(
+            set(forms), {b"/auth/register", b"/auth/login", b"/new-post", b"/logout"}
+        )
+        for action, form in forms.items():
+            with self.subTest(action=action):
+                self.assertRegex(form, rb'name="csrf_token" value="[^"]+"')
+
+    def test_csrf_rejects_missing_invalid_and_other_session_tokens(self):
+        author_id = self.create_user().id
+        self.create_user(email="other@example.test")
+        self.login()
+        with self.app.app_context():
+            foreign_token = self.csrf_token(client=self.app.test_client())
+        for token in (None, "invalid-token", foreign_token):
+            for path in ("/auth/register", "/auth/login", "/new-post", "/logout"):
+                with self.subTest(token=token, path=path):
+                    if path == "/auth/register":
+                        data = {
+                            "register_name": "Unwanted account",
+                            "register_email": "unwanted@example.test",
+                            "register_password": "secret-password",
+                            "register_password_confirmation": "secret-password",
+                        }
+                    elif path == "/auth/login":
+                        data = {
+                            "login_email": "other@example.test",
+                            "login_password": "password123",
+                        }
+                    elif path == "/new-post":
+                        data = self.article_data(tags="Security")
+                    else:
+                        data = {}
+                    if token is not None:
+                        data["csrf_token"] = token
+                    response = self.client.post(path, data=data)
+                    self.assertEqual(response.status_code, 400)
+                    self.assertIn(b"Your form could not be verified", response.data)
+                    self.assertNotIn(b"secret-password", response.data)
+                    self.assertEqual(User.query.count(), 2)
+                    self.assertEqual(Article.query.count(), 0)
+                    self.assertEqual(Tag.query.count(), 0)
+                    self.assertEqual(list(Path(self.uploads.name).iterdir()), [])
+                    with self.client.session_transaction() as session:
+                        self.assertEqual(session.get("_user_id"), str(author_id))
+
+    def test_expired_csrf_token_is_rejected_and_a_fresh_token_works(self):
+        author_id = self.create_user().id
+        with patch(
+            "itsdangerous.timed.TimestampSigner.get_timestamp",
+            return_value=int(time()) - 3601,
+        ):
+            expired_token = self.csrf_token()
+        data = {
+            "login_email": "author@example.test",
+            "login_password": "password123",
+            "csrf_token": expired_token,
+        }
+        response = self.client.post("/auth/login", data=data)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(b"refresh the page", response.data)
+        with self.client.session_transaction() as session:
+            self.assertNotIn("_user_id", session)
+        with self.app.app_context():
+            data["csrf_token"] = self.csrf_token()
+        response = self.client.post("/auth/login", data=data)
+        self.assertEqual(response.status_code, 302)
+        with self.client.session_transaction() as session:
+            self.assertEqual(session.get("_user_id"), str(author_id))
+
+    def test_https_csrf_checks_the_referrer(self):
+        author_id = self.create_user().id
+        data = {
+            "login_email": "author@example.test",
+            "login_password": "password123",
+            "csrf_token": self.csrf_token(),
+        }
+        for headers in ({}, {"Referer": "https://other.example/"}):
+            with self.subTest(headers=headers):
+                response = self.client.post(
+                    "/auth/login",
+                    data=data,
+                    base_url="https://localhost",
+                    headers=headers,
+                )
+                self.assertEqual(response.status_code, 400)
+                with self.client.session_transaction() as session:
+                    self.assertNotIn("_user_id", session)
+        response = self.client.post(
+            "/auth/login",
+            data=data,
+            base_url="https://localhost",
+            headers={"Referer": "https://localhost/"},
+        )
+        self.assertEqual(response.status_code, 302)
+        with self.client.session_transaction() as session:
+            self.assertEqual(session.get("_user_id"), str(author_id))
+
+    def test_get_requests_cannot_log_out_a_user(self):
+        self.create_user()
+        self.login()
+        response = self.client.get("/logout")
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(self.client.get("/new-post").status_code, 200)
+        self.assertEqual(self.post_form("/logout").status_code, 302)
         self.assertEqual(self.client.get("/new-post").status_code, 401)
 
     def test_email_login_ignores_case_and_surrounding_whitespace(self):
@@ -156,13 +293,13 @@ class ApplicationTests(unittest.TestCase):
         self.create_user(email=stored_email)
         for email in ("author@example.test", " \vAUTHOR@EXAMPLE.TEST\f "):
             with self.subTest(email=email):
-                response = self.client.post(
+                response = self.post_form(
                     "/auth/login",
                     data={"login_email": email, "login_password": "password123"},
                 )
                 self.assertEqual(response.status_code, 302)
                 self.assertEqual(self.client.get("/new-post").status_code, 200)
-                self.client.get("/logout")
+                self.post_form("/logout")
         self.assertEqual(User.query.one().email, stored_email)
 
     def test_registration_rejects_existing_email_variants(self):
@@ -170,7 +307,7 @@ class ApplicationTests(unittest.TestCase):
         before = db.session.execute(text("SELECT * FROM users ORDER BY id")).all()
         for email in ("author@example.test", " \vAUTHOR@EXAMPLE.TEST\f "):
             with self.subTest(email=email):
-                response = self.client.post(
+                response = self.post_form(
                     "/auth/register",
                     data={
                         "register_name": "Another Author",
@@ -189,7 +326,7 @@ class ApplicationTests(unittest.TestCase):
     def test_anonymous_article_creation_is_rejected(self):
         self.assertEqual(self.client.get("/new-post").status_code, 401)
         self.assertEqual(
-            self.client.post("/new-post", data=self.article_data()).status_code, 401
+            self.post_form("/new-post", data=self.article_data()).status_code, 401
         )
         self.assertEqual(Article.query.count(), 0)
         self.assertEqual(list(Path(self.uploads.name).iterdir()), [])
@@ -197,7 +334,7 @@ class ApplicationTests(unittest.TestCase):
     def test_article_creation_and_detail(self):
         user = self.create_user()
         self.login()
-        response = self.client.post(
+        response = self.post_form(
             "/new-post", data=self.article_data(), follow_redirects=True
         )
         self.assertEqual(response.status_code, 200)
@@ -211,7 +348,7 @@ class ApplicationTests(unittest.TestCase):
     def test_missing_title_does_not_create_an_article(self):
         self.create_user()
         self.login()
-        response = self.client.post("/new-post", data=self.article_data(title=""))
+        response = self.post_form("/new-post", data=self.article_data(title=""))
         self.assertIn(b"Please fill out all fields", response.data)
         self.assertEqual(Article.query.count(), 0)
 
@@ -229,7 +366,7 @@ class ApplicationTests(unittest.TestCase):
             {"title": "!!!"},
         ]:
             with self.subTest(overrides=overrides):
-                response = self.client.post(
+                response = self.post_form(
                     "/new-post", data=self.article_data(**overrides)
                 )
                 self.assertEqual(response.status_code, 400)
@@ -239,10 +376,10 @@ class ApplicationTests(unittest.TestCase):
     def test_creation_redirects_and_duplicate_slug_is_handled(self):
         self.create_user()
         self.login()
-        response = self.client.post("/new-post", data=self.article_data())
+        response = self.post_form("/new-post", data=self.article_data())
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.location, "/")
-        response = self.client.post("/new-post", data=self.article_data())
+        response = self.post_form("/new-post", data=self.article_data())
         self.assertEqual(response.status_code, 400)
         self.assertIn(b"already exists", response.data)
         self.assertNotIn(b"INSERT INTO", response.data)
@@ -253,7 +390,7 @@ class ApplicationTests(unittest.TestCase):
         self.login()
         data = self.article_data()
         del data["image"]
-        response = self.client.post("/new-post", data=data)
+        response = self.post_form("/new-post", data=data)
         self.assertEqual(response.status_code, 400)
         self.assertIn(b"Please choose an image", response.data)
         self.assertEqual(Article.query.count(), 0)
@@ -261,7 +398,7 @@ class ApplicationTests(unittest.TestCase):
     def test_rejected_upload_does_not_create_an_article(self):
         self.create_user()
         self.login()
-        response = self.client.post(
+        response = self.post_form(
             "/new-post", data=self.article_data(image=(io.BytesIO(b"text"), "bad.html"))
         )
         self.assertEqual(response.status_code, 400)
@@ -272,7 +409,7 @@ class ApplicationTests(unittest.TestCase):
     def test_database_failure_rolls_back_and_removes_new_upload(self):
         self.create_user()
         self.login()
-        self.client.post("/new-post", data=self.article_data())
+        self.post_form("/new-post", data=self.article_data())
         existing_files = set(Path(self.uploads.name).iterdir())
 
         def force_duplicate_slug(mapper, connection, article):
@@ -280,7 +417,7 @@ class ApplicationTests(unittest.TestCase):
 
         event.listen(Article, "before_insert", force_duplicate_slug)
         try:
-            response = self.client.post(
+            response = self.post_form(
                 "/new-post",
                 data=self.article_data(title="Concurrent article", tags="New Topic"),
             )
@@ -292,7 +429,7 @@ class ApplicationTests(unittest.TestCase):
         self.assertEqual(Tag.query.count(), 0)
         self.assertEqual(db.session.execute(db.select(article_tags)).all(), [])
         self.assertEqual(set(Path(self.uploads.name).iterdir()), existing_files)
-        response = self.client.post(
+        response = self.post_form(
             "/new-post",
             data=self.article_data(title="After rollback", tags="New Topic"),
         )
@@ -303,7 +440,7 @@ class ApplicationTests(unittest.TestCase):
     def test_article_tags_are_normalized_deduplicated_and_shared(self):
         self.create_user()
         self.login()
-        response = self.client.post(
+        response = self.post_form(
             "/new-post",
             data=self.article_data(
                 tags=" Python, python, Machine  Learning, machine-learning, Café, Cafe\u0301, , "
@@ -314,7 +451,7 @@ class ApplicationTests(unittest.TestCase):
         self.assertEqual(
             {tag.slug for tag in first.tags}, {"python", "machine-learning", "café"}
         )
-        response = self.client.post(
+        response = self.post_form(
             "/new-post", data=self.article_data(title="Second article", tags="PYTHON")
         )
         self.assertEqual(response.status_code, 302)
@@ -336,14 +473,14 @@ class ApplicationTests(unittest.TestCase):
             "under_score",
         ):
             with self.subTest(tags=tags):
-                response = self.client.post(
+                response = self.post_form(
                     "/new-post", data=self.article_data(tags=tags)
                 )
                 self.assertEqual(response.status_code, 400)
                 self.assertEqual(Article.query.count(), 0)
                 self.assertEqual(Tag.query.count(), 0)
                 self.assertEqual(list(Path(self.uploads.name).iterdir()), [])
-        valid = self.client.post(
+        valid = self.post_form(
             "/new-post", data=self.article_data(tags=f"{'a' * 40},b,c,d,e")
         )
         self.assertEqual(valid.status_code, 302)
@@ -353,7 +490,7 @@ class ApplicationTests(unittest.TestCase):
         self.create_user()
         self.login()
         self.assertIn(b'name="tags"', self.client.get("/new-post").data)
-        response = self.client.post(
+        response = self.post_form(
             "/new-post", data=self.article_data(title="", tags="Python, Databases")
         )
         self.assertEqual(response.status_code, 400)
@@ -373,8 +510,9 @@ class ApplicationTests(unittest.TestCase):
 
         def publish(number, tags):
             with self.app.test_client() as client:
-                response = client.post(
+                response = self.post_form(
                     "/auth/login",
+                    client=client,
                     data={
                         "login_email": "author@example.test",
                         "login_password": "password123",
@@ -382,8 +520,9 @@ class ApplicationTests(unittest.TestCase):
                 )
                 if response.status_code != 302:
                     raise AssertionError("Worker login failed")
-                response = client.post(
+                response = self.post_form(
                     "/new-post",
+                    client=client,
                     data=self.article_data(
                         title=f"Concurrent post {number}", tags=tags
                     ),
@@ -419,8 +558,9 @@ class ApplicationTests(unittest.TestCase):
 
         def register(email):
             with self.app.test_client() as client:
-                response = client.post(
+                response = self.post_form(
                     "/auth/register",
+                    client=client,
                     data={
                         "register_name": "Author",
                         "register_email": email,
@@ -1312,11 +1452,11 @@ class ApplicationTests(unittest.TestCase):
         form = self.client.get("/new-post").data
         self.assertIn(b'value="science"', form)
         self.assertIn(b"Science &amp; Research", form)
-        invalid = self.client.post(
+        invalid = self.post_form(
             "/new-post", data=self.article_data(category="science", body="")
         )
         self.assertIn(b'value="science" selected', invalid.data)
-        response = self.client.post(
+        response = self.post_form(
             "/new-post", data=self.article_data(category="science")
         )
         self.assertEqual(response.status_code, 302)
@@ -1501,13 +1641,13 @@ class ApplicationTests(unittest.TestCase):
             ("register_name", "x" * 81),
         ]:
             with self.subTest(field=field):
-                response = self.client.post(
+                response = self.post_form(
                     "/auth/register", data={**data, field: value}, follow_redirects=True
                 )
                 self.assertEqual(response.status_code, 200)
                 self.assertEqual(User.query.count(), 0)
         self.create_user()
-        response = self.client.post("/auth/register", data=data, follow_redirects=True)
+        response = self.post_form("/auth/register", data=data, follow_redirects=True)
         self.assertIn(b"already registered", response.data)
         self.assertEqual(User.query.count(), 1)
 
@@ -1519,7 +1659,7 @@ class ApplicationTests(unittest.TestCase):
             )
         )
         db.session.commit()
-        response = self.client.post(
+        response = self.post_form(
             "/auth/login", data={"return_to": "/story"}, follow_redirects=True
         )
         self.assertEqual(response.request.path, "/story")
@@ -1534,7 +1674,7 @@ class ApplicationTests(unittest.TestCase):
             "/new-post",
         ]:
             with self.subTest(target=target):
-                response = self.client.post("/auth/login", data={"return_to": target})
+                response = self.post_form("/auth/login", data={"return_to": target})
                 self.assertEqual(response.location, "/")
 
 

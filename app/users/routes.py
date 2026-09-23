@@ -69,7 +69,7 @@ def register():
     return redirect(url_for("articles.index"))
 
 
-@blueprint.get("/logout")
+@blueprint.post("/logout")
 def logout():
     logout_user()
     return redirect(url_for("articles.index"))

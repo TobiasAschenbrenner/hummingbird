@@ -8,7 +8,10 @@
       {% endif %}
     </div>
     {% if current_user.is_authenticated %}
-      <a href="{{ url_for('users.logout') }}" class="nav-button">Log out</a>
+      <form method="post" action="{{ url_for('users.logout') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="nav-button">Log out</button>
+      </form>
     {% else %}
       <button type="button" class="nav-button" data-open-auth>Log in</button>
     {% endif %}

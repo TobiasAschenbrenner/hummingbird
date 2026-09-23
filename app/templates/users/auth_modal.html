@@ -5,6 +5,7 @@
     <button type="button" data-auth-view="login" aria-pressed="false">Log in</button>
   </div>
   <form method="post" action="{{ url_for('users.register') }}" class="auth-form" data-auth-form="signup">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="return_to" value="{{ request.path }}">
     <label class="visually-hidden" for="register-name">Name</label>
     <input id="register-name" name="register_name" placeholder="User name" autocomplete="nickname" maxlength="80" required>
@@ -17,6 +18,7 @@
     <button type="submit" class="button">Register</button>
   </form>
   <form method="post" action="{{ url_for('users.login') }}" class="auth-form" data-auth-form="login" hidden>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="return_to" value="{{ request.path }}">
     <label class="visually-hidden" for="login-email">Email</label>
     <input id="login-email" name="login_email" type="email" placeholder="Email" autocomplete="email" required>
