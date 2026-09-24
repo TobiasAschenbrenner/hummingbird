@@ -44,6 +44,7 @@ Readers can browse articles, and registered users can publish articles with cove
 - Flask-Migrate and Alembic
 - Flask-Login
 - Flask-WTF for CSRF protection
+- Pillow for image validation
 
 ### Development
 
@@ -320,13 +321,17 @@ Do not rewrite previously committed migrations; add a new migration instead.
 
 Passwords are hashed, article creation requires authentication, and database
 failures trigger rollback. Uploads use generated filenames and an extension allowlist.
+Pillow verifies and decodes uploaded PNG, JPEG, GIF, and WebP files before saving
+them, including animated frames. The actual format must match the extension;
+renamed non-images and damaged files are rejected without creating an article.
+Original image bytes and metadata are preserved; validation is not sanitization.
 
 Registration, login, article creation, and logout require a session-bound CSRF
 token. Logout uses a POST form, so visiting a link cannot log you out. Tokens
 expire after one hour; if form verification fails, refresh the original page
 before trying again. The server returns HTTP 400 without performing the action.
 
-Image-content validation, request limits, dependency upgrades,
+Upload/request limits, dependency upgrades,
 and durable image storage remain work to complete before deployment. The Flask
 development server is for local use only.
 

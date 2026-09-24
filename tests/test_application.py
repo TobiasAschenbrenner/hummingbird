@@ -1,4 +1,3 @@
-import base64
 import io
 import os
 import re
@@ -24,11 +23,9 @@ from app.articles.models import Article, Category, Tag, article_tags
 from app.extensions import db
 from app.users.models import User
 from app.users.queries import get_user_by_email
+from tests.test_uploads import image_bytes
 
-PNG = base64.b64decode(
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8"
-    "/x8AAwMCAO+a5WQAAAAASUVORK5CYII="
-)
+PNG = image_bytes()
 MIGRATIONS_DIRECTORY = str(Path(__file__).resolve().parents[1] / "migrations")
 
 
@@ -398,13 +395,25 @@ class ApplicationTests(unittest.TestCase):
     def test_rejected_upload_does_not_create_an_article(self):
         self.create_user()
         self.login()
-        response = self.post_form(
-            "/new-post", data=self.article_data(image=(io.BytesIO(b"text"), "bad.html"))
-        )
-        self.assertEqual(response.status_code, 400)
-        self.assertIn(b"Unsupported image extension", response.data)
-        self.assertEqual(Article.query.count(), 0)
-        self.assertEqual(list(Path(self.uploads.name).iterdir()), [])
+        for filename, contents, message in (
+            ("bad.html", b"text", b"Unsupported image extension"),
+            ("fake.png", b"text", b"valid, undamaged image"),
+            ("mismatch.jpg", PNG, b"valid, undamaged image"),
+            ("broken.png", PNG[:-15], b"valid, undamaged image"),
+        ):
+            with self.subTest(filename=filename):
+                response = self.post_form(
+                    "/new-post",
+                    data=self.article_data(
+                        image=(io.BytesIO(contents), filename), tags="Security"
+                    ),
+                )
+                self.assertEqual(response.status_code, 400)
+                self.assertIn(message, response.data)
+                self.assertIn(b'value="First article"', response.data)
+                self.assertEqual(Article.query.count(), 0)
+                self.assertEqual(Tag.query.count(), 0)
+                self.assertEqual(list(Path(self.uploads.name).iterdir()), [])
 
     def test_database_failure_rolls_back_and_removes_new_upload(self):
         self.create_user()
