@@ -21,7 +21,8 @@
       </div>
       <div class="form-field">
         <label for="article-image">Choose an image</label>
-        <input id="article-image" name="image" type="file" accept="{% for extension in allowed_extensions %}.{{ extension }}{% if not loop.last %},{% endif %}{% endfor %}" required>
+        <input id="article-image" name="image" type="file" accept="{% for extension in allowed_extensions %}.{{ extension }}{% if not loop.last %},{% endif %}{% endfor %}" aria-describedby="article-image-help" required>
+        <small id="article-image-help">PNG, JPEG, GIF, or WebP. Maximum {{ '%g'|format(max_image_mib) }} MiB and {{ '%g'|format(max_image_megapixels) }} million pixels in total. Animated images may have up to {{ max_image_frames }} frames, counted together toward the pixel limit.</small>
       </div>
       <div class="form-field">
         <label class="visually-hidden" for="article-category">Category</label>

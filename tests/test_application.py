@@ -20,6 +20,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from app import create_app
 from app.articles.models import Article, Category, Tag, article_tags
+from app.articles.uploads import MAX_IMAGE_BYTES
 from app.extensions import db
 from app.users.models import User
 from app.users.queries import get_user_by_email
@@ -414,6 +415,95 @@ class ApplicationTests(unittest.TestCase):
                 self.assertEqual(Article.query.count(), 0)
                 self.assertEqual(Tag.query.count(), 0)
                 self.assertEqual(list(Path(self.uploads.name).iterdir()), [])
+
+    def test_oversized_image_preserves_form_without_saving_data(self):
+        self.create_user()
+        self.login()
+        response = self.post_form(
+            "/new-post",
+            data=self.article_data(
+                image=(io.BytesIO(PNG.ljust(MAX_IMAGE_BYTES + 1, b"\0")), "large.png"),
+                tags="Security",
+            ),
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(b"5 MiB or smaller", response.data)
+        self.assertIn(b'value="First article"', response.data)
+        self.assertIn(b'value="Security"', response.data)
+        self.assertEqual(Article.query.count(), 0)
+        self.assertEqual(Tag.query.count(), 0)
+        self.assertEqual(list(Path(self.uploads.name).iterdir()), [])
+
+    def test_oversized_request_is_rejected_before_form_parsing(self):
+        self.create_user()
+        self.login()
+        token = self.csrf_token()
+        body = b"x" * (self.app.config["MAX_CONTENT_LENGTH"] + 1)
+        for endpoint in ("/new-post", "/auth/register", "/auth/login", "/logout"):
+            with (
+                self.subTest(endpoint=endpoint),
+                patch.object(
+                    self.app.request_class,
+                    "_load_form_data",
+                    side_effect=AssertionError("Oversized request must not be parsed"),
+                ),
+            ):
+                response = self.client.post(
+                    endpoint,
+                    data=body,
+                    content_type="application/x-www-form-urlencoded",
+                    headers={"X-CSRFToken": token},
+                )
+            self.assertEqual(response.status_code, 413)
+            self.assertIn(b"Your submission is too large", response.data)
+            self.assertIn(b"6 MiB or smaller", response.data)
+        self.assertEqual(User.query.count(), 1)
+        self.assertEqual(Article.query.count(), 0)
+        self.assertEqual(Tag.query.count(), 0)
+        self.assertEqual(list(Path(self.uploads.name).iterdir()), [])
+        self.assertEqual(self.client.get("/new-post").status_code, 200)
+
+    def test_unknown_length_stream_is_rejected_before_form_parsing(self):
+        self.create_user()
+        self.login()
+        with patch.object(
+            self.app.request_class,
+            "_load_form_data",
+            side_effect=AssertionError("Unbounded request must not be parsed"),
+        ):
+            response = self.client.post(
+                "/new-post",
+                data=self.article_data(tags="Security"),
+                environ_overrides={"CONTENT_LENGTH": "", "wsgi.input_terminated": True},
+            )
+        self.assertEqual(response.status_code, 411)
+        self.assertIn(b"Your submission size could not be checked", response.data)
+        self.assertEqual(Article.query.count(), 0)
+        self.assertEqual(Tag.query.count(), 0)
+        self.assertEqual(list(Path(self.uploads.name).iterdir()), [])
+
+    def test_exact_request_limit_is_accepted_and_one_byte_more_is_rejected(self):
+        self.create_user()
+        self.login()
+        token = self.csrf_token()
+        limit = self.app.config["MAX_CONTENT_LENGTH"]
+        body = b"unused=" + b"x" * (limit - len("unused="))
+        response = self.client.post(
+            "/logout",
+            data=body + b"x",
+            content_type="application/x-www-form-urlencoded",
+            headers={"X-CSRFToken": token},
+        )
+        self.assertEqual(response.status_code, 413)
+        self.assertEqual(self.client.get("/new-post").status_code, 200)
+        response = self.client.post(
+            "/logout",
+            data=body,
+            content_type="application/x-www-form-urlencoded",
+            headers={"X-CSRFToken": token},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.client.get("/new-post").status_code, 401)
 
     def test_database_failure_rolls_back_and_removes_new_upload(self):
         self.create_user()

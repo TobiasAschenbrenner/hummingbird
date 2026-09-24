@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Submission size problem | Hummingbird{% endblock %}
+{% block content %}
+  <section class="home">
+    <div class="home-text container">
+      {% if error_code == 413 %}
+        <h1 class="home-title">Your submission is too large</h1>
+        <p class="message" role="alert">Nothing was saved. The whole submission must be {{ '%g'|format(request_limit_mib) }} MiB or smaller, including the image and article text. Go back and reduce its size before trying again.</p>
+      {% else %}
+        <h1 class="home-title">Your submission size could not be checked</h1>
+        <p class="message" role="alert">Nothing was saved. Submissions need a known request size. Return to the form in your browser and try again.</p>
+      {% endif %}
+      <a href="{{ url_for('articles.index') }}" class="button">Return to home</a>
+    </div>
+  </section>
+{% endblock %}

@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 from PIL import Image
 from werkzeug.datastructures import FileStorage
 
-from app.articles.uploads import save_image
+from app.articles.uploads import MAX_IMAGE_BYTES, save_image
 from app.errors import ValidationError
 
 
@@ -124,6 +124,74 @@ class UploadTests(unittest.TestCase):
             image, directory=self.directory, allowed_extensions={"png"}
         )
         self.assertEqual((self.directory / filename).read_bytes(), contents)
+
+    def test_image_size_limit_uses_actual_bytes_and_accepts_exact_boundary(self):
+        contents = image_bytes().ljust(MAX_IMAGE_BYTES, b"\0")
+        filename = self.save("cover.png", contents)
+        self.assertEqual((self.directory / filename).stat().st_size, MAX_IMAGE_BYTES)
+        oversized = FileStorage(
+            stream=io.BytesIO(contents + b"\0"),
+            filename="cover.png",
+            content_length=1,
+        )
+        with patch("app.articles.uploads.Image.open") as open_image:
+            with self.assertRaisesRegex(ValidationError, "5 MiB or smaller"):
+                save_image(
+                    oversized, directory=self.directory, allowed_extensions={"png"}
+                )
+            open_image.assert_not_called()
+        self.assertEqual(oversized.stream.tell(), 0)
+        self.assertEqual([item.name for item in self.directory.iterdir()], [filename])
+
+    def test_pixel_limit_is_checked_before_decoding_and_accepts_exact_boundary(self):
+        oversized = image_bytes(size=(3, 2))
+        with patch("app.articles.uploads.MAX_IMAGE_PIXELS", 4):
+            filename = self.save("cover.png", image_bytes(size=(2, 2)))
+            with patch(
+                "PIL.Image.Image.load",
+                side_effect=AssertionError("Must reject before decoding"),
+            ):
+                with self.assertRaisesRegex(ValidationError, "at most 4 pixels"):
+                    self.save("cover.png", oversized)
+        self.assertEqual([item.name for item in self.directory.iterdir()], [filename])
+
+    def test_animation_frame_and_total_pixel_boundaries(self):
+        with (
+            Image.new("RGB", (2, 2), "blue") as second,
+            Image.new("RGB", (2, 2), "green") as third,
+        ):
+            for image_format in ("GIF", "WEBP", "PNG"):
+                two_frames = image_bytes(
+                    image_format, save_all=True, append_images=[second], duration=100
+                )
+                three_frames = image_bytes(
+                    image_format,
+                    save_all=True,
+                    append_images=[second, third],
+                    duration=100,
+                )
+                for setting, limit, message in (
+                    ("MAX_IMAGE_FRAMES", 2, "at most 2 frames"),
+                    ("MAX_IMAGE_PIXELS", 8, "at most 8 pixels"),
+                ):
+                    with (
+                        self.subTest(image_format=image_format, setting=setting),
+                        patch(f"app.articles.uploads.{setting}", limit),
+                    ):
+                        self.save(f"cover.{image_format.lower()}", two_frames)
+                        before = set(self.directory.iterdir())
+                        with self.assertRaisesRegex(ValidationError, message):
+                            self.save(f"cover.{image_format.lower()}", three_frames)
+                        self.assertEqual(set(self.directory.iterdir()), before)
+
+    def test_decoder_decompression_bomb_errors_are_validation_errors(self):
+        contents = image_bytes(size=(3, 2))
+        with (
+            patch("PIL.Image.MAX_IMAGE_PIXELS", 2),
+            self.assertRaisesRegex(ValidationError, "dimensions are too large"),
+        ):
+            self.save("cover.png", contents)
+        self.assertFalse(self.directory.exists())
 
     def test_rejects_missing_or_unsupported_extension(self):
         for filename in ["", "cover", "cover.html"]:

@@ -21,6 +21,7 @@ from app.articles.queries import (
 )
 from app.articles.services import create_article
 from app.articles.tags import MAX_ARTICLE_TAGS, MAX_TAG_INPUT_LENGTH
+from app.articles.uploads import MAX_IMAGE_BYTES, MAX_IMAGE_FRAMES, MAX_IMAGE_PIXELS
 from app.errors import ValidationError
 from app.extensions import db
 
@@ -64,6 +65,9 @@ def render_article_form(*, error=None, status=200):
         max_article_tags=MAX_ARTICLE_TAGS,
         max_tag_input_length=MAX_TAG_INPUT_LENGTH,
         allowed_extensions=sorted(current_app.config["ALLOWED_EXTENSIONS"]),
+        max_image_mib=MAX_IMAGE_BYTES / (1024 * 1024),
+        max_image_megapixels=MAX_IMAGE_PIXELS / 1_000_000,
+        max_image_frames=MAX_IMAGE_FRAMES,
     ), status
 
 

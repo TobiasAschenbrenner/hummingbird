@@ -243,6 +243,18 @@ Cover images are stored in `app/static/images/uploads/`. The folder is created
 when needed and its contents are ignored by Git. New files receive unique names.
 Supported extensions are PNG, JPG/JPEG, GIF, and WebP.
 
+Upload limits:
+
+- **5 MiB per image**; the actual file size is checked before decoding.
+- **20 million pixels total**, counting all animation frames.
+- **100 frames** per animated image.
+- **6 MiB per form submission**, including image, text, and form overhead.
+
+Invalid or oversized images show a form error without saving files or records.
+Oversized submissions return a helpful HTTP 413 page. Streamed submissions without
+a known length are rejected with HTTP 411 before parsing; browser forms send a
+known length. Size limits must also be configured at the proxy when deploying.
+
 ---
 
 ## 📊 Demo Data
@@ -303,6 +315,8 @@ seeding, schema compatibility, and migration round trips. Tag tests also check
 concurrent publishing, duplicate prevention, and association cleanup on deletion.
 CSRF protection remains enabled during application tests, including checks for
 missing, invalid, expired, and another session's tokens.
+Upload tests cover image contents, damaged animation frames, size boundaries,
+pixel/frame limits, and request rejection without database or file changes.
 
 Install the optional development tools and check the code:
 
@@ -331,7 +345,7 @@ token. Logout uses a POST form, so visiting a link cannot log you out. Tokens
 expire after one hour; if form verification fails, refresh the original page
 before trying again. The server returns HTTP 400 without performing the action.
 
-Upload/request limits, dependency upgrades,
+Dependency upgrades, image metadata sanitization,
 and durable image storage remain work to complete before deployment. The Flask
 development server is for local use only.
 
