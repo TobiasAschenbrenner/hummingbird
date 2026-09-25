@@ -1,15 +1,15 @@
 {% extends "base.html" %}
-{% block title %}New Article | Hummingbird{% endblock %}
+{% block title %}{{ 'Edit Article' if article else 'New Article' }} | Hummingbird{% endblock %}
 {% block content %}
   <section class="home">
     <div class="home-text container">
       {% include "partials/messages.html" %}
-      <h1 class="home-title">New Article</h1>
-      <p class="home-subtitle">Tell your story</p>
+      <h1 class="home-title">{{ 'Edit Article' if article else 'New Article' }}</h1>
+      <p class="home-subtitle">{{ 'Update your story. Its URL stays the same.' if article else 'Tell your story' }}</p>
     </div>
   </section>
   <div class="form-container container">
-    <form method="post" action="{{ url_for('articles.submit_article') }}" class="article-form" enctype="multipart/form-data">
+    <form method="post" action="{{ url_for('articles.submit_article_edit', slug=article.slug) if article else url_for('articles.submit_article') }}" class="article-form" enctype="multipart/form-data">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="form-field">
         <label class="visually-hidden" for="article-title">Title</label>
@@ -20,9 +20,13 @@
         <textarea id="article-description" name="description" placeholder="Description" class="description-input" maxlength="{{ description_max_length }}" required>{{ form.get('description', '') }}</textarea>
       </div>
       <div class="form-field">
+        {% if article %}
+        <p>Your current cover image will be kept.</p>
+        {% else %}
         <label for="article-image">Choose an image</label>
         <input id="article-image" name="image" type="file" accept="{% for extension in allowed_extensions %}.{{ extension }}{% if not loop.last %},{% endif %}{% endfor %}" aria-describedby="article-image-help" required>
         <small id="article-image-help">PNG, JPEG, GIF, or WebP. Maximum {{ '%g'|format(max_image_mib) }} MiB and {{ '%g'|format(max_image_megapixels) }} million pixels in total. Animated images may have up to {{ max_image_frames }} frames, counted together toward the pixel limit.</small>
+        {% endif %}
       </div>
       <div class="form-field">
         <label class="visually-hidden" for="article-category">Category</label>
@@ -42,7 +46,10 @@
         <label class="visually-hidden" for="article-body">Article text</label>
         <textarea id="article-body" name="body" placeholder="Text" class="body-input" required>{{ form.get('body', '') }}</textarea>
       </div>
-      <div class="form-submit"><button type="submit" class="button">Post Article</button></div>
+      <div class="form-submit">
+        <button type="submit" class="button">{{ 'Save Changes' if article else 'Post Article' }}</button>
+        {% if article %}<a href="{{ url_for('articles.detail', slug=article.slug) }}" class="button">Cancel</a>{% endif %}
+      </div>
     </form>
   </div>
 {% endblock %}

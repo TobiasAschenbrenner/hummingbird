@@ -9,6 +9,7 @@ Readers can browse articles, and registered users can publish articles with cove
 
 - Register, log in, and log out
 - Publish articles with cover images
+- Edit your own article text, category, and tags
 - Browse the newest articles with pagination
 - Read individual articles
 - Choose categories stored in the database
@@ -21,7 +22,7 @@ Readers can browse articles, and registered users can publish articles with cove
 
 ### Planned features
 
-- Editing and deleting your own articles
+- Deleting your own articles
 - Adding and deleting your own comments
 - Article search
 
@@ -227,6 +228,18 @@ or single hyphens. Capitalization and equivalent spacing do not create duplicate
 tags; existing display names are kept. Articles, new tags, and their associations
 are saved in one transaction. A failed save rolls them back and removes the new upload.
 
+Open one of your articles and choose **Edit Article** to update its title,
+description, text, category, or tags. The form starts with the saved values.
+The URL, author, publication date, and cover image stay unchanged. Emptying the
+tags field removes the article's tag links, not tags used by other articles.
+Only the author can open or submit the edit form; submissions also require CSRF
+verification. Validation errors preserve your input without saving changes.
+
+An edit saves the article and its tag links in one transaction. PostgreSQL locks
+the article row during the save, serializing simultaneous edits to that article.
+This does not detect a form left open with older content: the later save wins.
+Stale-form conflict detection remains planned.
+
 The homepage shows 12 articles per page, newest first. Category links filter in
 the database before pagination, so they include matching articles from all pages.
 The selected filters stay active when moving between pages. Click a tag on an
@@ -340,7 +353,7 @@ them, including animated frames. The actual format must match the extension;
 renamed non-images and damaged files are rejected without creating an article.
 Original image bytes and metadata are preserved; validation is not sanitization.
 
-Registration, login, article creation, and logout require a session-bound CSRF
+Registration, login, article creation/editing, and logout require a session-bound CSRF
 token. Logout uses a POST form, so visiting a link cannot log you out. Tokens
 expire after one hour; if form verification fails, refresh the original page
 before trying again. The server returns HTTP 400 without performing the action.

@@ -20,6 +20,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from app import create_app
 from app.articles.models import Article, Category, Tag, article_tags
+from app.articles.queries import get_owned_article
 from app.articles.uploads import MAX_IMAGE_BYTES
 from app.extensions import db
 from app.users.models import User
@@ -129,6 +130,26 @@ class ApplicationTests(unittest.TestCase):
         values.update(overrides)
         return Article(**values)
 
+    def publish_first_article(self):
+        self.create_user()
+        self.login()
+        response = self.post_form(
+            "/new-post", data=self.article_data(tags="Python, Web")
+        )
+        self.assertEqual(response.status_code, 302)
+        return Article.query.one()
+
+    def edit_data(self, **overrides):
+        data = {
+            "title": "Updated article",
+            "description": "Updated description",
+            "body": "Updated body",
+            "category": "design",
+            "tags": "Python, Databases",
+        }
+        data.update(overrides)
+        return data
+
     def test_homepage_and_missing_article(self):
         self.assertEqual(self.client.get("/").status_code, 200)
         self.assertEqual(self.client.get("/missing-article").status_code, 404)
@@ -170,6 +191,8 @@ class ApplicationTests(unittest.TestCase):
         self.create_user()
         self.login()
         pages.append(self.client.get("/new-post"))
+        self.post_form("/new-post", data=self.article_data())
+        pages.append(self.client.get("/first-article/edit"))
         forms = {}
         for page in pages:
             self.assertEqual(page.status_code, 200)
@@ -181,7 +204,14 @@ class ApplicationTests(unittest.TestCase):
                 )
             )
         self.assertEqual(
-            set(forms), {b"/auth/register", b"/auth/login", b"/new-post", b"/logout"}
+            set(forms),
+            {
+                b"/auth/register",
+                b"/auth/login",
+                b"/new-post",
+                b"/logout",
+                b"/first-article/edit",
+            },
         )
         for action, form in forms.items():
             with self.subTest(action=action):
@@ -342,6 +372,249 @@ class ApplicationTests(unittest.TestCase):
         self.assertTrue((Path(self.uploads.name) / article.image_filename).exists())
         detail = self.client.get(f"/{article.slug}")
         self.assertIn(b"Article body", detail.data)
+
+    def test_edit_form_prefills_saved_values_and_does_not_change_data(self):
+        article = self.publish_first_article()
+        before = db.session.execute(text("SELECT * FROM articles")).all()
+        response = self.client.get("/first-article/edit")
+        self.assertEqual(response.status_code, 200)
+        for value in (
+            b'value="First article"',
+            b"A description",
+            b"Article body",
+            b'value="tech" selected',
+            b'value="Python, Web"',
+            b"Save Changes",
+        ):
+            self.assertIn(value, response.data)
+        self.assertIn(b"/first-article/edit", self.client.get("/first-article").data)
+        self.assertEqual(
+            db.session.execute(text("SELECT * FROM articles")).all(), before
+        )
+        self.assertEqual(len(list(Path(self.uploads.name).iterdir())), 1)
+        self.assertEqual(article.slug, "first-article")
+
+    def test_owner_edit_updates_content_and_relations_but_preserves_identity(self):
+        article = self.publish_first_article()
+        identity = (
+            article.id,
+            article.slug,
+            article.author_id,
+            article.created_at,
+            article.image_filename,
+        )
+        image = (Path(self.uploads.name) / article.image_filename).read_bytes()
+        shared = self.build_article(
+            slug="shared", author_id=article.author_id, tags=list(article.tags)
+        )
+        db.session.add(shared)
+        db.session.commit()
+        response = self.post_form(
+            "/first-article/edit",
+            data=self.edit_data(
+                title="  logout  ",
+                slug="changed",
+                author_id="999",
+                created_at="2000-01-01",
+                image_filename="other.png",
+                id="999",
+            ),
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.location, "/first-article")
+        db.session.expire_all()
+        self.assertEqual(
+            (
+                article.id,
+                article.slug,
+                article.author_id,
+                article.created_at,
+                article.image_filename,
+            ),
+            identity,
+        )
+        self.assertEqual(
+            (article.title, article.description, article.body),
+            ("logout", "Updated description", "Updated body"),
+        )
+        self.assertEqual(article.category.slug, "design")
+        self.assertEqual({tag.slug for tag in article.tags}, {"python", "databases"})
+        self.assertEqual({tag.slug for tag in shared.tags}, {"python", "web"})
+        self.assertEqual(Tag.query.count(), 3)
+        self.assertEqual(
+            (Path(self.uploads.name) / article.image_filename).read_bytes(), image
+        )
+        self.assertIn(b"Updated body", self.client.get("/first-article").data)
+        self.assertIn(
+            b"logout", self.client.get("/?category=design&tag=databases").data
+        )
+        self.assertNotIn(b"logout</a>", self.client.get("/?category=tech").data)
+
+    def test_edit_can_remove_all_tag_links_without_deleting_tags(self):
+        article = self.publish_first_article()
+        tag_ids = {tag.id for tag in article.tags}
+        response = self.post_form("/first-article/edit", data=self.edit_data(tags=""))
+        self.assertEqual(response.status_code, 302)
+        db.session.expire_all()
+        self.assertEqual(article.tags, [])
+        self.assertEqual({tag.id for tag in Tag.query.all()}, tag_ids)
+        self.assertEqual(db.session.execute(db.select(article_tags)).all(), [])
+
+    def test_only_the_owner_can_open_or_submit_article_edits(self):
+        article = self.publish_first_article()
+        self.create_user(email="other@example.test")
+        db.session.add(self.build_article(slug="unowned"))
+        db.session.commit()
+        before = db.session.execute(text("SELECT * FROM articles ORDER BY id")).all()
+        original_tags = {tag.id for tag in article.tags}
+        original_files = set(Path(self.uploads.name).iterdir())
+        self.post_form("/logout")
+        self.assertEqual(self.client.get("/first-article/edit").status_code, 401)
+        self.assertEqual(
+            self.post_form("/first-article/edit", data=self.edit_data()).status_code,
+            401,
+        )
+        self.assertNotIn(b"/first-article/edit", self.client.get("/first-article").data)
+        self.post_form(
+            "/auth/login",
+            data={"login_email": "other@example.test", "login_password": "password123"},
+        )
+        for slug in ("first-article", "unowned", "missing"):
+            with self.subTest(slug=slug):
+                self.assertEqual(self.client.get(f"/{slug}/edit").status_code, 404)
+                self.assertEqual(
+                    self.post_form(f"/{slug}/edit", data=self.edit_data()).status_code,
+                    404,
+                )
+        self.assertNotIn(b"/first-article/edit", self.client.get("/first-article").data)
+        self.assertEqual(
+            db.session.execute(text("SELECT * FROM articles ORDER BY id")).all(), before
+        )
+        self.assertEqual({tag.id for tag in article.tags}, original_tags)
+        self.assertEqual(set(Path(self.uploads.name).iterdir()), original_files)
+        self.assertEqual(Tag.query.count(), 2)
+
+    def test_edit_rejects_invalid_fields_and_preserves_submitted_values(self):
+        self.publish_first_article()
+        before = db.session.execute(text("SELECT * FROM articles")).all()
+        before_links = db.session.execute(db.select(article_tags)).all()
+        for overrides in (
+            {"title": " "},
+            {"title": "x" * 56},
+            {"description": ""},
+            {"description": "x" * 251},
+            {"body": " "},
+            {"category": "missing"},
+            {"tags": "<script>"},
+            {"tags": "a,b,c,d,e,f"},
+        ):
+            with self.subTest(overrides=overrides):
+                response = self.post_form(
+                    "/first-article/edit", data=self.edit_data(**overrides)
+                )
+                self.assertEqual(response.status_code, 400)
+                self.assertIn(b"Save Changes", response.data)
+                if "title" not in overrides:
+                    self.assertIn(b'value="Updated article"', response.data)
+                self.assertEqual(
+                    db.session.execute(text("SELECT * FROM articles")).all(), before
+                )
+                self.assertEqual(
+                    db.session.execute(db.select(article_tags)).all(), before_links
+                )
+                self.assertEqual(Tag.query.count(), 2)
+                self.assertEqual(len(list(Path(self.uploads.name).iterdir())), 1)
+
+    def test_edit_rejects_missing_invalid_and_other_session_csrf_tokens(self):
+        self.publish_first_article()
+        before = db.session.execute(text("SELECT * FROM articles")).all()
+        with self.app.app_context():
+            foreign_token = self.csrf_token(client=self.app.test_client())
+        for token in (None, "invalid-token", foreign_token):
+            with self.subTest(token=token):
+                data = self.edit_data()
+                if token is not None:
+                    data["csrf_token"] = token
+                response = self.client.post("/first-article/edit", data=data)
+                self.assertEqual(response.status_code, 400)
+                self.assertIn(b"Your form could not be verified", response.data)
+        self.assertEqual(
+            db.session.execute(text("SELECT * FROM articles")).all(), before
+        )
+        self.assertEqual(Tag.query.count(), 2)
+
+    def test_edit_database_failure_rolls_back_content_and_tag_changes(self):
+        self.publish_first_article()
+        before = db.session.execute(text("SELECT * FROM articles")).all()
+        before_links = db.session.execute(db.select(article_tags)).all()
+
+        def fail_update(mapper, connection, article):
+            connection.execute(text("SELECT 1 / 0"))
+
+        event.listen(Article, "before_update", fail_update)
+        try:
+            with self.assertLogs(self.app.logger, level="ERROR"):
+                response = self.post_form("/first-article/edit", data=self.edit_data())
+        finally:
+            event.remove(Article, "before_update", fail_update)
+        self.assertEqual(response.status_code, 500)
+        self.assertIn(b"Unable to save your changes", response.data)
+        self.assertIn(b'value="Updated article"', response.data)
+        self.assertNotIn(b"SELECT 1 / 0", response.data)
+        self.assertEqual(
+            db.session.execute(text("SELECT * FROM articles")).all(), before
+        )
+        self.assertEqual(
+            db.session.execute(db.select(article_tags)).all(), before_links
+        )
+        self.assertEqual(Tag.query.count(), 2)
+        self.assertEqual(len(list(Path(self.uploads.name).iterdir())), 1)
+        self.assertEqual(
+            self.post_form("/first-article/edit", data=self.edit_data()).status_code,
+            302,
+        )
+
+    def test_concurrent_edits_keep_each_articles_content_and_tags_together(self):
+        self.publish_first_article()
+        db.session.remove()
+        start = Barrier(2)
+
+        def synchronize_lookup(slug, **kwargs):
+            if kwargs.get("for_update"):
+                start.wait(timeout=10)
+            return get_owned_article(slug, **kwargs)
+
+        def edit(number):
+            with self.app.test_client() as client:
+                self.assertEqual(
+                    self.post_form(
+                        "/auth/login",
+                        client=client,
+                        data={
+                            "login_email": "author@example.test",
+                            "login_password": "password123",
+                        },
+                    ).status_code,
+                    302,
+                )
+                return self.post_form(
+                    "/first-article/edit",
+                    client=client,
+                    data=self.edit_data(
+                        title=f"Update {number}", tags=f"Topic {number}"
+                    ),
+                ).status_code
+
+        with patch(
+            "app.articles.routes.get_owned_article", side_effect=synchronize_lookup
+        ):
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                responses = list(executor.map(edit, (1, 2)))
+        self.assertEqual(responses, [302, 302])
+        article = Article.query.one()
+        number = article.title.rsplit(" ", 1)[1]
+        self.assertEqual([tag.slug for tag in article.tags], [f"topic-{number}"])
+        self.assertEqual(len(db.session.execute(db.select(article_tags)).all()), 1)
 
     def test_missing_title_does_not_create_an_article(self):
         self.create_user()

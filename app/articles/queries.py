@@ -53,3 +53,10 @@ def get_article_by_slug(slug):
         .filter_by(slug=slug)
         .first()
     )
+
+
+def get_owned_article(slug, *, author_id, for_update=False):
+    query = Article.query.filter_by(slug=slug, author_id=author_id)
+    if for_update:
+        query = query.populate_existing().with_for_update()
+    return query.first()
