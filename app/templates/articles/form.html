@@ -21,12 +21,14 @@
       </div>
       <div class="form-field">
         {% if article %}
-        <p>Your current cover image will be kept.</p>
-        {% else %}
-        <label for="article-image">Choose an image</label>
-        <input id="article-image" name="image" type="file" accept="{% for extension in allowed_extensions %}.{{ extension }}{% if not loop.last %},{% endif %}{% endfor %}" aria-describedby="article-image-help" required>
-        <small id="article-image-help">PNG, JPEG, GIF, or WebP. Maximum {{ '%g'|format(max_image_mib) }} MiB and {{ '%g'|format(max_image_megapixels) }} million pixels in total. Animated images may have up to {{ max_image_frames }} frames, counted together toward the pixel limit.</small>
+          {% if article.image_filename %}
+          <img src="{{ url_for('static', filename='images/uploads/' ~ article.image_filename) }}" alt="Current cover" class="article-cover-preview">
+          {% endif %}
+          <p>Leave the image field empty to keep your current cover.</p>
         {% endif %}
+        <label for="article-image">{{ 'Replace cover image (optional)' if article else 'Choose an image' }}</label>
+        <input id="article-image" name="image" type="file" accept="{% for extension in allowed_extensions %}.{{ extension }}{% if not loop.last %},{% endif %}{% endfor %}" aria-describedby="article-image-help" {% if not article %}required{% endif %}>
+        <small id="article-image-help">PNG, JPEG, GIF, or WebP. Maximum {{ '%g'|format(max_image_mib) }} MiB and {{ '%g'|format(max_image_megapixels) }} million pixels in total. Animated images may have up to {{ max_image_frames }} frames, counted together toward the pixel limit.</small>
       </div>
       <div class="form-field">
         <label class="visually-hidden" for="article-category">Category</label>

@@ -137,10 +137,13 @@ def submit_article_edit(slug):
             category_slug=request.form.get("category", ""),
             body=request.form.get("body", ""),
             tag_names=request.form.get("tags", ""),
+            image=request.files.get("image"),
+            upload_directory=current_app.config["UPLOADS_PATH"],
+            allowed_extensions=current_app.config["ALLOWED_EXTENSIONS"],
         )
     except ValidationError as error:
         return render_article_form(article=article, error=str(error), status=400)
-    except SQLAlchemyError:
+    except (SQLAlchemyError, OSError):
         db.session.rollback()
         current_app.logger.exception("Article update failed")
         return render_article_form(

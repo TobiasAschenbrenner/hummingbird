@@ -15,7 +15,8 @@ from alembic.migration import MigrationContext
 from flask_migrate import downgrade, upgrade
 from sqlalchemy import event, text
 from sqlalchemy.engine import make_url
-from sqlalchemy.exc import DBAPIError, IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError, SQLAlchemyError
+from werkzeug.datastructures import FileStorage
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from app import create_app
@@ -532,7 +533,7 @@ class ApplicationTests(unittest.TestCase):
             foreign_token = self.csrf_token(client=self.app.test_client())
         for token in (None, "invalid-token", foreign_token):
             with self.subTest(token=token):
-                data = self.edit_data()
+                data = self.edit_data(image=(io.BytesIO(PNG), "replacement.png"))
                 if token is not None:
                     data["csrf_token"] = token
                 response = self.client.post("/first-article/edit", data=data)
@@ -554,7 +555,10 @@ class ApplicationTests(unittest.TestCase):
         event.listen(Article, "before_update", fail_update)
         try:
             with self.assertLogs(self.app.logger, level="ERROR"):
-                response = self.post_form("/first-article/edit", data=self.edit_data())
+                response = self.post_form(
+                    "/first-article/edit",
+                    data=self.edit_data(image=(io.BytesIO(PNG), "replacement.png")),
+                )
         finally:
             event.remove(Article, "before_update", fail_update)
         self.assertEqual(response.status_code, 500)
@@ -574,10 +578,11 @@ class ApplicationTests(unittest.TestCase):
             302,
         )
 
-    def test_concurrent_edits_keep_each_articles_content_and_tags_together(self):
+    def test_concurrent_edits_keep_article_content_tags_and_cover_together(self):
         self.publish_first_article()
         db.session.remove()
         start = Barrier(2)
+        covers = {1: image_bytes(color="blue"), 2: image_bytes(color="green")}
 
         def synchronize_lookup(slug, **kwargs):
             if kwargs.get("for_update"):
@@ -601,7 +606,9 @@ class ApplicationTests(unittest.TestCase):
                     "/first-article/edit",
                     client=client,
                     data=self.edit_data(
-                        title=f"Update {number}", tags=f"Topic {number}"
+                        title=f"Update {number}",
+                        tags=f"Topic {number}",
+                        image=(io.BytesIO(covers[number]), "replacement.png"),
                     ),
                 ).status_code
 
@@ -615,6 +622,225 @@ class ApplicationTests(unittest.TestCase):
         number = article.title.rsplit(" ", 1)[1]
         self.assertEqual([tag.slug for tag in article.tags], [f"topic-{number}"])
         self.assertEqual(len(db.session.execute(db.select(article_tags)).all()), 1)
+        self.assertEqual(
+            (Path(self.uploads.name) / article.image_filename).read_bytes(),
+            covers[int(number)],
+        )
+        self.assertEqual(
+            {item.name for item in Path(self.uploads.name).iterdir()},
+            {article.image_filename},
+        )
+
+    def test_cover_replacement_removes_old_file_only_after_commit(self):
+        article = self.publish_first_article()
+        previous_file = Path(self.uploads.name) / article.image_filename
+        replacement = image_bytes("WEBP", color="blue")
+        commit = db.session.commit
+
+        def checked_commit():
+            self.assertTrue(previous_file.exists())
+            commit()
+            self.assertTrue(previous_file.exists())
+
+        with patch.object(db.session, "commit", side_effect=checked_commit):
+            response = self.post_form(
+                "/first-article/edit",
+                data=self.edit_data(
+                    image=(io.BytesIO(replacement), "replacement.webp")
+                ),
+            )
+        self.assertEqual(response.status_code, 302)
+        db.session.expire_all()
+        self.assertEqual(article.title, "Updated article")
+        self.assertTrue(article.image_filename.endswith(".webp"))
+        self.assertEqual(
+            (Path(self.uploads.name) / article.image_filename).read_bytes(), replacement
+        )
+        self.assertFalse(previous_file.exists())
+        self.assertEqual(len(list(Path(self.uploads.name).iterdir())), 1)
+        self.assertIn(
+            article.image_filename.encode(), self.client.get("/first-article").data
+        )
+        form = self.client.get("/first-article/edit").data
+        self.assertIn(b'alt="Current cover"', form)
+        self.assertIn(b"Replace cover image (optional)", form)
+
+    def test_empty_replacement_keeps_cover_and_placeholder_can_gain_cover(self):
+        article = self.publish_first_article()
+        original_filename = article.image_filename
+        response = self.post_form(
+            "/first-article/edit", data=self.edit_data(image=(io.BytesIO(b""), ""))
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(article.image_filename, original_filename)
+        placeholder = self.build_article(
+            slug="placeholder", author_id=article.author_id
+        )
+        db.session.add(placeholder)
+        db.session.commit()
+        self.assertEqual(
+            self.post_form("/placeholder/edit", data=self.edit_data()).status_code, 302
+        )
+        self.assertIsNone(placeholder.image_filename)
+        response = self.post_form(
+            "/placeholder/edit",
+            data=self.edit_data(image=(io.BytesIO(PNG), "cover.png")),
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue((Path(self.uploads.name) / placeholder.image_filename).exists())
+        self.assertTrue((Path(self.uploads.name) / original_filename).exists())
+
+    def test_invalid_replacements_preserve_original_content_tags_and_file(self):
+        article = self.publish_first_article()
+        before = db.session.execute(text("SELECT * FROM articles")).all()
+        original = Path(self.uploads.name) / article.image_filename
+        for filename, contents in (
+            ("fake.png", b"not an image"),
+            ("wrong.jpg", PNG),
+            ("large.png", PNG.ljust(MAX_IMAGE_BYTES + 1, b"\0")),
+        ):
+            with self.subTest(filename=filename):
+                response = self.post_form(
+                    "/first-article/edit",
+                    data=self.edit_data(image=(io.BytesIO(contents), filename)),
+                )
+                self.assertEqual(response.status_code, 400)
+                self.assertIn(b'value="Updated article"', response.data)
+                self.assertEqual(
+                    db.session.execute(text("SELECT * FROM articles")).all(), before
+                )
+                self.assertEqual({tag.slug for tag in article.tags}, {"python", "web"})
+                self.assertEqual(Tag.query.count(), 2)
+                self.assertEqual(list(Path(self.uploads.name).iterdir()), [original])
+                self.assertEqual(original.read_bytes(), PNG)
+
+    def test_other_user_cannot_replace_article_cover(self):
+        article = self.publish_first_article()
+        original_filename = article.image_filename
+        self.create_user(email="other@example.test")
+        self.post_form(
+            "/auth/login",
+            data={"login_email": "other@example.test", "login_password": "password123"},
+        )
+        response = self.post_form(
+            "/first-article/edit",
+            data=self.edit_data(image=(io.BytesIO(PNG), "cover.png")),
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(Article.query.one().image_filename, original_filename)
+        self.assertEqual(
+            {item.name for item in Path(self.uploads.name).iterdir()},
+            {original_filename},
+        )
+
+    def test_replacement_write_failure_preserves_original_and_removes_partial_file(
+        self,
+    ):
+        article = self.publish_first_article()
+        before = db.session.execute(text("SELECT * FROM articles")).all()
+        original = Path(self.uploads.name) / article.image_filename
+
+        def fail_write(upload, destination, buffer_size=16384):
+            destination.write(b"partial image")
+            raise OSError("Simulated disk failure")
+
+        with (
+            patch.object(FileStorage, "save", new=fail_write),
+            self.assertLogs(self.app.logger, level="ERROR"),
+        ):
+            response = self.post_form(
+                "/first-article/edit",
+                data=self.edit_data(image=(io.BytesIO(PNG), "replacement.png")),
+            )
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(
+            db.session.execute(text("SELECT * FROM articles")).all(), before
+        )
+        self.assertEqual(list(Path(self.uploads.name).iterdir()), [original])
+        self.assertEqual(original.read_bytes(), PNG)
+        self.assertEqual(Tag.query.count(), 2)
+
+    def test_shared_cover_is_removed_only_after_its_last_reference_is_replaced(self):
+        article = self.publish_first_article()
+        original = Path(self.uploads.name) / article.image_filename
+        shared = self.build_article(
+            slug="shared-cover",
+            author_id=article.author_id,
+            image_filename=article.image_filename,
+        )
+        db.session.add(shared)
+        db.session.commit()
+        for slug in ("first-article", "shared-cover"):
+            response = self.post_form(
+                f"/{slug}/edit",
+                data=self.edit_data(image=(io.BytesIO(PNG), "replacement.png")),
+            )
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(original.exists(), slug == "first-article")
+        self.assertEqual(len(list(Path(self.uploads.name).iterdir())), 2)
+
+    def test_cleanup_database_failure_does_not_undo_a_successful_replacement(self):
+        article = self.publish_first_article()
+        previous_filename = article.image_filename
+        with (
+            patch(
+                "app.articles.services.is_image_referenced",
+                side_effect=SQLAlchemyError("Reference check failed"),
+            ),
+            self.assertLogs("app.articles.services", level="ERROR"),
+        ):
+            response = self.post_form(
+                "/first-article/edit",
+                data=self.edit_data(image=(io.BytesIO(PNG), "replacement.png")),
+            )
+        self.assertEqual(response.status_code, 302)
+        db.session.expire_all()
+        self.assertNotEqual(article.image_filename, previous_filename)
+        self.assertEqual(article.title, "Updated article")
+        self.assertEqual(
+            {item.name for item in Path(self.uploads.name).iterdir()},
+            {article.image_filename, previous_filename},
+        )
+
+    def test_cleanup_cannot_delete_a_file_outside_uploads(self):
+        article = self.publish_first_article()
+        outside = Path(self.uploads.name).with_name(
+            Path(self.uploads.name).name + "-outside.png"
+        )
+        outside.write_bytes(PNG)
+        self.addCleanup(outside.unlink, missing_ok=True)
+        article.image_filename = "../" + outside.name
+        db.session.commit()
+        with self.assertLogs("app.articles.services", level="ERROR"):
+            response = self.post_form(
+                "/first-article/edit",
+                data=self.edit_data(image=(io.BytesIO(PNG), "replacement.png")),
+            )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(outside.read_bytes(), PNG)
+        self.assertTrue((Path(self.uploads.name) / article.image_filename).exists())
+
+    def test_uncertain_commit_does_not_delete_a_referenced_replacement(self):
+        self.publish_first_article()
+        commit = db.session.commit
+
+        def commit_then_fail():
+            commit()
+            raise SQLAlchemyError("Simulated lost commit acknowledgement")
+
+        with (
+            patch.object(db.session, "commit", side_effect=commit_then_fail),
+            self.assertLogs(self.app.logger, level="ERROR"),
+        ):
+            response = self.post_form(
+                "/first-article/edit",
+                data=self.edit_data(image=(io.BytesIO(PNG), "replacement.png")),
+            )
+        self.assertEqual(response.status_code, 500)
+        db.session.expire_all()
+        article = Article.query.one()
+        self.assertEqual(article.title, "Updated article")
+        self.assertTrue((Path(self.uploads.name) / article.image_filename).exists())
 
     def test_missing_title_does_not_create_an_article(self):
         self.create_user()

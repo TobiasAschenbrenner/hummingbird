@@ -60,3 +60,9 @@ def get_owned_article(slug, *, author_id, for_update=False):
     if for_update:
         query = query.populate_existing().with_for_update()
     return query.first()
+
+
+def is_image_referenced(filename):
+    return db.session.query(
+        Article.query.filter_by(image_filename=filename).exists()
+    ).scalar()

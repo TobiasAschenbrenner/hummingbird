@@ -158,6 +158,12 @@
 .article-content {
   padding: 3rem 0 2rem;
 }
+.article-cover-preview {
+  width: 240px;
+  height: 135px;
+  margin-bottom: 0.75rem;
+  object-fit: cover;
+}
 .article-body {
   margin-block: 1rem;
   font-size: 1rem;

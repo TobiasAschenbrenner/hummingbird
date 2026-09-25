@@ -10,6 +10,7 @@ Readers can browse articles, and registered users can publish articles with cove
 - Register, log in, and log out
 - Publish articles with cover images
 - Edit your own article text, category, and tags
+- Replace your article's cover image
 - Browse the newest articles with pagination
 - Read individual articles
 - Choose categories stored in the database
@@ -230,10 +231,18 @@ are saved in one transaction. A failed save rolls them back and removes the new 
 
 Open one of your articles and choose **Edit Article** to update its title,
 description, text, category, or tags. The form starts with the saved values.
-The URL, author, publication date, and cover image stay unchanged. Emptying the
+The URL, author, and publication date stay unchanged. Emptying the
 tags field removes the article's tag links, not tags used by other articles.
 Only the author can open or submit the edit form; submissions also require CSRF
 verification. Validation errors preserve your input without saving changes.
+
+Choose a replacement cover image or leave the field empty to keep the current
+one. Replacements use the same validation and size limits as new uploads.
+The old file is removed only after the edit commits and only when no article
+still references it. Failed saves discard the new upload when the database
+confirms it is unused. Files are kept and errors logged if cleanup cannot be
+completed safely. A database transaction cannot make filesystem changes atomic;
+crashes or cleanup failures can leave unused files for later maintenance.
 
 An edit saves the article and its tag links in one transaction. PostgreSQL locks
 the article row during the save, serializing simultaneous edits to that article.

@@ -1,18 +1,21 @@
+import logging
 import re
 from datetime import date
 
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from app.articles.models import (
     DESCRIPTION_MAX_LENGTH,
     TITLE_MAX_LENGTH,
     Article,
 )
-from app.articles.queries import get_category_by_slug
+from app.articles.queries import get_category_by_slug, is_image_referenced
 from app.articles.tags import get_or_create_tags, parse_tag_names
 from app.articles.uploads import remove_image, save_image
 from app.errors import ValidationError
 from app.extensions import db
+
+logger = logging.getLogger(__name__)
 
 
 def validate_article_content(*, title, description, body):
@@ -92,8 +95,21 @@ def create_article(
     return article
 
 
-def update_article(article, *, title, description, category_slug, body, tag_names):
+def update_article(
+    article,
+    *,
+    title,
+    description,
+    category_slug,
+    body,
+    tag_names,
+    image,
+    upload_directory,
+    allowed_extensions,
+):
     """Update an article already authorized and locked by the caller."""
+    previous_filename = article.image_filename
+    new_filename = None
     try:
         values = validate_article_content(
             title=title, description=description, body=body
@@ -102,14 +118,36 @@ def update_article(article, *, title, description, category_slug, body, tag_name
         category = get_category_by_slug(category_slug.strip())
         if category is None:
             raise ValidationError("Please choose a supported category.")
+        if image is not None and image.filename:
+            new_filename = save_image(
+                image, directory=upload_directory, allowed_extensions=allowed_extensions
+            )
         tags = get_or_create_tags(parsed_tags)
         article.title = values["title"]
         article.description = values["description"]
         article.body = values["body"]
         article.category = category
         article.tags = tags
+        if new_filename is not None:
+            article.image_filename = new_filename
         db.session.commit()
     except Exception:
-        db.session.rollback()
+        try:
+            db.session.rollback()
+        finally:
+            if new_filename is not None:
+                remove_unreferenced_image(new_filename, directory=upload_directory)
         raise
+    if new_filename is not None and previous_filename:
+        remove_unreferenced_image(previous_filename, directory=upload_directory)
     return article
+
+
+def remove_unreferenced_image(filename, *, directory):
+    """Keep the file if its database references cannot be checked safely."""
+    try:
+        if not is_image_referenced(filename):
+            remove_image(filename, directory=directory)
+    except (SQLAlchemyError, ValueError):
+        db.session.rollback()
+        logger.exception("Unable to clean up an unused article image")
