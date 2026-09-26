@@ -12,7 +12,7 @@ from app.articles.models import (
 from app.articles.queries import get_category_by_slug, is_image_referenced
 from app.articles.tags import get_or_create_tags, parse_tag_names
 from app.articles.uploads import remove_image, save_image
-from app.errors import ValidationError
+from app.errors import ConflictError, ValidationError
 from app.extensions import db
 
 logger = logging.getLogger(__name__)
@@ -98,6 +98,7 @@ def create_article(
 def update_article(
     article,
     *,
+    expected_version,
     title,
     description,
     category_slug,
@@ -111,6 +112,16 @@ def update_article(
     previous_filename = article.image_filename
     new_filename = None
     try:
+        if not re.fullmatch(r"[1-9][0-9]{0,18}", expected_version):
+            raise ValidationError(
+                "The article version is missing or invalid. Copy your draft, "
+                "then open the latest saved version before trying again."
+            )
+        if int(expected_version) != article.version:
+            raise ConflictError(
+                "This article was saved again after you opened this form. "
+                "Your changes have not been saved."
+            )
         values = validate_article_content(
             title=title, description=description, body=body
         )
@@ -130,6 +141,7 @@ def update_article(
         article.tags = tags
         if new_filename is not None:
             article.image_filename = new_filename
+        article.version += 1
         db.session.commit()
     except Exception:
         try:

@@ -58,6 +58,7 @@ class Article(db.Model):
             "description ~ '[^[:space:]]'", name="articles_description_not_blank"
         ),
         db.CheckConstraint("text ~ '[^[:space:]]'", name="articles_text_not_blank"),
+        db.CheckConstraint("version > 0", name="articles_version_positive"),
     )
 
     id = db.Column(db.Integer, primary_key=True)
@@ -65,6 +66,7 @@ class Article(db.Model):
     body = db.Column("text", db.Text, nullable=False)
     description = db.Column(db.String(DESCRIPTION_MAX_LENGTH), nullable=False)
     title = db.Column(db.String(TITLE_MAX_LENGTH), nullable=False)
+    version = db.Column(db.BigInteger, nullable=False, server_default=db.text("1"))
     category_id = db.Column(
         db.Integer, db.ForeignKey("categories.id", ondelete="RESTRICT"), index=True
     )

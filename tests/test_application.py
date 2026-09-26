@@ -142,6 +142,7 @@ class ApplicationTests(unittest.TestCase):
 
     def edit_data(self, **overrides):
         data = {
+            "version": "1",
             "title": "Updated article",
             "description": "Updated description",
             "body": "Updated body",
@@ -150,6 +151,19 @@ class ApplicationTests(unittest.TestCase):
         }
         data.update(overrides)
         return data
+
+    def form_version(self, response):
+        match = re.search(rb'name="version" value="([^"]*)"', response.data)
+        self.assertIsNotNone(match)
+        return match.group(1).decode("ascii")
+
+    def database_rows(self, table, *, exclude=()):
+        return [
+            {key: value for key, value in row.items() if key not in exclude}
+            for row in db.session.execute(
+                text(f"SELECT * FROM {table} ORDER BY 1, 2")
+            ).mappings()
+        ]
 
     def test_homepage_and_missing_article(self):
         self.assertEqual(self.client.get("/").status_code, 200)
@@ -385,6 +399,7 @@ class ApplicationTests(unittest.TestCase):
             b"Article body",
             b'value="tech" selected',
             b'value="Python, Web"',
+            b'name="version" value="1"',
             b"Save Changes",
         ):
             self.assertIn(value, response.data)
@@ -439,6 +454,7 @@ class ApplicationTests(unittest.TestCase):
             ("logout", "Updated description", "Updated body"),
         )
         self.assertEqual(article.category.slug, "design")
+        self.assertEqual(article.version, 2)
         self.assertEqual({tag.slug for tag in article.tags}, {"python", "databases"})
         self.assertEqual({tag.slug for tag in shared.tags}, {"python", "web"})
         self.assertEqual(Tag.query.count(), 3)
@@ -578,6 +594,135 @@ class ApplicationTests(unittest.TestCase):
             302,
         )
 
+    def test_stale_edit_preserves_draft_and_requires_review_before_retrying(self):
+        self.publish_first_article()
+        old_version = self.form_version(self.client.get("/first-article/edit"))
+        saved = self.post_form("/first-article/edit", data=self.edit_data())
+        self.assertEqual(saved.status_code, 302)
+        tables = ("articles", "tags", "article_tags")
+        before = {table: self.database_rows(table) for table in tables}
+        files = {
+            item.name: item.read_bytes() for item in Path(self.uploads.name).iterdir()
+        }
+        draft = self.edit_data(
+            version=old_version,
+            title="Draft <title>",
+            description="My draft description",
+            body="My unsaved <script>alert(1)</script> text",
+            category="mobile",
+            tags="Unpublished",
+        )
+        for _ in range(2):
+            response = self.post_form(
+                "/first-article/edit",
+                data={**draft, "image": (io.BytesIO(PNG), "draft.png")},
+            )
+            self.assertEqual(response.status_code, 409)
+            self.assertEqual(self.form_version(response), old_version)
+            for value in (
+                b"Your changes have not been saved",
+                b'value="Draft &lt;title&gt;"',
+                b"My draft description",
+                b"My unsaved &lt;script&gt;alert(1)&lt;/script&gt; text",
+                b'value="mobile" selected',
+                b'value="Unpublished"',
+                b'href="/first-article/edit" target="_blank" rel="noopener"',
+                b"select it again before saving",
+            ):
+                self.assertIn(value, response.data)
+            self.assertEqual(
+                {table: self.database_rows(table) for table in tables}, before
+            )
+            self.assertEqual(
+                {
+                    item.name: item.read_bytes()
+                    for item in Path(self.uploads.name).iterdir()
+                },
+                files,
+            )
+        latest = self.client.get("/first-article/edit")
+        self.assertIn(b'value="Updated article"', latest.data)
+        self.assertEqual(self.form_version(latest), "2")
+        response = self.post_form(
+            "/first-article/edit",
+            data={**draft, "version": self.form_version(latest)},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(Article.query.one().title, draft["title"])
+        self.assertEqual(Article.query.one().version, 3)
+
+    def test_tag_only_cover_only_and_unchanged_saves_invalidate_older_forms(self):
+        article = self.publish_first_article()
+        for overrides in (
+            {"tags": "Only tags changed"},
+            {"image": (io.BytesIO(PNG), "new-cover.png")},
+            {},
+        ):
+            with self.subTest(fields=tuple(overrides)):
+                version = article.version
+                data = self.edit_data(
+                    version=str(version),
+                    title=article.title,
+                    description=article.description,
+                    body=article.body,
+                    category=article.category.slug,
+                    tags=", ".join(tag.name for tag in article.tags),
+                )
+                saved = self.post_form(
+                    "/first-article/edit", data={**data, **overrides}
+                )
+                self.assertEqual(saved.status_code, 302)
+                self.assertEqual(article.version, version + 1)
+                before = self.database_rows("articles")
+                # A conflict takes precedence even when the old draft is invalid.
+                stale = self.post_form(
+                    "/first-article/edit", data={**data, "title": ""}
+                )
+                self.assertEqual(stale.status_code, 409)
+                self.assertEqual(self.database_rows("articles"), before)
+
+    def test_edit_requires_a_valid_version_without_saving_files_or_tags(self):
+        self.publish_first_article()
+        before = self.database_rows("articles")
+        files = set(Path(self.uploads.name).iterdir())
+        for version in (None, "", "0", "-1", "1.0", "+1", " 1 ", "abc", "1" * 5000):
+            with self.subTest(version=version):
+                data = self.edit_data(image=(io.BytesIO(PNG), "replacement.png"))
+                if version is None:
+                    del data["version"]
+                else:
+                    data["version"] = version
+                response = self.post_form("/first-article/edit", data=data)
+                self.assertEqual(response.status_code, 400)
+                self.assertIn(b"article version is missing or invalid", response.data)
+                self.assertIn(b'value="Updated article"', response.data)
+                self.assertEqual(self.database_rows("articles"), before)
+                self.assertEqual(set(Path(self.uploads.name).iterdir()), files)
+                self.assertEqual(Tag.query.count(), 2)
+        future = self.post_form(
+            "/first-article/edit", data=self.edit_data(version="99")
+        )
+        self.assertEqual(future.status_code, 409)
+        self.assertEqual(self.database_rows("articles"), before)
+
+    def test_validation_error_does_not_refresh_an_edit_forms_version(self):
+        self.publish_first_article()
+        invalid = self.post_form("/first-article/edit", data=self.edit_data(title=""))
+        self.assertEqual(invalid.status_code, 400)
+        self.assertEqual(self.form_version(invalid), "1")
+        saved = self.post_form("/first-article/edit", data=self.edit_data())
+        self.assertEqual(saved.status_code, 302)
+        retry = self.post_form(
+            "/first-article/edit",
+            data=self.edit_data(
+                version=self.form_version(invalid), title="Fixed draft"
+            ),
+        )
+        self.assertEqual(retry.status_code, 409)
+        self.assertEqual(self.form_version(retry), "1")
+        self.assertEqual(Article.query.one().title, "Updated article")
+        self.assertEqual(Article.query.one().version, 2)
+
     def test_concurrent_edits_keep_article_content_tags_and_cover_together(self):
         self.publish_first_article()
         db.session.remove()
@@ -602,10 +747,12 @@ class ApplicationTests(unittest.TestCase):
                     ).status_code,
                     302,
                 )
+                version = self.form_version(client.get("/first-article/edit"))
                 return self.post_form(
                     "/first-article/edit",
                     client=client,
                     data=self.edit_data(
+                        version=version,
                         title=f"Update {number}",
                         tags=f"Topic {number}",
                         image=(io.BytesIO(covers[number]), "replacement.png"),
@@ -617,10 +764,15 @@ class ApplicationTests(unittest.TestCase):
         ):
             with ThreadPoolExecutor(max_workers=2) as executor:
                 responses = list(executor.map(edit, (1, 2)))
-        self.assertEqual(responses, [302, 302])
+        self.assertEqual(sorted(responses), [302, 409])
         article = Article.query.one()
         number = article.title.rsplit(" ", 1)[1]
+        self.assertEqual(responses[int(number) - 1], 302)
+        self.assertEqual(article.version, 2)
         self.assertEqual([tag.slug for tag in article.tags], [f"topic-{number}"])
+        self.assertEqual(
+            {tag.slug for tag in Tag.query.all()}, {"python", "web", f"topic-{number}"}
+        )
         self.assertEqual(len(db.session.execute(db.select(article_tags)).all()), 1)
         self.assertEqual(
             (Path(self.uploads.name) / article.image_filename).read_bytes(),
@@ -684,7 +836,7 @@ class ApplicationTests(unittest.TestCase):
         self.assertIsNone(placeholder.image_filename)
         response = self.post_form(
             "/placeholder/edit",
-            data=self.edit_data(image=(io.BytesIO(PNG), "cover.png")),
+            data=self.edit_data(version="2", image=(io.BytesIO(PNG), "cover.png")),
         )
         self.assertEqual(response.status_code, 302)
         self.assertTrue((Path(self.uploads.name) / placeholder.image_filename).exists())
@@ -1536,6 +1688,77 @@ class ApplicationTests(unittest.TestCase):
             tuple(valid_values.values()),
         )
 
+    def test_article_version_migration_preserves_content_and_relationships(self):
+        self.publish_first_article()
+        db.session.remove()
+        tables = ("users", "articles", "categories", "tags", "article_tags")
+        try:
+            downgrade(directory=MIGRATIONS_DIRECTORY, revision="f68142d76006")
+            before = {table: self.database_rows(table) for table in tables}
+            db.session.remove()
+            upgrade(directory=MIGRATIONS_DIRECTORY)
+            self.assertEqual(Article.query.one().version, 1)
+            self.assertEqual(
+                {
+                    table: self.database_rows(table, exclude=("version",))
+                    for table in tables
+                },
+                before,
+            )
+            saved = self.post_form("/first-article/edit", data=self.edit_data())
+            self.assertEqual(saved.status_code, 302)
+            self.assertEqual(Article.query.one().version, 2)
+            edited = {
+                table: self.database_rows(table, exclude=("version",))
+                for table in tables
+            }
+            db.session.remove()
+            downgrade(directory=MIGRATIONS_DIRECTORY, revision="f68142d76006")
+            self.assertEqual(
+                {table: self.database_rows(table) for table in tables}, edited
+            )
+        finally:
+            db.session.remove()
+            upgrade(directory=MIGRATIONS_DIRECTORY)
+        self.assertEqual(Article.query.one().version, 1)
+        self.assertEqual(self.client.get("/first-article").status_code, 200)
+
+    def test_article_version_database_default_and_constraints(self):
+        article_id = db.session.execute(
+            text(
+                "INSERT INTO articles (slug, title, description, text) "
+                "VALUES ('versioned', 'Title', 'Description', 'Body') RETURNING id"
+            )
+        ).scalar_one()
+        db.session.commit()
+        self.assertEqual(Article.query.get(article_id).version, 1)
+        for version in (None, 0, -1):
+            for operation in ("insert", "update"):
+                with self.subTest(version=version, operation=operation):
+                    if operation == "insert":
+                        statement = Article.__table__.insert().values(
+                            slug="invalid-version",
+                            title="Title",
+                            description="Description",
+                            text="Body",
+                            version=version,
+                        )
+                    else:
+                        statement = (
+                            Article.__table__.update()
+                            .where(Article.id == article_id)
+                            .values(version=version)
+                        )
+                    with self.assertRaises(IntegrityError) as raised:
+                        db.session.execute(statement)
+                        db.session.commit()
+                    db.session.rollback()
+                    self.assertEqual(
+                        raised.exception.orig.pgcode,
+                        "23502" if version is None else "23514",
+                    )
+        self.assertEqual(Article.query.one().version, 1)
+
     def test_article_content_migration_preserves_records_and_relationships(self):
         user = self.create_user()
         category = Category.query.filter_by(slug="tech").one()
@@ -1558,19 +1781,14 @@ class ApplicationTests(unittest.TestCase):
         db.session.commit()
         tables = ("users", "articles", "categories", "tags", "article_tags")
         before = {
-            table: db.session.execute(
-                text(f"SELECT * FROM {table} ORDER BY 1, 2")
-            ).all()
-            for table in tables
+            table: self.database_rows(table, exclude=("version",)) for table in tables
         }
         db.session.remove()
         try:
             downgrade(directory=MIGRATIONS_DIRECTORY, revision="e57031c65005")
             upgrade(directory=MIGRATIONS_DIRECTORY)
             after = {
-                table: db.session.execute(
-                    text(f"SELECT * FROM {table} ORDER BY 1, 2")
-                ).all()
+                table: self.database_rows(table, exclude=("version",))
                 for table in tables
             }
             self.assertEqual(after, before)
@@ -1581,9 +1799,7 @@ class ApplicationTests(unittest.TestCase):
             db.session.remove()
             downgrade(directory=MIGRATIONS_DIRECTORY, revision="e57031c65005")
             restored = {
-                table: db.session.execute(
-                    text(f"SELECT * FROM {table} ORDER BY 1, 2")
-                ).all()
+                table: self.database_rows(table, exclude=("version",))
                 for table in tables
             }
             self.assertEqual(restored, before)
@@ -1729,9 +1945,7 @@ class ApplicationTests(unittest.TestCase):
         db.session.add(self.build_article(slug="existing-story", author=user))
         db.session.commit()
         before_users = db.session.execute(text("SELECT * FROM users ORDER BY id")).all()
-        before_articles = db.session.execute(
-            text("SELECT * FROM articles ORDER BY id")
-        ).all()
+        before_articles = self.database_rows("articles", exclude=("version",))
         db.session.remove()
         try:
             downgrade(directory=MIGRATIONS_DIRECTORY, revision="d46f20b54004")
@@ -1746,7 +1960,7 @@ class ApplicationTests(unittest.TestCase):
                 before_users,
             )
             self.assertEqual(
-                db.session.execute(text("SELECT * FROM articles ORDER BY id")).all(),
+                self.database_rows("articles", exclude=("version",)),
                 before_articles,
             )
         finally:
@@ -1807,9 +2021,7 @@ class ApplicationTests(unittest.TestCase):
         )
         db.session.commit()
         before_users = db.session.execute(text("SELECT * FROM users ORDER BY id")).all()
-        before_articles = db.session.execute(
-            text("SELECT * FROM articles ORDER BY id")
-        ).all()
+        before_articles = self.database_rows("articles", exclude=("version",))
         db.session.remove()
         try:
             downgrade(directory=MIGRATIONS_DIRECTORY, revision="c35e1fa43003")
@@ -1819,7 +2031,7 @@ class ApplicationTests(unittest.TestCase):
                 before_users,
             )
             self.assertEqual(
-                db.session.execute(text("SELECT * FROM articles ORDER BY id")).all(),
+                self.database_rows("articles", exclude=("version",)),
                 before_articles,
             )
             self.assertTrue(
@@ -1833,7 +2045,7 @@ class ApplicationTests(unittest.TestCase):
                 before_users,
             )
             self.assertEqual(
-                db.session.execute(text("SELECT * FROM articles ORDER BY id")).all(),
+                self.database_rows("articles", exclude=("version",)),
                 before_articles,
             )
         finally:

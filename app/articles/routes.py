@@ -23,7 +23,7 @@ from app.articles.queries import (
 from app.articles.services import create_article, update_article
 from app.articles.tags import MAX_ARTICLE_TAGS, MAX_TAG_INPUT_LENGTH
 from app.articles.uploads import MAX_IMAGE_BYTES, MAX_IMAGE_FRAMES, MAX_IMAGE_PIXELS
-from app.errors import ValidationError
+from app.errors import ConflictError, ValidationError
 from app.extensions import db
 
 blueprint = Blueprint("articles", __name__)
@@ -64,11 +64,13 @@ def render_article_form(*, article=None, error=None, status=200):
             "body": article.body,
             "category": article.category.slug if article.category else "",
             "tags": ", ".join(tag.name for tag in article.tags),
+            "version": article.version,
         }
     return render_template(
         "articles/form.html",
         article=article,
         error=error,
+        edit_conflict=status == 409,
         form=form,
         categories=list_categories(),
         title_max_length=TITLE_MAX_LENGTH,
@@ -132,6 +134,7 @@ def submit_article_edit(slug):
     try:
         update_article(
             article,
+            expected_version=request.form.get("version", ""),
             title=request.form.get("title", ""),
             description=request.form.get("description", ""),
             category_slug=request.form.get("category", ""),
@@ -141,6 +144,8 @@ def submit_article_edit(slug):
             upload_directory=current_app.config["UPLOADS_PATH"],
             allowed_extensions=current_app.config["ALLOWED_EXTENSIONS"],
         )
+    except ConflictError as error:
+        return render_article_form(article=article, error=str(error), status=409)
     except ValidationError as error:
         return render_article_form(article=article, error=str(error), status=400)
     except (SQLAlchemyError, OSError):

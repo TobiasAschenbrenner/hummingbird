@@ -176,6 +176,16 @@
   margin-block: 20px;
   padding: 30px;
 }
+.article-edit-notice {
+  margin-bottom: 1rem;
+}
+.article-edit-notice p + p {
+  margin-top: 0.5rem;
+}
+.article-edit-notice a {
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
 .form-field {
   margin-bottom: 15px;
 }

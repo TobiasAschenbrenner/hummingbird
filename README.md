@@ -11,6 +11,7 @@ Readers can browse articles, and registered users can publish articles with cove
 - Publish articles with cover images
 - Edit your own article text, category, and tags
 - Replace your article's cover image
+- Keep stale edit forms from overwriting newer saves
 - Browse the newest articles with pagination
 - Read individual articles
 - Choose categories stored in the database
@@ -169,6 +170,11 @@ Article titles, URL slugs, descriptions, and bodies are also required and cannot
 be empty or contain only whitespace. The article-content migration stops if
 existing records violate these rules; it does not rewrite or delete articles.
 
+The edit-version migration gives existing articles version 1 without changing
+their content or relationships. Every successful edit through the application
+increments the version. Downgrading removes this counter; close old edit forms
+before downgrading and reapplying the migration.
+
 Email lookup and uniqueness ignore capitalization and surrounding spaces, tabs,
 and line breaks. Registration trims that whitespace but keeps the entered spelling;
 existing addresses are not rewritten. Login and demo seeding use the same lookup.
@@ -246,8 +252,14 @@ crashes or cleanup failures can leave unused files for later maintenance.
 
 An edit saves the article and its tag links in one transaction. PostgreSQL locks
 the article row during the save, serializing simultaneous edits to that article.
-This does not detect a form left open with older content: the later save wins.
-Stale-form conflict detection remains planned.
+Each edit form carries the article's version. The save checks it while holding
+the lock, then increments it in the same transaction, including tag-only and
+cover-only edits. A stale form returns HTTP 409 without changing records or files.
+Your entered text stays visible. Open the latest saved version using the link
+in the error message, compare it, and copy across the changes you want to keep.
+Select any replacement image again. Resubmitting the old form remains blocked.
+Direct database edits must also increment `articles.version`; this check is in
+the application, not a database trigger.
 
 The homepage shows 12 articles per page, newest first. Category links filter in
 the database before pagination, so they include matching articles from all pages.
@@ -339,6 +351,8 @@ CSRF protection remains enabled during application tests, including checks for
 missing, invalid, expired, and another session's tokens.
 Upload tests cover image contents, damaged animation frames, size boundaries,
 pixel/frame limits, and request rejection without database or file changes.
+Edit tests cover stale forms, simultaneous saves, preserving drafts, and version
+rollback when a save fails.
 
 Install the optional development tools and check the code:
 
