@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Delete Article | Hummingbird{% endblock %}
+{% block content %}
+  <section class="home">
+    <div class="home-text container">
+      {% include "partials/messages.html" %}
+      <h1 class="home-title">Delete Article</h1>
+      <p class="home-subtitle">This cannot be undone.</p>
+    </div>
+  </section>
+  <section class="reading-container article-content deletion-confirmation">
+    <h2>{{ article.title }}</h2>
+    <p>Deleting this article permanently removes its text and tag links. Its cover image is removed if no other article uses it. Your account, categories, and tags stay available.</p>
+    {% if deletion_uncertain %}
+      <a href="{{ url_for('articles.index') }}" class="button">Check the article list</a>
+    {% else %}
+      <p><a href="{{ url_for('articles.detail', slug=article.slug) }}" class="review-article">Review the latest article</a>{% if error %}, then choose Delete Article again to open a fresh confirmation{% endif %}.</p>
+      <form method="post" action="{{ url_for('articles.submit_article_deletion', slug=article.slug) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="article_id" value="{{ form.get('article_id', '') }}">
+        <input type="hidden" name="version" value="{{ form.get('version', '') }}">
+        <label class="deletion-checkbox">
+          <input type="checkbox" name="confirm_delete" value="yes" required>
+          I understand this permanently deletes this article.
+        </label>
+        <div class="deletion-actions">
+          <a href="{{ url_for('articles.detail', slug=article.slug) }}" class="button">Cancel</a>
+          <button type="submit" class="button button-danger">Delete permanently</button>
+        </div>
+      </form>
+    {% endif %}
+  </section>
+{% endblock %}

@@ -2,6 +2,7 @@ from flask import (
     Blueprint,
     abort,
     current_app,
+    flash,
     redirect,
     render_template,
     request,
@@ -20,7 +21,7 @@ from app.articles.queries import (
     list_categories_with_article_counts,
     paginate_articles,
 )
-from app.articles.services import create_article, update_article
+from app.articles.services import create_article, delete_article, update_article
 from app.articles.tags import MAX_ARTICLE_TAGS, MAX_TAG_INPUT_LENGTH
 from app.articles.uploads import MAX_IMAGE_BYTES, MAX_IMAGE_FRAMES, MAX_IMAGE_PIXELS
 from app.errors import ConflictError, ValidationError
@@ -65,6 +66,7 @@ def render_article_form(*, article=None, error=None, status=200):
             "category": article.category.slug if article.category else "",
             "tags": ", ".join(tag.name for tag in article.tags),
             "version": article.version,
+            "article_id": article.id,
         }
     return render_template(
         "articles/form.html",
@@ -134,6 +136,7 @@ def submit_article_edit(slug):
     try:
         update_article(
             article,
+            expected_id=request.form.get("article_id", ""),
             expected_version=request.form.get("version", ""),
             title=request.form.get("title", ""),
             description=request.form.get("description", ""),
@@ -145,7 +148,11 @@ def submit_article_edit(slug):
             allowed_extensions=current_app.config["ALLOWED_EXTENSIONS"],
         )
     except ConflictError as error:
-        return render_article_form(article=article, error=str(error), status=409)
+        return render_article_form(
+            article=article,
+            error=f"{error} Your changes have not been saved.",
+            status=409,
+        )
     except ValidationError as error:
         return render_article_form(article=article, error=str(error), status=400)
     except (SQLAlchemyError, OSError):
@@ -157,6 +164,68 @@ def submit_article_edit(slug):
             status=500,
         )
     return redirect(url_for("articles.detail", slug=article.slug))
+
+
+def render_deletion_form(*, article, error=None, status=200):
+    form = (
+        request.form
+        if request.method == "POST"
+        else {
+            "article_id": article.id,
+            "version": article.version,
+        }
+    )
+    return render_template(
+        "articles/delete.html",
+        article=article,
+        form=form,
+        error=error,
+        deletion_uncertain=status == 500,
+    ), status
+
+
+@blueprint.get("/<slug>/delete")
+@login_required
+def confirm_article_deletion(slug):
+    article = get_owned_article(slug, author_id=current_user.id)
+    if article is None:
+        abort(404)
+    return render_deletion_form(article=article)
+
+
+@blueprint.post("/<slug>/delete")
+@login_required
+def submit_article_deletion(slug):
+    article = get_owned_article(slug, author_id=current_user.id, for_update=True)
+    if article is None:
+        abort(404)
+    # Keep the error page usable even if a committed delete loses its acknowledgement.
+    details = {"id": article.id, "slug": article.slug, "title": article.title}
+    try:
+        delete_article(
+            article,
+            expected_id=request.form.get("article_id", ""),
+            expected_version=request.form.get("version", ""),
+            confirmed=request.form.get("confirm_delete") == "yes",
+            upload_directory=current_app.config["UPLOADS_PATH"],
+        )
+    except ConflictError as error:
+        return render_deletion_form(
+            article=details, error=f"{error} Nothing was deleted.", status=409
+        )
+    except ValidationError as error:
+        return render_deletion_form(article=details, error=str(error), status=400)
+    except SQLAlchemyError:
+        db.session.rollback()
+        current_app.logger.exception("Article deletion failed")
+        return render_deletion_form(
+            article=details,
+            error="We could not confirm whether the article was deleted. "
+            "Check the article list before trying again.",
+            status=500,
+        )
+    flash("Article deleted.", "success")
+    return redirect(url_for("articles.index"))
 
 
 @blueprint.get("/<slug>")

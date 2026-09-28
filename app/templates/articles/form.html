@@ -19,6 +19,7 @@
     <form method="post" action="{{ url_for('articles.submit_article_edit', slug=article.slug) if article else url_for('articles.submit_article') }}" class="article-form" enctype="multipart/form-data">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       {% if article %}<input type="hidden" name="version" value="{{ form.get('version', '') }}">{% endif %}
+      {% if article %}<input type="hidden" name="article_id" value="{{ form.get('article_id', '') }}">{% endif %}
       <div class="form-field">
         <label class="visually-hidden" for="article-title">Title</label>
         <input id="article-title" name="title" placeholder="Title" maxlength="{{ title_max_length }}" value="{{ form.get('title', '') }}" required>

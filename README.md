@@ -12,6 +12,7 @@ Readers can browse articles, and registered users can publish articles with cove
 - Edit your own article text, category, and tags
 - Replace your article's cover image
 - Keep stale edit forms from overwriting newer saves
+- Delete your own articles after confirmation
 - Browse the newest articles with pagination
 - Read individual articles
 - Choose categories stored in the database
@@ -24,7 +25,6 @@ Readers can browse articles, and registered users can publish articles with cove
 
 ### Planned features
 
-- Deleting your own articles
 - Adding and deleting your own comments
 - Article search
 
@@ -261,6 +261,23 @@ Select any replacement image again. Resubmitting the old form remains blocked.
 Direct database edits must also increment `articles.version`; this check is in
 the application, not a database trigger.
 
+Choose **Delete Article** on one of your articles, review the confirmation,
+then tick the checkbox and choose **Delete permanently**. **Cancel** leaves it
+unchanged. Only the author can delete it, and the final POST requires CSRF
+verification. Opening the confirmation page does not delete anything.
+
+Deletion locks the article row and checks its ID and version. An outdated
+confirmation returns HTTP 409; review the latest article and open a new
+confirmation before trying again. Edit forms also check the ID, so an old form
+cannot affect a new article that reuses a deleted article's URL.
+
+The article and its tag links are deleted in one transaction; accounts,
+categories, and tags remain. Its cover is removed only after the deletion
+commits and only if no article still uses it. Failed transactions keep the
+article and cover. If the database cannot confirm the outcome, the page asks
+you to check the article list; uncertain commits or cleanup failures can leave
+unused images for later maintenance. There is no undo or restore screen.
+
 The homepage shows 12 articles per page, newest first. Category links filter in
 the database before pagination, so they include matching articles from all pages.
 The selected filters stay active when moving between pages. Click a tag on an
@@ -353,6 +370,8 @@ Upload tests cover image contents, damaged animation frames, size boundaries,
 pixel/frame limits, and request rejection without database or file changes.
 Edit tests cover stale forms, simultaneous saves, preserving drafts, and version
 rollback when a save fails.
+Deletion tests cover ownership, confirmation, CSRF, stale forms, reused URLs,
+concurrent edits/deletes, transaction rollback, and shared-image cleanup.
 
 Install the optional development tools and check the code:
 
@@ -376,8 +395,8 @@ them, including animated frames. The actual format must match the extension;
 renamed non-images and damaged files are rejected without creating an article.
 Original image bytes and metadata are preserved; validation is not sanitization.
 
-Registration, login, article creation/editing, and logout require a session-bound CSRF
-token. Logout uses a POST form, so visiting a link cannot log you out. Tokens
+Registration, login, article creation/editing/deletion, and logout require a
+session-bound CSRF token. Logout uses a POST form, so visiting a link cannot log you out. Tokens
 expire after one hour; if form verification fails, refresh the original page
 before trying again. The server returns HTTP 400 without performing the action.
 

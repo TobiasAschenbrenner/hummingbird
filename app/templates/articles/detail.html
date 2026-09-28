@@ -15,6 +15,7 @@
   <section class="article-content reading-container">
     {% if current_user.is_authenticated and current_user.id == article.author_id %}
       <a href="{{ url_for('articles.edit_article', slug=article.slug) }}" class="button">Edit Article</a>
+      <a href="{{ url_for('articles.confirm_article_deletion', slug=article.slug) }}" class="button button-danger">Delete Article</a>
     {% endif %}
     {% include "articles/_tags.html" %}
     <p class="article-body">{{ article.body }}</p>

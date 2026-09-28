@@ -142,6 +142,7 @@ class ApplicationTests(unittest.TestCase):
 
     def edit_data(self, **overrides):
         data = {
+            "article_id": "1",
             "version": "1",
             "title": "Updated article",
             "description": "Updated description",
@@ -151,6 +152,9 @@ class ApplicationTests(unittest.TestCase):
         }
         data.update(overrides)
         return data
+
+    def deletion_data(self, **overrides):
+        return {"article_id": "1", "version": "1", "confirm_delete": "yes", **overrides}
 
     def form_version(self, response):
         match = re.search(rb'name="version" value="([^"]*)"', response.data)
@@ -208,6 +212,7 @@ class ApplicationTests(unittest.TestCase):
         pages.append(self.client.get("/new-post"))
         self.post_form("/new-post", data=self.article_data())
         pages.append(self.client.get("/first-article/edit"))
+        pages.append(self.client.get("/first-article/delete"))
         forms = {}
         for page in pages:
             self.assertEqual(page.status_code, 200)
@@ -226,6 +231,7 @@ class ApplicationTests(unittest.TestCase):
                 b"/new-post",
                 b"/logout",
                 b"/first-article/edit",
+                b"/first-article/delete",
             },
         )
         for action, form in forms.items():
@@ -400,6 +406,7 @@ class ApplicationTests(unittest.TestCase):
             b'value="tech" selected',
             b'value="Python, Web"',
             b'name="version" value="1"',
+            b'name="article_id" value="1"',
             b"Save Changes",
         ):
             self.assertIn(value, response.data)
@@ -831,12 +838,19 @@ class ApplicationTests(unittest.TestCase):
         db.session.add(placeholder)
         db.session.commit()
         self.assertEqual(
-            self.post_form("/placeholder/edit", data=self.edit_data()).status_code, 302
+            self.post_form(
+                "/placeholder/edit", data=self.edit_data(article_id=str(placeholder.id))
+            ).status_code,
+            302,
         )
         self.assertIsNone(placeholder.image_filename)
         response = self.post_form(
             "/placeholder/edit",
-            data=self.edit_data(version="2", image=(io.BytesIO(PNG), "cover.png")),
+            data=self.edit_data(
+                article_id=str(placeholder.id),
+                version="2",
+                image=(io.BytesIO(PNG), "cover.png"),
+            ),
         )
         self.assertEqual(response.status_code, 302)
         self.assertTrue((Path(self.uploads.name) / placeholder.image_filename).exists())
@@ -922,13 +936,16 @@ class ApplicationTests(unittest.TestCase):
         )
         db.session.add(shared)
         db.session.commit()
-        for slug in ("first-article", "shared-cover"):
+        for target in (article, shared):
             response = self.post_form(
-                f"/{slug}/edit",
-                data=self.edit_data(image=(io.BytesIO(PNG), "replacement.png")),
+                f"/{target.slug}/edit",
+                data=self.edit_data(
+                    article_id=str(target.id),
+                    image=(io.BytesIO(PNG), "replacement.png"),
+                ),
             )
             self.assertEqual(response.status_code, 302)
-            self.assertEqual(original.exists(), slug == "first-article")
+            self.assertEqual(original.exists(), target.slug == "first-article")
         self.assertEqual(len(list(Path(self.uploads.name).iterdir())), 2)
 
     def test_cleanup_database_failure_does_not_undo_a_successful_replacement(self):
@@ -993,6 +1010,393 @@ class ApplicationTests(unittest.TestCase):
         article = Article.query.one()
         self.assertEqual(article.title, "Updated article")
         self.assertTrue((Path(self.uploads.name) / article.image_filename).exists())
+
+    def test_delete_confirmation_and_cancel_do_not_change_any_data(self):
+        self.publish_first_article()
+        tables = ("users", "articles", "tags", "article_tags", "categories")
+        before = {table: self.database_rows(table) for table in tables}
+        files = set(Path(self.uploads.name).iterdir())
+        response = self.client.get("/first-article/delete")
+        self.assertEqual(response.status_code, 200)
+        for value in (
+            b"First article",
+            b"This cannot be undone.",
+            b'name="article_id" value="1"',
+            b'name="version" value="1"',
+            b'name="confirm_delete" value="yes" required',
+            b"Delete permanently",
+            b'href="/first-article" class="button">Cancel',
+        ):
+            self.assertIn(value, response.data)
+        self.assertIn(b"/first-article/delete", self.client.get("/first-article").data)
+        self.assertEqual({table: self.database_rows(table) for table in tables}, before)
+        self.assertEqual(set(Path(self.uploads.name).iterdir()), files)
+
+    def test_owner_deletion_removes_only_article_links_and_unused_cover_after_commit(
+        self,
+    ):
+        article = self.publish_first_article()
+        original = Path(self.uploads.name) / article.image_filename
+        shared = self.build_article(
+            slug="shared",
+            author=article.author,
+            category=article.category,
+            tags=list(article.tags),
+        )
+        db.session.add(shared)
+        db.session.commit()
+        shared_id = shared.id
+        retained = {
+            table: self.database_rows(table)
+            for table in ("users", "categories", "tags")
+        }
+        commit = db.session.commit
+
+        def checked_commit():
+            self.assertTrue(original.exists())
+            commit()
+            self.assertTrue(original.exists())
+
+        with patch.object(db.session, "commit", side_effect=checked_commit):
+            response = self.post_form(
+                "/first-article/delete", data=self.deletion_data()
+            )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.location, "/")
+        self.assertIn(b"Article deleted.", self.client.get("/").data)
+        self.assertEqual(Article.query.one().id, shared_id)
+        self.assertEqual(
+            {row.article_id for row in db.session.execute(db.select(article_tags))},
+            {shared_id},
+        )
+        self.assertEqual(
+            {table: self.database_rows(table) for table in retained}, retained
+        )
+        self.assertFalse(original.exists())
+        for suffix in ("", "/edit", "/delete"):
+            self.assertEqual(
+                self.client.get("/first-article" + suffix).status_code, 404
+            )
+        self.assertEqual(
+            self.post_form(
+                "/first-article/delete", data=self.deletion_data()
+            ).status_code,
+            404,
+        )
+        self.assertEqual(
+            self.post_form("/first-article/edit", data=self.edit_data()).status_code,
+            404,
+        )
+
+    def test_deletion_requires_the_owner_and_csrf_protection(self):
+        article = self.publish_first_article()
+        self.create_user(email="other@example.test")
+        db.session.add(self.build_article(slug="unowned"))
+        db.session.commit()
+        before = self.database_rows("articles")
+        files = set(Path(self.uploads.name).iterdir())
+        with self.app.app_context():
+            foreign_token = self.csrf_token(client=self.app.test_client())
+        for token in (None, "invalid", foreign_token):
+            data = self.deletion_data()
+            if token is not None:
+                data["csrf_token"] = token
+            response = self.client.post("/first-article/delete", data=data)
+            self.assertEqual(response.status_code, 400)
+            self.assertIn(b"Your form could not be verified", response.data)
+        self.post_form("/logout")
+        self.assertEqual(self.client.get("/first-article/delete").status_code, 401)
+        self.assertEqual(
+            self.post_form(
+                "/first-article/delete", data=self.deletion_data()
+            ).status_code,
+            401,
+        )
+        self.assertNotIn(
+            b"/first-article/delete", self.client.get("/first-article").data
+        )
+        self.post_form(
+            "/auth/login",
+            data={"login_email": "other@example.test", "login_password": "password123"},
+        )
+        for slug in ("first-article", "unowned", "missing"):
+            self.assertEqual(self.client.get(f"/{slug}/delete").status_code, 404)
+            self.assertEqual(
+                self.post_form(
+                    f"/{slug}/delete", data=self.deletion_data()
+                ).status_code,
+                404,
+            )
+        self.assertNotIn(
+            b"/first-article/delete", self.client.get("/first-article").data
+        )
+        self.assertEqual(self.database_rows("articles"), before)
+        self.assertEqual(set(Path(self.uploads.name).iterdir()), files)
+        self.assertEqual(len(article.tags), 2)
+
+    def test_deletion_rejects_unconfirmed_or_invalid_submissions(self):
+        self.publish_first_article()
+        before = self.database_rows("articles")
+        links = self.database_rows("article_tags")
+        files = set(Path(self.uploads.name).iterdir())
+        for field, values, status in (
+            ("confirm_delete", (None, "", "no", "on"), 400),
+            ("version", (None, "", "0", "-1", "1.0", "abc", "1" * 5000), 400),
+            ("article_id", (None, "", "999", "1.0"), 409),
+            ("version", ("2",), 409),
+        ):
+            for value in values:
+                with self.subTest(field=field, value=value):
+                    data = self.deletion_data(**{field: value})
+                    if value is None:
+                        del data[field]
+                    response = self.post_form("/first-article/delete", data=data)
+                    self.assertEqual(response.status_code, status)
+                    self.assertIn(b"First article", response.data)
+                    self.assertEqual(self.database_rows("articles"), before)
+                    self.assertEqual(self.database_rows("article_tags"), links)
+                    self.assertEqual(set(Path(self.uploads.name).iterdir()), files)
+
+    def test_stale_deletion_requires_a_fresh_confirmation_after_an_edit(self):
+        self.publish_first_article()
+        old = self.client.get("/first-article/delete")
+        self.assertEqual(self.form_version(old), "1")
+        saved = self.post_form(
+            "/first-article/edit",
+            data=self.edit_data(image=(io.BytesIO(PNG), "new.png")),
+        )
+        self.assertEqual(saved.status_code, 302)
+        before = self.database_rows("articles")
+        links = self.database_rows("article_tags")
+        files = set(Path(self.uploads.name).iterdir())
+        for _ in range(2):
+            stale = self.post_form("/first-article/delete", data=self.deletion_data())
+            self.assertEqual(stale.status_code, 409)
+            self.assertIn(b"Nothing was deleted", stale.data)
+            self.assertEqual(self.form_version(stale), "1")
+            self.assertEqual(self.database_rows("articles"), before)
+            self.assertEqual(self.database_rows("article_tags"), links)
+            self.assertEqual(set(Path(self.uploads.name).iterdir()), files)
+        fresh = self.client.get("/first-article/delete")
+        self.assertEqual(self.form_version(fresh), "2")
+        self.assertEqual(
+            self.post_form(
+                "/first-article/delete", data=self.deletion_data(version="2")
+            ).status_code,
+            302,
+        )
+        self.assertEqual(Article.query.count(), 0)
+        self.assertEqual(list(Path(self.uploads.name).iterdir()), [])
+
+    def test_old_edit_and_delete_forms_cannot_change_a_recreated_article(self):
+        old_id = self.publish_first_article().id
+        self.assertEqual(
+            self.post_form(
+                "/first-article/delete", data=self.deletion_data()
+            ).status_code,
+            302,
+        )
+        self.assertEqual(
+            self.post_form("/new-post", data=self.article_data()).status_code, 302
+        )
+        replacement = Article.query.one()
+        self.assertNotEqual(replacement.id, old_id)
+        self.assertEqual(replacement.version, 1)
+        before = self.database_rows("articles")
+        files = set(Path(self.uploads.name).iterdir())
+        for action, data in (
+            ("edit", self.edit_data()),
+            ("delete", self.deletion_data()),
+        ):
+            for article_id in (str(old_id), None):
+                submitted = dict(data)
+                if article_id is None:
+                    del submitted["article_id"]
+                response = self.post_form(f"/first-article/{action}", data=submitted)
+                self.assertEqual(response.status_code, 409)
+                self.assertIn(b"form no longer matches", response.data)
+        self.assertEqual(self.database_rows("articles"), before)
+        self.assertEqual(set(Path(self.uploads.name).iterdir()), files)
+        fresh = self.client.get("/first-article/edit")
+        self.assertIn(
+            f'name="article_id" value="{replacement.id}"'.encode(), fresh.data
+        )
+        self.assertEqual(
+            self.post_form(
+                "/first-article/edit",
+                data=self.edit_data(article_id=str(replacement.id)),
+            ).status_code,
+            302,
+        )
+
+    def test_failed_deletion_rolls_back_article_and_tag_links_and_keeps_cover(self):
+        article = self.publish_first_article()
+        before = self.database_rows("articles")
+        links = self.database_rows("article_tags")
+        original = Path(self.uploads.name) / article.image_filename
+
+        def fail_delete(mapper, connection, target):
+            connection.execute(text("SELECT 1 / 0"))
+
+        event.listen(Article, "after_delete", fail_delete)
+        try:
+            with self.assertLogs(self.app.logger, level="ERROR"):
+                response = self.post_form(
+                    "/first-article/delete", data=self.deletion_data()
+                )
+        finally:
+            event.remove(Article, "after_delete", fail_delete)
+        self.assertEqual(response.status_code, 500)
+        self.assertIn(b"Check the article list", response.data)
+        self.assertNotIn(b"SELECT 1 / 0", response.data)
+        self.assertNotIn(b"Delete permanently", response.data)
+        self.assertEqual(self.database_rows("articles"), before)
+        self.assertEqual(self.database_rows("article_tags"), links)
+        self.assertEqual(original.read_bytes(), PNG)
+        self.assertEqual(
+            self.post_form(
+                "/first-article/delete", data=self.deletion_data()
+            ).status_code,
+            302,
+        )
+
+    def test_deleting_a_shared_cover_keeps_it_until_the_last_article_is_deleted(self):
+        article = self.publish_first_article()
+        original = Path(self.uploads.name) / article.image_filename
+        shared = self.build_article(
+            slug="shared",
+            author_id=article.author_id,
+            image_filename=article.image_filename,
+        )
+        placeholder = self.build_article(
+            slug="placeholder", author_id=article.author_id
+        )
+        db.session.add_all([shared, placeholder])
+        db.session.commit()
+        for target, keeps_file in (
+            (article, True),
+            (shared, False),
+            (placeholder, False),
+        ):
+            response = self.post_form(
+                f"/{target.slug}/delete",
+                data=self.deletion_data(article_id=str(target.id)),
+            )
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(original.exists(), keeps_file)
+        self.assertEqual(Article.query.count(), 0)
+
+    def test_deletion_cleanup_failure_keeps_file_without_undoing_committed_delete(self):
+        article = self.publish_first_article()
+        original = Path(self.uploads.name) / article.image_filename
+        with (
+            patch(
+                "app.articles.services.is_image_referenced",
+                side_effect=SQLAlchemyError("Reference check failed"),
+            ),
+            self.assertLogs("app.articles.services", level="ERROR"),
+        ):
+            response = self.post_form(
+                "/first-article/delete", data=self.deletion_data()
+            )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(Article.query.count(), 0)
+        self.assertEqual(original.read_bytes(), PNG)
+
+    def test_uncertain_delete_commit_shows_a_safe_error_without_reading_deleted_row(
+        self,
+    ):
+        article = self.publish_first_article()
+        original = Path(self.uploads.name) / article.image_filename
+        commit = db.session.commit
+
+        def commit_then_fail():
+            commit()
+            raise SQLAlchemyError("Simulated lost acknowledgement")
+
+        with (
+            patch.object(db.session, "commit", side_effect=commit_then_fail),
+            self.assertLogs(self.app.logger, level="ERROR"),
+        ):
+            response = self.post_form(
+                "/first-article/delete", data=self.deletion_data()
+            )
+        self.assertEqual(response.status_code, 500)
+        self.assertIn(b"First article", response.data)
+        self.assertIn(b"could not confirm whether", response.data)
+        self.assertNotIn(b"Delete permanently", response.data)
+        self.assertEqual(Article.query.count(), 0)
+        self.assertEqual(original.read_bytes(), PNG)
+
+    def run_competing_article_actions(self, actions):
+        db.session.remove()
+        start = Barrier(2)
+
+        def synchronize_lookup(slug, **kwargs):
+            if kwargs.get("for_update"):
+                start.wait(timeout=10)
+            return get_owned_article(slug, **kwargs)
+
+        def submit(action):
+            name, data = action
+            with self.app.test_client() as client:
+                self.assertEqual(
+                    self.post_form(
+                        "/auth/login",
+                        client=client,
+                        data={
+                            "login_email": "author@example.test",
+                            "login_password": "password123",
+                        },
+                    ).status_code,
+                    302,
+                )
+                return self.post_form(
+                    f"/first-article/{name}", client=client, data=data
+                ).status_code
+
+        with patch(
+            "app.articles.routes.get_owned_article", side_effect=synchronize_lookup
+        ):
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                return list(executor.map(submit, actions))
+
+    def test_two_simultaneous_deletions_remove_the_article_once(self):
+        self.publish_first_article()
+        statuses = self.run_competing_article_actions(
+            [("delete", self.deletion_data()), ("delete", self.deletion_data())]
+        )
+        self.assertEqual(sorted(statuses), [302, 404])
+        self.assertEqual(Article.query.count(), 0)
+        self.assertEqual(self.database_rows("article_tags"), [])
+        self.assertEqual(Tag.query.count(), 2)
+        self.assertEqual(list(Path(self.uploads.name).iterdir()), [])
+
+    def test_simultaneous_edit_and_deletion_cannot_lose_a_newer_save(self):
+        self.publish_first_article()
+        statuses = self.run_competing_article_actions(
+            [
+                ("edit", self.edit_data(image=(io.BytesIO(PNG), "replacement.png"))),
+                ("delete", self.deletion_data()),
+            ]
+        )
+        self.assertIn(statuses, ([302, 409], [404, 302]))
+        if statuses[0] == 302:
+            article = Article.query.one()
+            self.assertEqual(article.title, "Updated article")
+            self.assertEqual(article.version, 2)
+            self.assertEqual(
+                {tag.slug for tag in article.tags}, {"python", "databases"}
+            )
+            self.assertEqual(
+                {item.name for item in Path(self.uploads.name).iterdir()},
+                {article.image_filename},
+            )
+        else:
+            self.assertEqual(Article.query.count(), 0)
+            self.assertEqual(self.database_rows("article_tags"), [])
+            self.assertEqual(Tag.query.count(), 2)
+            self.assertEqual(list(Path(self.uploads.name).iterdir()), [])
 
     def test_missing_title_does_not_create_an_article(self):
         self.create_user()

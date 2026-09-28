@@ -95,9 +95,25 @@ def create_article(
     return article
 
 
+def validate_article_revision(article, *, expected_id, expected_version):
+    if expected_id != str(article.id):
+        raise ConflictError(
+            "This form no longer matches the article. Review the latest article "
+            "before trying again."
+        )
+    if not re.fullmatch(r"[1-9][0-9]{0,18}", expected_version):
+        raise ValidationError(
+            "The article version is missing or invalid. Open the latest saved "
+            "version before trying again."
+        )
+    if int(expected_version) != article.version:
+        raise ConflictError("This article was saved again after you opened this form.")
+
+
 def update_article(
     article,
     *,
+    expected_id,
     expected_version,
     title,
     description,
@@ -112,16 +128,9 @@ def update_article(
     previous_filename = article.image_filename
     new_filename = None
     try:
-        if not re.fullmatch(r"[1-9][0-9]{0,18}", expected_version):
-            raise ValidationError(
-                "The article version is missing or invalid. Copy your draft, "
-                "then open the latest saved version before trying again."
-            )
-        if int(expected_version) != article.version:
-            raise ConflictError(
-                "This article was saved again after you opened this form. "
-                "Your changes have not been saved."
-            )
+        validate_article_revision(
+            article, expected_id=expected_id, expected_version=expected_version
+        )
         values = validate_article_content(
             title=title, description=description, body=body
         )
@@ -153,6 +162,28 @@ def update_article(
     if new_filename is not None and previous_filename:
         remove_unreferenced_image(previous_filename, directory=upload_directory)
     return article
+
+
+def delete_article(
+    article, *, expected_id, expected_version, confirmed, upload_directory
+):
+    """Delete an article already authorized and locked by the caller."""
+    filename = article.image_filename
+    try:
+        if not confirmed:
+            raise ValidationError(
+                "Please confirm that you want to permanently delete this article."
+            )
+        validate_article_revision(
+            article, expected_id=expected_id, expected_version=expected_version
+        )
+        db.session.delete(article)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        raise
+    if filename:
+        remove_unreferenced_image(filename, directory=upload_directory)
 
 
 def remove_unreferenced_image(filename, *, directory):

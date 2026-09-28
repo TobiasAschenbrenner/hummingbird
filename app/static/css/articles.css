@@ -158,6 +158,30 @@
 .article-content {
   padding: 3rem 0 2rem;
 }
+.button-danger {
+  background: #a61b1b;
+}
+.button-danger:hover {
+  background: #801515;
+}
+.deletion-confirmation h2 {
+  overflow-wrap: anywhere;
+}
+.deletion-confirmation p {
+  margin-block: 1rem;
+}
+.review-article {
+  text-decoration: underline;
+}
+.deletion-checkbox {
+  display: block;
+  margin-block: 1.5rem;
+}
+.deletion-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
 .article-cover-preview {
   width: 240px;
   height: 135px;
