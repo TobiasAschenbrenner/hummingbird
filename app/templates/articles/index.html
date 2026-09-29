@@ -8,14 +8,27 @@
       <p class="home-subtitle">Your source for great content</p>
     </div>
   </section>
+  <form method="get" action="{{ url_for('articles.index') }}" role="search" aria-label="Search articles" class="article-search container">
+    <label for="article-search-query">Search articles</label>
+    {% if selected_category %}<input type="hidden" name="category" value="{{ selected_category.slug }}">{% endif %}
+    {% if selected_tag %}<input type="hidden" name="tag" value="{{ selected_tag.slug }}">{% endif %}
+    <div class="article-search-fields">
+      <input id="article-search-query" type="search" name="q" value="{{ search_query }}" maxlength="{{ max_search_length }}" placeholder="Keywords in title, description, or text" aria-describedby="article-search-help">
+      <button type="submit" class="button">Search</button>
+      {% if search_query %}<a href="{{ url_for('articles.index', category=selected_category.slug if selected_category else None, tag=selected_tag.slug if selected_tag else None) }}" class="clear-search">Clear search</a>{% endif %}
+    </div>
+    <small id="article-search-help">Match all words. Results are newest first.</small>
+  </form>
+  {% if pagination is not none %}
+  {% if search_query %}<p class="search-summary container">{{ pagination.total }} {{ 'article matches' if pagination.total == 1 else 'articles match' }} “{{ search_query }}”.</p>{% endif %}
   <nav class="article-filters container" aria-label="Filter articles by category">
-    <a href="{{ url_for('articles.index', tag=selected_tag.slug if selected_tag else None) }}" class="filter-button{% if not selected_category %} active-filter{% endif %}" {% if not selected_category %}aria-current="page"{% endif %}>All</a>
+    <a href="{{ url_for('articles.index', tag=selected_tag.slug if selected_tag else None, q=search_query or None) }}" class="filter-button{% if not selected_category %} active-filter{% endif %}" {% if not selected_category %}aria-current="page"{% endif %}>All</a>
     {% for category, article_count in category_counts %}
-      <a href="{{ url_for('articles.index', category=category.slug, tag=selected_tag.slug if selected_tag else None) }}" class="filter-button{% if selected_category and selected_category.id == category.id %} active-filter{% endif %}" {% if selected_category and selected_category.id == category.id %}aria-current="page"{% endif %}>{{ category.name }} ({{ article_count }})</a>
+      <a href="{{ url_for('articles.index', category=category.slug, tag=selected_tag.slug if selected_tag else None, q=search_query or None) }}" class="filter-button{% if selected_category and selected_category.id == category.id %} active-filter{% endif %}" {% if selected_category and selected_category.id == category.id %}aria-current="page"{% endif %}>{{ category.name }} ({{ article_count }})</a>
     {% endfor %}
   </nav>
   {% if selected_tag %}
-    <p class="active-tag container">Tagged: <strong>{{ selected_tag.name }}</strong> · <a href="{{ url_for('articles.index', category=selected_category.slug if selected_category else None) }}">Clear tag filter</a></p>
+    <p class="active-tag container">Tagged: <strong>{{ selected_tag.name }}</strong> · <a href="{{ url_for('articles.index', category=selected_category.slug if selected_category else None, q=search_query or None) }}">Clear tag filter</a></p>
   {% endif %}
   <ul class="article-grid container">
     {% for article in pagination.items %}
@@ -37,20 +50,21 @@
         {% endif %}
       </li>
     {% else %}
-      <li class="empty-state">{% if selected_tag %}No articles match these filters.{% elif selected_category %}No articles in this category yet.{% else %}No articles yet. Log in and write the first one.{% endif %}</li>
+      <li class="empty-state">{% if search_query %}No articles match your search and filters.{% elif selected_tag %}No articles match these filters.{% elif selected_category %}No articles in this category yet.{% else %}No articles yet. Log in and write the first one.{% endif %}</li>
     {% endfor %}
   </ul>
   <nav class="pagination container" aria-label="Article pages">
     {% if pagination.has_prev %}
-      <a href="{{ url_for('articles.index', page=pagination.prev_num, category=selected_category.slug if selected_category else None, tag=selected_tag.slug if selected_tag else None) }}">Previous Page</a>
+      <a href="{{ url_for('articles.index', page=pagination.prev_num, category=selected_category.slug if selected_category else None, tag=selected_tag.slug if selected_tag else None, q=search_query or None) }}">Previous Page</a>
     {% else %}
       <span>Previous Page</span>
     {% endif %}
     <span aria-hidden="true">–</span>
     {% if pagination.has_next %}
-      <a href="{{ url_for('articles.index', page=pagination.next_num, category=selected_category.slug if selected_category else None, tag=selected_tag.slug if selected_tag else None) }}">Next Page</a>
+      <a href="{{ url_for('articles.index', page=pagination.next_num, category=selected_category.slug if selected_category else None, tag=selected_tag.slug if selected_tag else None, q=search_query or None) }}">Next Page</a>
     {% else %}
       <span>Next Page</span>
     {% endif %}
   </nav>
+  {% endif %}
 {% endblock %}

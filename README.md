@@ -13,6 +13,7 @@ Readers can browse articles, and registered users can publish articles with cove
 - Replace your article's cover image
 - Keep stale edit forms from overwriting newer saves
 - Delete your own articles after confirmation
+- Search article titles, descriptions, and text by words
 - Browse the newest articles with pagination
 - Read individual articles
 - Choose categories stored in the database
@@ -26,7 +27,6 @@ Readers can browse articles, and registered users can publish articles with cove
 ### Planned features
 
 - Adding and deleting your own comments
-- Article search
 
 ---
 
@@ -183,8 +183,8 @@ if existing accounts conflict, without merging or deleting them. This is
 Hummingbird's account policy; dots and `+suffixes` remain distinct.
 
 The currently pinned SQLAlchemy/Alembic versions warn that automatic schema
-comparison skips expression indexes. This index is managed by an explicit
-migration and verified by database tests for duplicate inserts and updates.
+comparison skips expression indexes. The email and search indexes are managed
+by explicit migrations and verified by database tests.
 
 The category migrations keep existing articles and create records for their
 existing category values. Legacy articles with no category keep that missing
@@ -198,6 +198,12 @@ longer than its former 10-character limit, to avoid truncating data.
 The tag migration adds empty storage without changing existing articles.
 Downgrading that migration removes all tags and their article associations;
 back up that data before any downgrade.
+
+The search migration adds a GIN expression index over article titles,
+descriptions, and text. It indexes existing articles without rewriting them;
+PostgreSQL maintains the index when their content changes. Downgrading removes
+only the index. Building this index blocks writes to articles until it finishes,
+so plan a maintenance window before applying it to a large, busy database.
 
 ---
 
@@ -285,10 +291,32 @@ article to find related articles. Choose **All** to clear the category, **Clear
 tag filter** to clear the tag, or **Home** to clear both. These links also work
 without JavaScript.
 
+Use **Search articles** to find words in titles, descriptions, and article text.
+All entered words must appear somewhere across those fields. ASCII capitalization
+is ignored; accented letters follow the database's locale. On a `C`-locale
+database, `CAFÉ` and `café` can differ. Accents and different word endings remain
+distinct: `database` does not match `databases`. Punctuation is parsed as plain
+text, not as search operators or wildcards. There is no phrase, prefix, or relevance-ranked search.
+An empty search shows the normal article list; a search containing only
+punctuation returns no matches. Queries are limited to 200 characters.
+
+Search combines with category and tag filters before pagination. The result
+count includes every matching page, and results remain newest first. Changing
+the search or filters starts at page 1. **Clear search** keeps the category/tag
+filters; **Home** clears everything. Search URLs can be bookmarked and work
+without logging in or enabling JavaScript.
+
 The number beside each category counts all its articles, not just the current
-page. With a tag selected, counts include only articles with that tag.
+page. With a tag or search active, counts include only matching articles.
 Empty categories show zero. The counts come from one database query using
 a left join, `COUNT`, and `GROUP BY`.
+
+Search uses PostgreSQL's `simple` text-search configuration and
+`plainto_tsquery` with bound parameters. The GIN index stores searchable words
+and costs extra disk space and write work. PostgreSQL may still choose a table
+scan for a small dataset or a broad search. The tests verify that the index can
+serve the application's predicate, not that it improves measured performance;
+realistic dataset and query-plan measurements remain planned.
 
 Cover images are stored in `app/static/images/uploads/`. The folder is created
 when needed and its contents are ignored by Git. New files receive unique names.
@@ -372,6 +400,8 @@ Edit tests cover stale forms, simultaneous saves, preserving drafts, and version
 rollback when a save fails.
 Deletion tests cover ownership, confirmation, CSRF, stale forms, reused URLs,
 concurrent edits/deletes, transaction rollback, and shared-image cleanup.
+Search tests cover text matching, filters, pagination, safe input handling,
+content changes, migration round trips, and GIN index eligibility using `EXPLAIN`.
 
 Install the optional development tools and check the code:
 

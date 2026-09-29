@@ -82,3 +82,14 @@ class Article(db.Model):
         order_by="Tag.name, Tag.id",
         passive_deletes=True,
     )
+
+
+article_search_vector = db.func.to_tsvector(
+    db.literal_column("'simple'::regconfig"),
+    Article.title
+    + db.literal_column("' '")
+    + Article.description
+    + db.literal_column("' '")
+    + Article.body,
+)
+db.Index("ix_articles_search_vector", article_search_vector, postgresql_using="gin")

@@ -21,6 +21,7 @@ from app.articles.queries import (
     list_categories_with_article_counts,
     paginate_articles,
 )
+from app.articles.search import MAX_SEARCH_LENGTH, validate_search_query
 from app.articles.services import create_article, delete_article, update_article
 from app.articles.tags import MAX_ARTICLE_TAGS, MAX_TAG_INPUT_LENGTH
 from app.articles.uploads import MAX_IMAGE_BYTES, MAX_IMAGE_FRAMES, MAX_IMAGE_PIXELS
@@ -41,19 +42,36 @@ def index():
     if tag_slug and selected_tag is None:
         abort(404)
     tag_id = selected_tag.id if selected_tag else None
-    pagination = paginate_articles(
-        page=request.args.get("page", 1, type=int),
-        per_page=current_app.config["BLOG_POSTS_PER_PAGE"],
-        category_id=selected_category.id if selected_category else None,
-        tag_id=tag_id,
-    )
+    search_query = request.args.get("q", "").strip()
+    error = None
+    pagination = None
+    category_counts = []
+    try:
+        validate_search_query(search_query)
+    except ValidationError as validation_error:
+        error = str(validation_error)
+        search_query = search_query.replace("\x00", "\ufffd")
+    if error is None:
+        pagination = paginate_articles(
+            page=request.args.get("page", 1, type=int),
+            per_page=current_app.config["BLOG_POSTS_PER_PAGE"],
+            category_id=selected_category.id if selected_category else None,
+            tag_id=tag_id,
+            search_query=search_query,
+        )
+        category_counts = list_categories_with_article_counts(
+            tag_id=tag_id, search_query=search_query
+        )
     return render_template(
         "articles/index.html",
         pagination=pagination,
-        category_counts=list_categories_with_article_counts(tag_id=tag_id),
+        category_counts=category_counts,
         selected_category=selected_category,
         selected_tag=selected_tag,
-    )
+        search_query=search_query,
+        max_search_length=MAX_SEARCH_LENGTH,
+        error=error,
+    ), 400 if error else 200
 
 
 def render_article_form(*, article=None, error=None, status=200):

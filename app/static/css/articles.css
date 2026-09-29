@@ -1,3 +1,37 @@
+.article-search {
+  margin-top: 2rem;
+}
+.article-search label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+}
+.article-search-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+.article-search input[type="search"] {
+  flex: 1;
+  min-width: min(100%, 16rem);
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text);
+  background: var(--background);
+}
+.article-search small {
+  display: block;
+  margin-top: 0.5rem;
+}
+.clear-search {
+  text-decoration: underline;
+}
+.search-summary {
+  margin-top: 1rem;
+  overflow-wrap: anywhere;
+}
 .article-filters {
   display: flex;
   flex-wrap: wrap;

@@ -2,6 +2,7 @@ from sqlalchemy import and_, func
 from sqlalchemy.orm import joinedload, selectinload
 
 from app.articles.models import Article, Category, Tag
+from app.articles.search import article_matches_search
 from app.extensions import db
 
 
@@ -17,10 +18,12 @@ def get_tag_by_slug(slug):
     return Tag.query.filter_by(slug=slug).first()
 
 
-def list_categories_with_article_counts(*, tag_id=None):
+def list_categories_with_article_counts(*, tag_id=None, search_query=""):
     join_condition = Article.category_id == Category.id
     if tag_id is not None:
         join_condition = and_(join_condition, Article.tags.any(Tag.id == tag_id))
+    if search_query:
+        join_condition = and_(join_condition, article_matches_search(search_query))
     return (
         db.session.query(Category, func.count(Article.id).label("article_count"))
         .outerjoin(Article, join_condition)
@@ -30,7 +33,9 @@ def list_categories_with_article_counts(*, tag_id=None):
     )
 
 
-def paginate_articles(*, page, per_page, category_id=None, tag_id=None):
+def paginate_articles(
+    *, page, per_page, category_id=None, tag_id=None, search_query=""
+):
     query = Article.query.options(
         joinedload(Article.author),
         joinedload(Article.category),
@@ -40,6 +45,8 @@ def paginate_articles(*, page, per_page, category_id=None, tag_id=None):
         query = query.filter(Article.category_id == category_id)
     if tag_id is not None:
         query = query.filter(Article.tags.any(Tag.id == tag_id))
+    if search_query:
+        query = query.filter(article_matches_search(search_query))
     return query.order_by(Article.id.desc()).paginate(page=page, per_page=per_page)
 
 

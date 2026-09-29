@@ -5,10 +5,12 @@ import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
+from html import unescape
 from pathlib import Path
 from threading import Barrier
 from time import time
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlsplit
 
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
@@ -22,6 +24,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from app import create_app
 from app.articles.models import Article, Category, Tag, article_tags
 from app.articles.queries import get_owned_article
+from app.articles.search import article_matches_search
 from app.articles.uploads import MAX_IMAGE_BYTES
 from app.extensions import db
 from app.users.models import User
@@ -218,7 +221,7 @@ class ApplicationTests(unittest.TestCase):
             self.assertEqual(page.status_code, 200)
             forms.update(
                 re.findall(
-                    rb'<form\b[^>]*action="([^"]+)"[^>]*>(.*?)</form>',
+                    rb'<form\b(?=[^>]*\bmethod="post")[^>]*action="([^"]+)"[^>]*>(.*?)</form>',
                     page.data,
                     flags=re.DOTALL,
                 )
@@ -1821,6 +1824,306 @@ class ApplicationTests(unittest.TestCase):
         db.session.commit()
         for path in ("/", "/no-tags"):
             self.assertNotIn(b'aria-label="Article tags"', self.client.get(path).data)
+
+    def test_search_matches_all_words_across_title_description_and_body(self):
+        db.session.add_all(
+            [
+                self.build_article(slug="title-match", title="PostgreSQL notes"),
+                self.build_article(
+                    slug="description-match", description="PostgreSQL notes"
+                ),
+                self.build_article(slug="body-match", body="PostgreSQL notes"),
+                self.build_article(
+                    slug="split-match", title="PostgreSQL", description="Useful notes"
+                ),
+                self.build_article(slug="partial", title="PostgreSQL alone"),
+                self.build_article(
+                    slug="postgresql-notes",
+                    tags=[Tag(slug="postgresql-notes", name="PostgreSQL notes")],
+                ),
+            ]
+        )
+        db.session.commit()
+        response = self.client.get("/", query_string={"q": "  POSTGRESQL notes  "})
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"4 articles match", response.data)
+        self.assertIn(b'value="POSTGRESQL notes"', response.data)
+        for slug in ("title-match", "description-match", "body-match", "split-match"):
+            self.assertIn(f'href="/{slug}"'.encode(), response.data)
+        for slug in ("partial", "postgresql-notes"):
+            self.assertNotIn(f'href="/{slug}"'.encode(), response.data)
+
+    def test_search_uses_words_without_stemming_or_wildcards(self):
+        db.session.add_all(
+            [
+                self.build_article(slug="accented", title="Café databases"),
+                self.build_article(slug="singular", title="Cafe database"),
+            ]
+        )
+        db.session.commit()
+        for query, expected in (
+            ("café", "accented"),
+            ("cafe", "singular"),
+            ("databases", "accented"),
+            ("database", "singular"),
+            ("database%", "singular"),
+            ("data", None),
+            ("%_!&", None),
+        ):
+            with self.subTest(query=query):
+                response = self.client.get("/", query_string={"q": query})
+                self.assertEqual(response.status_code, 200)
+                for slug in ("accented", "singular"):
+                    self.assertEqual(
+                        f'href="/{slug}"'.encode() in response.data, slug == expected
+                    )
+                if expected is None:
+                    self.assertIn(
+                        b"No articles match your search and filters", response.data
+                    )
+        for query in ("", " \t\n "):
+            response = self.client.get("/", query_string={"q": query})
+            self.assertIn(b'href="/accented"', response.data)
+            self.assertIn(b'href="/singular"', response.data)
+            self.assertNotIn(b"articles match", response.data)
+
+    def test_search_combines_filters_counts_and_pagination_and_preserves_links(self):
+        tech = Category.query.filter_by(slug="tech").one()
+        design = Category.query.filter_by(slug="design").one()
+        python = Tag(slug="python", name="Python")
+        sql = Tag(slug="sql", name="SQL")
+        db.session.add_all(
+            [
+                self.build_article(
+                    slug=f"matching-{number:02d}",
+                    body="Needle database",
+                    category=tech,
+                    tags=[python, sql],
+                )
+                for number in range(14)
+            ]
+        )
+        db.session.add_all(
+            [
+                self.build_article(
+                    slug=f"design-{number}",
+                    body="Needle database",
+                    category=design,
+                    tags=[python],
+                )
+                for number in range(3)
+            ]
+        )
+        db.session.add_all(
+            [
+                self.build_article(
+                    slug="no-tag", body="Needle database", category=design
+                ),
+                self.build_article(
+                    slug="not-matching", body="Other text", category=tech, tags=[python]
+                ),
+                self.build_article(
+                    slug="uncategorized", body="Needle database", tags=[python]
+                ),
+            ]
+        )
+        db.session.commit()
+        params = {"q": "needle database", "category": "tech", "tag": "python"}
+        first = self.client.get("/", query_string=params)
+        self.assertEqual(first.status_code, 200)
+        self.assertIn(b"14 articles match", first.data)
+        self.assertIn(b"Tech (14)", first.data)
+        self.assertIn(b"Design (3)", first.data)
+        self.assertIn(b"Mobile (0)", first.data)
+        for number in range(14):
+            self.assertEqual(
+                f'href="/matching-{number:02d}"'.encode() in first.data, number >= 2
+            )
+        self.assertLess(
+            first.data.index(b'href="/matching-13"'),
+            first.data.index(b'href="/matching-02"'),
+        )
+
+        def link_params(response, label):
+            match = re.search(
+                r'<a\b[^>]*href="([^"]+)"[^>]*>' + re.escape(label) + r"</a>",
+                response.get_data(as_text=True),
+            )
+            self.assertIsNotNone(match, label)
+            return {
+                key: values[0]
+                for key, values in parse_qs(
+                    urlsplit(unescape(match.group(1))).query
+                ).items()
+            }
+
+        self.assertEqual(link_params(first, "Next Page"), {**params, "page": "2"})
+        self.assertEqual(link_params(first, "All"), {"q": params["q"], "tag": "python"})
+        self.assertEqual(
+            link_params(first, "Design (3)"), {**params, "category": "design"}
+        )
+        self.assertEqual(
+            link_params(first, "Clear tag filter"),
+            {"q": params["q"], "category": "tech"},
+        )
+        self.assertEqual(
+            link_params(first, "Clear search"), {"category": "tech", "tag": "python"}
+        )
+        self.assertEqual(link_params(first, "SQL"), {**params, "tag": "sql"})
+        form = re.search(
+            rb'<form method="get".*?</form>', first.data, re.DOTALL
+        ).group()
+        self.assertIn(b'name="category" value="tech"', form)
+        self.assertIn(b'name="tag" value="python"', form)
+        self.assertNotIn(b'name="page"', form)
+        second = self.client.get("/", query_string={**params, "page": "2"})
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(link_params(second, "Previous Page"), {**params, "page": "1"})
+        self.assertIn(b'href="/matching-00"', second.data)
+        self.assertIn(b'href="/matching-01"', second.data)
+        self.assertNotIn(b'href="/matching-02"', second.data)
+        self.assertEqual(
+            self.client.get("/", query_string={**params, "page": "3"}).status_code, 404
+        )
+        all_categories = self.client.get(
+            "/", query_string={"q": params["q"], "tag": "python"}
+        )
+        self.assertIn(b"18 articles match", all_categories.data)
+        self.assertIn(b'href="/uncategorized"', all_categories.data)
+
+    def test_search_handles_untrusted_and_invalid_input_without_changing_data(self):
+        self.publish_first_article()
+        before = self.database_rows("articles")
+        for query in (
+            "'; DROP TABLE articles; --",
+            "<script>alert(1)</script>",
+            '" onfocus="alert(1)',
+            "x" * 200,
+        ):
+            with self.subTest(query=query):
+                response = self.client.get("/", query_string={"q": query})
+                self.assertEqual(response.status_code, 200)
+                self.assertIn(
+                    b"No articles match your search and filters", response.data
+                )
+                self.assertNotIn(b"<script>alert(1)</script>", response.data)
+                self.assertNotIn(b' onfocus="alert(1)', response.data)
+        for query, message in (
+            ("x" * 201, b"at most 200 characters"),
+            ("bad\x00query", b"unsupported character"),
+        ):
+            with (
+                self.subTest(query=query),
+                patch("app.articles.routes.paginate_articles") as paginate,
+                patch(
+                    "app.articles.routes.list_categories_with_article_counts"
+                ) as counts,
+            ):
+                response = self.client.get(
+                    "/", query_string={"q": query, "category": "tech"}
+                )
+                self.assertEqual(response.status_code, 400)
+                self.assertIn(message, response.data)
+                self.assertIn(b'name="category" value="tech"', response.data)
+                self.assertNotIn(b"article-card", response.data)
+                paginate.assert_not_called()
+                counts.assert_not_called()
+        self.assertEqual(self.database_rows("articles"), before)
+
+    def test_search_reflects_article_creation_edits_and_deletion(self):
+        self.publish_first_article()
+        self.assertIn(
+            b'href="/first-article"',
+            self.client.get("/", query_string={"q": "Article body"}).data,
+        )
+        self.assertEqual(
+            self.post_form(
+                "/first-article/edit", data=self.edit_data(body="Orchard harvest")
+            ).status_code,
+            302,
+        )
+        self.assertNotIn(
+            b'href="/first-article"',
+            self.client.get("/", query_string={"q": "Article body"}).data,
+        )
+        self.assertIn(
+            b'href="/first-article"',
+            self.client.get("/", query_string={"q": "Orchard harvest"}).data,
+        )
+        self.assertEqual(
+            self.post_form(
+                "/first-article/delete", data=self.deletion_data(version="2")
+            ).status_code,
+            302,
+        )
+        self.assertNotIn(
+            b'href="/first-article"',
+            self.client.get("/", query_string={"q": "Orchard harvest"}).data,
+        )
+
+    def test_search_index_is_valid_and_eligible_for_the_application_predicate(self):
+        db.session.add(self.build_article(slug="indexed", body="Needle"))
+        db.session.commit()
+        index = db.session.execute(
+            text(
+                "SELECT am.amname, i.indisvalid FROM pg_index i "
+                "JOIN pg_class c ON c.oid = i.indexrelid "
+                "JOIN pg_am am ON am.oid = c.relam "
+                "WHERE c.oid = 'ix_articles_search_vector'::regclass"
+            )
+        ).one()
+        self.assertEqual(tuple(index), ("gin", True))
+        statement = (
+            db.session.query(Article.id)
+            .filter(article_matches_search("needle"))
+            .statement
+        )
+        sql = str(
+            statement.compile(
+                dialect=db.engine.dialect, compile_kwargs={"literal_binds": True}
+            )
+        )
+        try:
+            # Check index eligibility, not a performance claim on a tiny fixture.
+            db.session.execute(text("SET LOCAL enable_seqscan = off"))
+            plan = db.session.execute(text("EXPLAIN (FORMAT JSON) " + sql)).scalar_one()
+            self.assertIn("ix_articles_search_vector", str(plan))
+        finally:
+            db.session.rollback()
+
+    def test_search_index_migration_preserves_data_and_indexes_existing_articles(self):
+        self.publish_first_article()
+        db.session.remove()
+        tables = ("articles", "users", "categories", "tags", "article_tags")
+        try:
+            downgrade(directory=MIGRATIONS_DIRECTORY, revision="078253e87007")
+            db.session.add(
+                self.build_article(slug="before-index", body="Legacy orchard")
+            )
+            db.session.commit()
+            before = {table: self.database_rows(table) for table in tables}
+            db.session.remove()
+            upgrade(directory=MIGRATIONS_DIRECTORY)
+            self.assertEqual(
+                {table: self.database_rows(table) for table in tables}, before
+            )
+            self.assertIn(
+                b'href="/before-index"',
+                self.client.get("/", query_string={"q": "legacy orchard"}).data,
+            )
+            db.session.remove()
+            downgrade(directory=MIGRATIONS_DIRECTORY, revision="078253e87007")
+            self.assertIsNone(
+                db.session.execute(
+                    text("SELECT to_regclass('ix_articles_search_vector')")
+                ).scalar_one()
+            )
+            self.assertEqual(
+                {table: self.database_rows(table) for table in tables}, before
+            )
+        finally:
+            db.session.remove()
+            upgrade(directory=MIGRATIONS_DIRECTORY)
 
     def test_article_order_and_pagination(self):
         user = self.create_user()
