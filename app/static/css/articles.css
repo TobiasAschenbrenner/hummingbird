@@ -230,6 +230,38 @@
   overflow-wrap: anywhere;
 }
 
+.comments {
+  padding-block: 1rem 2rem;
+  scroll-margin-top: 6rem;
+}
+.comment-form,
+.comment-login {
+  margin-block: 1rem;
+}
+.comment-list {
+  list-style: none;
+  margin-top: 1.5rem;
+}
+.comment {
+  padding-block: 1rem;
+  border-top: 1px solid var(--border);
+}
+.comment-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: baseline;
+  overflow-wrap: anywhere;
+}
+.comment-meta time {
+  font-size: 0.85rem;
+}
+.comment-body {
+  margin-top: 0.5rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .form-container {
   margin-block: 20px;
   padding: 30px;

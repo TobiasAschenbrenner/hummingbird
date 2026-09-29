@@ -26,6 +26,9 @@ from app.articles.models import Article, Category, Tag, article_tags
 from app.articles.queries import get_owned_article
 from app.articles.search import article_matches_search
 from app.articles.uploads import MAX_IMAGE_BYTES
+from app.comments.models import COMMENT_MAX_LENGTH, Comment
+from app.comments.queries import paginate_comments
+from app.comments.services import create_comment
 from app.extensions import db
 from app.users.models import User
 from app.users.queries import get_user_by_email
@@ -216,6 +219,7 @@ class ApplicationTests(unittest.TestCase):
         self.post_form("/new-post", data=self.article_data())
         pages.append(self.client.get("/first-article/edit"))
         pages.append(self.client.get("/first-article/delete"))
+        pages.append(self.client.get("/first-article"))
         forms = {}
         for page in pages:
             self.assertEqual(page.status_code, 200)
@@ -235,6 +239,7 @@ class ApplicationTests(unittest.TestCase):
                 b"/logout",
                 b"/first-article/edit",
                 b"/first-article/delete",
+                b"/articles/1/comments#comments",
             },
         )
         for action, form in forms.items():
@@ -396,6 +401,327 @@ class ApplicationTests(unittest.TestCase):
         self.assertTrue((Path(self.uploads.name) / article.image_filename).exists())
         detail = self.client.get(f"/{article.slug}")
         self.assertIn(b"Article body", detail.data)
+
+    def test_comment_creation_uses_signed_in_author_and_redirects_to_article(self):
+        article = self.publish_first_article()
+        reader = self.create_user(email="reader@example.test")
+        reader.username = "Reader"
+        db.session.commit()
+        reader_id = reader.id
+        self.post_form(
+            "/auth/login",
+            data={
+                "login_email": "reader@example.test",
+                "login_password": "password123",
+            },
+        )
+        before = self.database_rows("articles")
+        response = self.post_form(
+            f"/articles/{article.id}/comments",
+            data={
+                "body": "  Helpful explanation.\nThank you!  ",
+                "author_id": str(article.author_id),
+                "article_id": "999999",
+                "created_at": "2000-01-01",
+            },
+        )
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(response.location, "/first-article#comments")
+        comment = Comment.query.one()
+        self.assertEqual(comment.author_id, reader_id)
+        self.assertEqual(comment.article_id, article.id)
+        self.assertEqual(comment.body, "Helpful explanation.\nThank you!")
+        self.assertIsNotNone(comment.created_at.utcoffset())
+        self.assertNotEqual(comment.created_at.year, 2000)
+        self.assertEqual(self.database_rows("articles"), before)
+        page = self.client.get(response.location)
+        self.assertIn(b"Comment posted.", page.data)
+        self.assertIn(b"Comments (1)", page.data)
+        self.assertIn(b"Reader", page.data)
+        self.assertIn(b"Helpful explanation.\nThank you!", page.data)
+        self.client.get(response.location)
+        self.assertEqual(Comment.query.count(), 1)
+
+    def test_comments_are_public_but_posting_requires_login(self):
+        article = self.publish_first_article()
+        self.post_form(f"/articles/{article.id}/comments", data={"body": "Public note"})
+        self.post_form("/logout")
+        page = self.client.get("/first-article")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn(b"Public note", page.data)
+        self.assertIn(b"Log in to comment", page.data)
+        self.assertNotIn(b"Post comment", page.data)
+        self.assertEqual(
+            self.post_form(
+                f"/articles/{article.id}/comments", data={"body": "No"}
+            ).status_code,
+            401,
+        )
+        self.assertEqual(
+            self.client.get(f"/articles/{article.id}/comments").status_code, 405
+        )
+        self.assertEqual(Comment.query.count(), 1)
+
+    def test_comments_require_valid_session_csrf_tokens(self):
+        article = self.publish_first_article()
+        with self.app.app_context():
+            foreign_token = self.csrf_token(client=self.app.test_client())
+        with (
+            self.app.app_context(),
+            patch(
+                "itsdangerous.timed.TimestampSigner.get_timestamp",
+                return_value=int(time()) - 3601,
+            ),
+        ):
+            expired_token = self.csrf_token()
+        for token in (None, "invalid", foreign_token, expired_token):
+            with self.subTest(token=token):
+                data = {"body": "Unwanted comment"}
+                if token is not None:
+                    data["csrf_token"] = token
+                response = self.client.post(
+                    f"/articles/{article.id}/comments", data=data
+                )
+                self.assertEqual(response.status_code, 400)
+                self.assertIn(b"Your form could not be verified", response.data)
+        self.assertEqual(Comment.query.count(), 0)
+
+    def test_comment_validation_preserves_safe_drafts_without_saving(self):
+        article = self.publish_first_article()
+        endpoint = f"/articles/{article.id}/comments"
+        for body, message in (
+            (None, b"Please enter a comment"),
+            (" \t\n\r\f\v\u2003\u00a0 ", b"Please enter a comment"),
+            ("<script>" + "x" * COMMENT_MAX_LENGTH, b"at most 2000 characters"),
+            ("bad\x00comment", b"unsupported character"),
+        ):
+            with self.subTest(body=body):
+                response = self.post_form(
+                    endpoint, data={} if body is None else {"body": body}
+                )
+                self.assertEqual(response.status_code, 400)
+                self.assertIn(message, response.data)
+                self.assertNotIn(b"<script>", response.data)
+                self.assertNotIn(b"\x00", response.data)
+                if body and body.startswith("<script>"):
+                    self.assertIn(
+                        b"&lt;script&gt;" + b"x" * COMMENT_MAX_LENGTH, response.data
+                    )
+                self.assertIn(b"Post comment", response.data)
+                self.assertEqual(Comment.query.count(), 0)
+        self.assertEqual(
+            self.post_form(
+                endpoint, data={"body": "é" * COMMENT_MAX_LENGTH}
+            ).status_code,
+            303,
+        )
+        self.assertEqual(len(Comment.query.one().body), COMMENT_MAX_LENGTH)
+
+    def test_comment_text_and_author_names_are_escaped(self):
+        article = self.publish_first_article()
+        article.author.username = '<img src=x onerror="alert(1)">'
+        db.session.commit()
+        body = "<script>alert(1)</script>\n**plain text**"
+        self.post_form(f"/articles/{article.id}/comments", data={"body": body})
+        page = self.client.get("/first-article")
+        self.assertIn(
+            b"&lt;script&gt;alert(1)&lt;/script&gt;\n**plain text**", page.data
+        )
+        self.assertIn(b"&lt;img src=x onerror=", page.data)
+        self.assertNotIn(b"<script>alert(1)</script>", page.data)
+        self.assertNotIn(b"<img src=x onerror=", page.data)
+
+    def test_comments_paginate_within_one_article_newest_first(self):
+        article = self.publish_first_article()
+        other = self.build_article(slug="other")
+        db.session.add(other)
+        db.session.flush()
+        db.session.add_all(
+            Comment(
+                article_id=article.id,
+                author_id=article.author_id,
+                body=f"Comment number {number:02d}",
+            )
+            for number in range(21)
+        )
+        db.session.add(
+            Comment(
+                article_id=other.id,
+                author_id=article.author_id,
+                body="Other article only",
+            )
+        )
+        db.session.commit()
+        first = self.client.get("/first-article")
+        self.assertIn(b"Comments (21)", first.data)
+        self.assertIn(b"comments_page=2#comments", first.data)
+        self.assertIn(b"Page 1 of 2", first.data)
+        self.assertNotIn(b"Other article only", first.data)
+        for number in range(21):
+            self.assertEqual(
+                f"Comment number {number:02d}".encode() in first.data, number > 0
+            )
+        self.assertLess(
+            first.data.index(b"Comment number 20"),
+            first.data.index(b"Comment number 01"),
+        )
+        second = self.client.get("/first-article?comments_page=2")
+        self.assertIn(b"Comment number 00", second.data)
+        self.assertNotIn(b"Comment number 01", second.data)
+        self.assertIn(b"comments_page=1#comments", second.data)
+        for page in (0, 3):
+            self.assertEqual(
+                self.client.get(f"/first-article?comments_page={page}").status_code, 404
+            )
+        self.assertIn(b"Comments (1)", self.client.get("/other").data)
+
+    def test_comment_authors_are_loaded_without_per_comment_queries(self):
+        article = self.publish_first_article()
+        article_id = article.id
+        for number in range(3):
+            author = self.create_user(email=f"reader-{number}@example.test")
+            db.session.add(
+                Comment(
+                    article_id=article_id, author_id=author.id, body="Example comment"
+                )
+            )
+            db.session.commit()
+        db.session.remove()
+        statements = []
+
+        def record(connection, cursor, statement, parameters, context, executemany):
+            statements.append(statement)
+
+        event.listen(db.engine, "before_cursor_execute", record)
+        try:
+            comments = paginate_comments(article_id=article_id, page=1, per_page=20)
+            self.assertEqual(
+                [comment.author.username for comment in comments.items], ["Author"] * 3
+            )
+        finally:
+            event.remove(db.engine, "before_cursor_execute", record)
+        self.assertLessEqual(len(statements), 2)
+
+    def test_comment_database_failure_rolls_back_and_preserves_draft(self):
+        article = self.publish_first_article()
+        before = self.database_rows("articles")
+
+        def fail_insert(mapper, connection, target):
+            connection.execute(text("SELECT 1 / 0"))
+
+        event.listen(Comment, "after_insert", fail_insert)
+        try:
+            with self.assertLogs(self.app.logger, level="ERROR"):
+                response = self.post_form(
+                    f"/articles/{article.id}/comments", data={"body": "Keep this draft"}
+                )
+        finally:
+            event.remove(Comment, "after_insert", fail_insert)
+        self.assertEqual(response.status_code, 500)
+        self.assertIn(b"Check the comments before trying again", response.data)
+        self.assertIn(b"Keep this draft", response.data)
+        self.assertNotIn(b"Post comment", response.data)
+        self.assertNotIn(b"SELECT 1 / 0", response.data)
+        self.assertEqual(Comment.query.count(), 0)
+        self.assertEqual(self.database_rows("articles"), before)
+        self.assertEqual(
+            self.post_form(
+                f"/articles/{article.id}/comments", data={"body": "Retry"}
+            ).status_code,
+            303,
+        )
+
+    def test_uncertain_comment_commit_asks_reader_to_check_before_retrying(self):
+        article = self.publish_first_article()
+        commit = db.session.commit
+
+        def uncertain_commit():
+            commit()
+            raise SQLAlchemyError("Commit acknowledgement lost")
+
+        with patch.object(db.session, "commit", side_effect=uncertain_commit):
+            with self.assertLogs(self.app.logger, level="ERROR"):
+                response = self.post_form(
+                    f"/articles/{article.id}/comments", data={"body": "Saved once"}
+                )
+        self.assertEqual(response.status_code, 500)
+        self.assertIn(b"Check the comments before trying again", response.data)
+        self.assertNotIn(b"Post comment", response.data)
+        self.assertEqual(Comment.query.one().body, "Saved once")
+
+    def test_comment_form_cannot_target_a_recreated_article(self):
+        article = self.publish_first_article()
+        old_id = article.id
+        self.post_form("/first-article/delete", data=self.deletion_data())
+        self.post_form("/new-post", data=self.article_data())
+        self.assertNotEqual(Article.query.one().id, old_id)
+        for article_id in (old_id, 999999):
+            self.assertEqual(
+                self.post_form(
+                    f"/articles/{article_id}/comments", data={"body": "Stale form"}
+                ).status_code,
+                404,
+            )
+        self.assertEqual(Comment.query.count(), 0)
+
+    def test_comment_insert_racing_with_article_deletion_leaves_no_orphan(self):
+        article = self.publish_first_article()
+        article_id = article.id
+
+        def delete_then_insert(**kwargs):
+            with db.engine.begin() as connection:
+                connection.execute(
+                    Article.__table__.delete().where(Article.id == article_id)
+                )
+            create_comment(**kwargs)
+
+        with patch(
+            "app.comments.routes.create_comment", side_effect=delete_then_insert
+        ):
+            with self.assertLogs(self.app.logger, level="ERROR"):
+                response = self.post_form(
+                    f"/articles/{article_id}/comments", data={"body": "Too late"}
+                )
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(Comment.query.count(), 0)
+        self.assertEqual(User.query.count(), 1)
+
+    def test_concurrent_comments_are_both_saved(self):
+        article_id = self.publish_first_article().id
+        db.session.remove()
+        start = Barrier(2)
+
+        def synchronized_create(**kwargs):
+            start.wait(timeout=10)
+            create_comment(**kwargs)
+
+        def submit(body):
+            with self.app.test_client() as client:
+                self.post_form(
+                    "/auth/login",
+                    client=client,
+                    data={
+                        "login_email": "author@example.test",
+                        "login_password": "password123",
+                    },
+                )
+                return self.post_form(
+                    f"/articles/{article_id}/comments",
+                    client=client,
+                    data={"body": body},
+                ).status_code
+
+        with patch(
+            "app.comments.routes.create_comment", side_effect=synchronized_create
+        ):
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                statuses = list(executor.map(submit, ("First reader", "Second reader")))
+        self.assertEqual(statuses, [303, 303])
+        self.assertEqual(
+            {comment.body for comment in Comment.query.all()},
+            {"First reader", "Second reader"},
+        )
+        self.assertEqual(Article.query.one().version, 1)
 
     def test_edit_form_prefills_saved_values_and_does_not_change_data(self):
         article = self.publish_first_article()
@@ -1049,6 +1375,21 @@ class ApplicationTests(unittest.TestCase):
         db.session.add(shared)
         db.session.commit()
         shared_id = shared.id
+        db.session.add_all(
+            [
+                Comment(
+                    article_id=article.id,
+                    author_id=article.author_id,
+                    body="Remove with article",
+                ),
+                Comment(
+                    article_id=shared_id,
+                    author_id=article.author_id,
+                    body="Keep on other article",
+                ),
+            ]
+        )
+        db.session.commit()
         retained = {
             table: self.database_rows(table)
             for table in ("users", "categories", "tags")
@@ -1068,6 +1409,7 @@ class ApplicationTests(unittest.TestCase):
         self.assertEqual(response.location, "/")
         self.assertIn(b"Article deleted.", self.client.get("/").data)
         self.assertEqual(Article.query.one().id, shared_id)
+        self.assertEqual(Comment.query.one().body, "Keep on other article")
         self.assertEqual(
             {row.article_id for row in db.session.execute(db.select(article_tags))},
             {shared_id},
@@ -1234,6 +1576,15 @@ class ApplicationTests(unittest.TestCase):
 
     def test_failed_deletion_rolls_back_article_and_tag_links_and_keeps_cover(self):
         article = self.publish_first_article()
+        db.session.add(
+            Comment(
+                article_id=article.id,
+                author_id=article.author_id,
+                body="Keep after rollback",
+            )
+        )
+        db.session.commit()
+        comments = self.database_rows("comments")
         before = self.database_rows("articles")
         links = self.database_rows("article_tags")
         original = Path(self.uploads.name) / article.image_filename
@@ -1255,6 +1606,7 @@ class ApplicationTests(unittest.TestCase):
         self.assertNotIn(b"Delete permanently", response.data)
         self.assertEqual(self.database_rows("articles"), before)
         self.assertEqual(self.database_rows("article_tags"), links)
+        self.assertEqual(self.database_rows("comments"), comments)
         self.assertEqual(original.read_bytes(), PNG)
         self.assertEqual(
             self.post_form(
@@ -2334,6 +2686,100 @@ class ApplicationTests(unittest.TestCase):
                 connection, opts={"compare_type": True, "compare_server_default": True}
             )
             self.assertEqual(compare_metadata(context, db.metadata), [])
+
+    def test_comment_constraints_protect_inserts_updates_and_author_references(self):
+        article = self.publish_first_article()
+        reader_id = self.create_user(email="commenter@example.test").id
+        valid = {
+            "body": "Valid comment",
+            "article_id": article.id,
+            "author_id": reader_id,
+        }
+        comment = Comment(**valid)
+        db.session.add(comment)
+        db.session.commit()
+        comment_id = comment.id
+        before = self.database_rows("comments")
+        for field, value in (
+            ("body", None),
+            ("body", ""),
+            ("body", " \t\n\r\f\v "),
+            ("body", "x" * (COMMENT_MAX_LENGTH + 1)),
+            ("article_id", None),
+            ("article_id", 999999),
+            ("author_id", None),
+            ("author_id", 999999),
+            ("created_at", None),
+        ):
+            for operation, statement in (
+                ("insert", Comment.__table__.insert().values({**valid, field: value})),
+                (
+                    "update",
+                    Comment.__table__.update()
+                    .where(Comment.id == comment_id)
+                    .values({field: value}),
+                ),
+            ):
+                with self.subTest(field=field, value=value, operation=operation):
+                    with self.assertRaises(IntegrityError):
+                        db.session.execute(statement)
+                        db.session.commit()
+                    db.session.rollback()
+        with self.assertRaises(IntegrityError):
+            db.session.execute(User.__table__.delete().where(User.id == reader_id))
+            db.session.commit()
+        db.session.rollback()
+        self.assertEqual(self.database_rows("comments"), before)
+        db.session.execute(
+            Comment.__table__.update()
+            .where(Comment.id == comment_id)
+            .values(body="é" * COMMENT_MAX_LENGTH)
+        )
+        db.session.commit()
+        self.assertEqual(len(Comment.query.one().body), COMMENT_MAX_LENGTH)
+        db.session.execute(Article.__table__.delete().where(Article.id == article.id))
+        db.session.commit()
+        self.assertEqual(Comment.query.count(), 0)
+        self.assertIsNotNone(db.session.get(User, reader_id))
+
+    def test_comment_migration_preserves_existing_data_and_downgrade_removes_comments(
+        self,
+    ):
+        article = self.publish_first_article()
+        article_id, author_id = article.id, article.author_id
+        tables = ("users", "articles", "categories", "tags", "article_tags")
+        before = {table: self.database_rows(table) for table in tables}
+        db.session.remove()
+        try:
+            downgrade(directory=MIGRATIONS_DIRECTORY, revision="189364f98008")
+            self.assertIsNone(
+                db.session.execute(text("SELECT to_regclass('comments')")).scalar_one()
+            )
+            db.session.remove()
+            upgrade(directory=MIGRATIONS_DIRECTORY)
+            self.assertEqual(
+                {table: self.database_rows(table) for table in tables}, before
+            )
+            self.assertEqual(Comment.query.count(), 0)
+            db.session.execute(
+                Comment.__table__.insert().values(
+                    body="Migration example", article_id=article_id, author_id=author_id
+                )
+            )
+            db.session.commit()
+            self.assertIsNotNone(Comment.query.one().created_at.utcoffset())
+            db.session.remove()
+            downgrade(directory=MIGRATIONS_DIRECTORY, revision="189364f98008")
+            self.assertIsNone(
+                db.session.execute(text("SELECT to_regclass('comments')")).scalar_one()
+            )
+            self.assertEqual(
+                {table: self.database_rows(table) for table in tables}, before
+            )
+        finally:
+            db.session.remove()
+            upgrade(directory=MIGRATIONS_DIRECTORY)
+        self.assertIn(b"No comments yet.", self.client.get("/first-article").data)
 
     def test_article_content_constraints_reject_invalid_inserts_and_updates(self):
         article = self.build_article(slug="existing-story")

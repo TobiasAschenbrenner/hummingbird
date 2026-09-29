@@ -1,0 +1,43 @@
+<section id="comments" class="comments reading-container" aria-labelledby="comments-heading">
+  <h2 id="comments-heading">Comments ({{ comments.total }})</h2>
+  {% if comment_error %}<p class="message message-error" role="alert">{{ comment_error }}</p>{% endif %}
+  {% if comment_uncertain %}
+    <div class="form-field">
+      <label for="comment-draft">Your draft</label>
+      <textarea id="comment-draft" rows="4" readonly>{{ comment_body }}</textarea>
+    </div>
+    <a href="{{ url_for('articles.detail', slug=article.slug, _anchor='comments') }}" class="review-article">Check the comments</a>
+  {% elif current_user.is_authenticated %}
+    <form method="post" action="{{ url_for('comments.submit_comment', article_id=article.id, _anchor='comments') }}" class="comment-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="form-field">
+        <label for="comment-body">Your comment</label>
+        <textarea id="comment-body" name="body" rows="4" maxlength="{{ comment_max_length }}" aria-describedby="comment-help" required>{{ comment_body }}</textarea>
+        <small id="comment-help">Up to {{ comment_max_length }} characters. Plain text only.</small>
+      </div>
+      <button type="submit" class="button">Post comment</button>
+    </form>
+  {% else %}
+    <p class="comment-login"><button type="button" class="button" data-open-auth>Log in to comment</button></p>
+  {% endif %}
+  <ul class="comment-list">
+    {% for comment in comments.items %}
+      <li id="comment-{{ comment.id }}" class="comment">
+        <div class="comment-meta">
+          <strong>{{ comment.author.username }}</strong>
+          <time datetime="{{ comment.created_at.isoformat() }}">{{ comment.created_at.strftime('%Y-%m-%d %H:%M %z') }}</time>
+        </div>
+        <p class="comment-body">{{ comment.body }}</p>
+      </li>
+    {% else %}
+      <li class="empty-state">No comments yet.</li>
+    {% endfor %}
+  </ul>
+  {% if comments.pages > 1 %}
+    <nav class="pagination" aria-label="Comment pages">
+      {% if comments.has_prev %}<a href="{{ url_for('articles.detail', slug=article.slug, comments_page=comments.prev_num, _anchor='comments') }}">Newer comments</a>{% endif %}
+      <span>Page {{ comments.page }} of {{ comments.pages }}</span>
+      {% if comments.has_next %}<a href="{{ url_for('articles.detail', slug=article.slug, comments_page=comments.next_num, _anchor='comments') }}">Older comments</a>{% endif %}
+    </nav>
+  {% endif %}
+</section>

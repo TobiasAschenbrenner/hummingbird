@@ -10,7 +10,7 @@
   </section>
   <section class="reading-container article-content deletion-confirmation">
     <h2>{{ article.title }}</h2>
-    <p>Deleting this article permanently removes its text and tag links. Its cover image is removed if no other article uses it. Your account, categories, and tags stay available.</p>
+    <p>Deleting this article permanently removes its text, tag links, and all comments. Its cover image is removed if no other article uses it. Your account, categories, and tags stay available.</p>
     {% if deletion_uncertain %}
       <a href="{{ url_for('articles.index') }}" class="button">Check the article list</a>
     {% else %}

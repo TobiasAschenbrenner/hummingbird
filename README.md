@@ -16,6 +16,8 @@ Readers can browse articles, and registered users can publish articles with cove
 - Search article titles, descriptions, and text by words
 - Browse the newest articles with pagination
 - Read individual articles
+- Post plain-text comments while signed in
+- Read comments with authors, timestamps, and pagination
 - Choose categories stored in the database
 - Filter articles by category across all pages
 - See the total number of articles in each category
@@ -26,7 +28,7 @@ Readers can browse articles, and registered users can publish articles with cove
 
 ### Planned features
 
-- Adding and deleting your own comments
+- Deleting your own comments
 
 ---
 
@@ -62,6 +64,7 @@ Readers can browse articles, and registered users can publish articles with cove
 hummingbird/
 ├── app/
 │   ├── articles/      # Article models, queries, services, routes, and uploads
+│   ├── comments/      # Comment models, queries, services, and routes
 │   ├── users/         # Accounts and authentication
 │   ├── commands/      # Demo data generation
 │   ├── templates/     # Shared layouts and feature templates
@@ -205,6 +208,13 @@ PostgreSQL maintains the index when their content changes. Downgrading removes
 only the index. Building this index blocks writes to articles until it finishes,
 so plan a maintenance window before applying it to a large, busy database.
 
+The comments migration creates an empty table without changing existing data.
+Each comment requires an existing article, an existing author, a timestamp, and
+nonblank text of at most 2,000 characters. Deleting an article cascades to its
+comments; deleting an account with comments is blocked. There is no account
+deletion screen. Downgrading this migration permanently removes all comments;
+back them up before downgrading.
+
 ---
 
 ## ▶️ Running the Application
@@ -277,12 +287,41 @@ confirmation returns HTTP 409; review the latest article and open a new
 confirmation before trying again. Edit forms also check the ID, so an old form
 cannot affect a new article that reuses a deleted article's URL.
 
-The article and its tag links are deleted in one transaction; accounts,
+The article, its comments, and its tag links are deleted in one transaction; accounts,
 categories, and tags remain. Its cover is removed only after the deletion
 commits and only if no article still uses it. Failed transactions keep the
 article and cover. If the database cannot confirm the outcome, the page asks
 you to check the article list; uncertain commits or cleanup failures can leave
 unused images for later maintenance. There is no undo or restore screen.
+
+### Comments
+
+Open an article and sign in to post a comment. Comments are public, plain text,
+and limited to 2,000 characters. Surrounding whitespace is removed; line breaks
+are preserved. HTML is displayed as text, not executed. The server takes the
+author from the signed-in account and generates the timestamp in PostgreSQL.
+Posting requires a valid CSRF token. Validation errors keep your draft.
+
+Comments appear 20 per page, newest inserted first, with author names and
+timestamps including their time-zone offset. Posting redirects to the article;
+refreshing that page does not repost the form. After a database error, keep the
+displayed draft and check the comments before retrying, because a lost commit
+acknowledgement can make the outcome uncertain. There is no duplicate-submission
+protection for separate POST requests, comment editing, or individual deletion yet.
+
+Comment forms target the article's ID, so an old form cannot post to a new
+article reusing a deleted article's URL. Foreign keys prevent orphan comments
+if an article is deleted while a comment is being submitted. Posting a comment
+does not change the article's edit version. Deleting an article removes all its
+comments, including any added after opening the deletion confirmation.
+
+The comment list filters and paginates in PostgreSQL. A composite B-tree index
+on `(article_id, id)` supports retrieving one article's comments in order;
+an author index supports foreign-key checks when an account is deleted.
+Authors are loaded with a join to avoid one extra query per comment. These
+indexes cost extra storage and write work; performance measurements are still planned.
+
+### Browsing and search
 
 The homepage shows 12 articles per page, newest first. Category links filter in
 the database before pagination, so they include matching articles from all pages.
@@ -361,6 +400,7 @@ Sample dates start on January 1, 2024. Articles use an image placeholder and
 cycle through the categories currently stored in the database.
 These are generated sample counts, not a report of your current database size.
 The dataset is intended for development, not performance measurement.
+The demo command does not generate comments; add them through article pages.
 
 ---
 
@@ -402,6 +442,9 @@ Deletion tests cover ownership, confirmation, CSRF, stale forms, reused URLs,
 concurrent edits/deletes, transaction rollback, and shared-image cleanup.
 Search tests cover text matching, filters, pagination, safe input handling,
 content changes, migration round trips, and GIN index eligibility using `EXPLAIN`.
+Comment tests cover authentication, CSRF, escaped text, length limits, pagination,
+author loading, simultaneous posts, rollback, uncertain commits, article-deletion
+cleanup, foreign keys, and migration round trips.
 
 Install the optional development tools and check the code:
 
@@ -429,6 +472,9 @@ Registration, login, article creation/editing/deletion, and logout require a
 session-bound CSRF token. Logout uses a POST form, so visiting a link cannot log you out. Tokens
 expire after one hour; if form verification fails, refresh the original page
 before trying again. The server returns HTTP 400 without performing the action.
+
+Comment posting also requires authentication and CSRF verification. Rate limiting
+and comment moderation are not implemented yet and need attention before public hosting.
 
 Dependency upgrades, image metadata sanitization,
 and durable image storage remain work to complete before deployment. The Flask

@@ -21,9 +21,11 @@ def create_app(config_overrides=None):
 
     from app.articles.routes import blueprint as articles_blueprint
     from app.commands.seed import seed_demo
+    from app.comments.routes import blueprint as comments_blueprint
     from app.users.routes import blueprint as users_blueprint
 
     app.register_blueprint(articles_blueprint)
+    app.register_blueprint(comments_blueprint)
     app.register_blueprint(users_blueprint)
     app.cli.add_command(seed_demo)
     return app

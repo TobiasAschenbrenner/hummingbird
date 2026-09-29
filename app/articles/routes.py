@@ -25,6 +25,7 @@ from app.articles.search import MAX_SEARCH_LENGTH, validate_search_query
 from app.articles.services import create_article, delete_article, update_article
 from app.articles.tags import MAX_ARTICLE_TAGS, MAX_TAG_INPUT_LENGTH
 from app.articles.uploads import MAX_IMAGE_BYTES, MAX_IMAGE_FRAMES, MAX_IMAGE_PIXELS
+from app.articles.views import render_article_detail
 from app.errors import ConflictError, ValidationError
 from app.extensions import db
 
@@ -251,4 +252,6 @@ def detail(slug):
     article = get_article_by_slug(slug)
     if article is None:
         abort(404)
-    return render_template("articles/detail.html", article=article)
+    return render_article_detail(
+        article, comments_page=request.args.get("comments_page", 1, type=int)
+    )
