@@ -8,3 +8,11 @@ database.db
 /app/static/images/uploads/
 
 .ruff_cache/
+
+# Node.js rewrite
+node_modules/
+/server/dist/
+/server/coverage/
+.env.*
+!.env.example
+npm-debug.log*

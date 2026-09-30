@@ -3,6 +3,11 @@
 Hummingbird is a blogging application built with Flask and PostgreSQL.
 Readers can browse articles, while registered users can publish posts and join the discussion.
 
+> **Rewrite in progress:** The Angular/Express replacement is being built on
+> `rewrite/angular-express`. See [server setup](server/README.md) for the initial
+> API. The Flask instructions below remain valid; its baseline is tagged
+> `flask-baseline`. Angular and the new database connection are not implemented yet.
+
 ---
 
 ## ✨ Features
