@@ -28,6 +28,9 @@
           <time datetime="{{ comment.created_at.isoformat() }}">{{ comment.created_at.strftime('%Y-%m-%d %H:%M %z') }}</time>
         </div>
         <p class="comment-body">{{ comment.body }}</p>
+        {% if current_user.is_authenticated and current_user.id == comment.author_id %}
+          <a href="{{ url_for('comments.confirm_comment_deletion', comment_id=comment.id) }}" class="comment-delete">Delete comment</a>
+        {% endif %}
       </li>
     {% else %}
       <li class="empty-state">No comments yet.</li>

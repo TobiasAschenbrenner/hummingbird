@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Delete Comment | Hummingbird{% endblock %}
+{% block content %}
+  <section class="home">
+    <div class="home-text container">
+      {% include "partials/messages.html" %}
+      <h1 class="home-title">Delete Comment</h1>
+      <p class="home-subtitle">This cannot be undone.</p>
+    </div>
+  </section>
+  <section class="reading-container article-content deletion-confirmation">
+    <h2>{{ comment.article_title }}</h2>
+    <p class="comment-body">{{ comment.body }}</p>
+    <p>Only this comment will be removed. The article, other comments, and your account stay unchanged.</p>
+    {% if deletion_uncertain %}
+      <a href="{{ url_for('articles.detail', slug=comment.article_slug, _anchor='comments') }}" class="button">Check the comments</a>
+      <a href="{{ url_for('articles.index') }}" class="review-article">Article list</a>
+    {% else %}
+      <form method="post" action="{{ url_for('comments.submit_comment_deletion', comment_id=comment.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="deletion-checkbox">
+          <input type="checkbox" name="confirm_delete" value="yes" required>
+          I understand this permanently deletes this comment.
+        </label>
+        <div class="deletion-actions">
+          <a href="{{ url_for('articles.detail', slug=comment.article_slug, _anchor='comments') }}" class="button">Cancel</a>
+          <button type="submit" class="button button-danger">Delete permanently</button>
+        </div>
+      </form>
+    {% endif %}
+  </section>
+{% endblock %}

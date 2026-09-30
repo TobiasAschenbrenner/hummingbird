@@ -261,6 +261,13 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.comment-delete {
+  display: inline-block;
+  margin-top: 0.5rem;
+  color: #a61b1b;
+  font-size: 0.875rem;
+  text-decoration: underline;
+}
 
 .form-container {
   margin-block: 20px;

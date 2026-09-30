@@ -18,6 +18,7 @@ Readers can browse articles, and registered users can publish articles with cove
 - Read individual articles
 - Post plain-text comments while signed in
 - Read comments with authors, timestamps, and pagination
+- Delete your own comments after confirmation
 - Choose categories stored in the database
 - Filter articles by category across all pages
 - See the total number of articles in each category
@@ -25,10 +26,6 @@ Readers can browse articles, and registered users can publish articles with cove
 - Read tags on article cards and detail pages
 - Filter by tag, optionally combined with a category
 - Responsive frontend
-
-### Planned features
-
-- Deleting your own comments
 
 ---
 
@@ -307,7 +304,21 @@ timestamps including their time-zone offset. Posting redirects to the article;
 refreshing that page does not repost the form. After a database error, keep the
 displayed draft and check the comments before retrying, because a lost commit
 acknowledgement can make the outcome uncertain. There is no duplicate-submission
-protection for separate POST requests, comment editing, or individual deletion yet.
+protection for separate POST requests or comment editing yet.
+
+Choose **Delete comment** beside one of your comments, review its text, then
+confirm the checkbox and choose **Delete permanently**. **Cancel** leaves it
+unchanged. Opening the confirmation page never deletes anything. Only the
+comment author can view or submit this form; an article owner cannot remove
+another reader's individual comment. The POST also requires CSRF verification.
+
+Deletion checks the comment ID and author together in one database statement
+and commits only that deletion. Other comments, articles, accounts, and images
+stay unchanged. An already-deleted comment returns HTTP 404, including repeat
+submissions and a competing article deletion. A successful deletion returns to
+the first comments page so deleting the last item on a later page does not leave
+an empty page. There is no undo. If the commit outcome is uncertain, check the
+comments before retrying; the error page does not offer another delete button.
 
 Comment forms target the article's ID, so an old form cannot post to a new
 article reusing a deleted article's URL. Foreign keys prevent orphan comments
@@ -445,6 +456,8 @@ content changes, migration round trips, and GIN index eligibility using `EXPLAIN
 Comment tests cover authentication, CSRF, escaped text, length limits, pagination,
 author loading, simultaneous posts, rollback, uncertain commits, article-deletion
 cleanup, foreign keys, and migration round trips.
+Comment-deletion tests also cover ownership, confirmation, CSRF, unchanged related
+data, pagination, competing deletions, rollback, and lost commit acknowledgements.
 
 Install the optional development tools and check the code:
 
@@ -473,8 +486,9 @@ session-bound CSRF token. Logout uses a POST form, so visiting a link cannot log
 expire after one hour; if form verification fails, refresh the original page
 before trying again. The server returns HTTP 400 without performing the action.
 
-Comment posting also requires authentication and CSRF verification. Rate limiting
-and comment moderation are not implemented yet and need attention before public hosting.
+Comment posting and deletion also require authentication and CSRF verification.
+Rate limiting and comment moderation are not implemented yet and need attention
+before public hosting.
 
 Dependency upgrades, image metadata sanitization,
 and durable image storage remain work to complete before deployment. The Flask
@@ -491,9 +505,8 @@ Hummingbird is being extended for a university module on relational databases:
 - Transactions, constraints, and concurrent access
 - Database access through an ORM
 
-The planned features above are not implemented yet. Dataset measurements,
-query-plan evidence, and the remaining assessment documentation will be added
-as the corresponding work is completed.
+Dataset measurements, query-plan evidence, and the remaining assessment
+documentation will be added as the corresponding work is completed.
 
 ---
 

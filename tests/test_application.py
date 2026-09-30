@@ -27,7 +27,7 @@ from app.articles.queries import get_owned_article
 from app.articles.search import article_matches_search
 from app.articles.uploads import MAX_IMAGE_BYTES
 from app.comments.models import COMMENT_MAX_LENGTH, Comment
-from app.comments.queries import paginate_comments
+from app.comments.queries import get_owned_comment_details, paginate_comments
 from app.comments.services import create_comment
 from app.extensions import db
 from app.users.models import User
@@ -146,6 +146,14 @@ class ApplicationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
         return Article.query.one()
 
+    def publish_first_comment(self):
+        article = self.publish_first_article()
+        response = self.post_form(
+            f"/articles/{article.id}/comments", data={"body": "My first comment"}
+        )
+        self.assertEqual(response.status_code, 303)
+        return Comment.query.one()
+
     def edit_data(self, **overrides):
         data = {
             "article_id": "1",
@@ -220,6 +228,8 @@ class ApplicationTests(unittest.TestCase):
         pages.append(self.client.get("/first-article/edit"))
         pages.append(self.client.get("/first-article/delete"))
         pages.append(self.client.get("/first-article"))
+        self.post_form("/articles/1/comments", data={"body": "A comment"})
+        pages.append(self.client.get("/comments/1/delete"))
         forms = {}
         for page in pages:
             self.assertEqual(page.status_code, 200)
@@ -240,6 +250,7 @@ class ApplicationTests(unittest.TestCase):
                 b"/first-article/edit",
                 b"/first-article/delete",
                 b"/articles/1/comments#comments",
+                b"/comments/1/delete",
             },
         )
         for action, form in forms.items():
@@ -722,6 +733,315 @@ class ApplicationTests(unittest.TestCase):
             {"First reader", "Second reader"},
         )
         self.assertEqual(Article.query.one().version, 1)
+
+    def test_comment_deletion_confirmation_and_cancel_leave_data_unchanged(self):
+        comment = self.publish_first_comment()
+        comment.body = "<script>alert(1)</script>\nA second line"
+        comment.article.title = "A <b>title</b>"
+        db.session.commit()
+        endpoint = f"/comments/{comment.id}/delete"
+        tables = ("users", "articles", "categories", "tags", "article_tags", "comments")
+        before = {table: self.database_rows(table) for table in tables}
+        files = {
+            path.name: path.read_bytes() for path in Path(self.uploads.name).iterdir()
+        }
+        self.assertIn(endpoint.encode(), self.client.get("/first-article").data)
+        response = self.client.get(endpoint, query_string={"confirm_delete": "yes"})
+        self.assertEqual(response.status_code, 200)
+        for value in (
+            b"This cannot be undone.",
+            b"A &lt;b&gt;title&lt;/b&gt;",
+            b"&lt;script&gt;alert(1)&lt;/script&gt;\nA second line",
+            b'name="confirm_delete" value="yes" required',
+            b'href="/first-article#comments" class="button">Cancel',
+            b"Delete permanently",
+        ):
+            self.assertIn(value, response.data)
+        self.assertNotIn(b"<script>alert(1)</script>", response.data)
+        self.assertEqual(self.client.get("/first-article#comments").status_code, 200)
+        self.assertEqual({table: self.database_rows(table) for table in tables}, before)
+        self.assertEqual(
+            {
+                path.name: path.read_bytes()
+                for path in Path(self.uploads.name).iterdir()
+            },
+            files,
+        )
+
+    def test_comment_deletion_removes_only_the_selected_comment(self):
+        comment = self.publish_first_comment()
+        comment_id = comment.id
+        other_author = self.create_user(email="reader@example.test")
+        other_article = self.build_article(slug="another-article", author=other_author)
+        db.session.add(other_article)
+        db.session.flush()
+        db.session.add_all(
+            [
+                Comment(
+                    article_id=comment.article_id,
+                    author_id=other_author.id,
+                    body="Another reader",
+                ),
+                Comment(
+                    article_id=other_article.id,
+                    author_id=comment.author_id,
+                    body="Another article",
+                ),
+            ]
+        )
+        db.session.commit()
+        tables = ("users", "articles", "categories", "tags", "article_tags")
+        before = {table: self.database_rows(table) for table in tables}
+        retained_comments = [
+            row for row in self.database_rows("comments") if row["id"] != comment_id
+        ]
+        files = {
+            path.name: path.read_bytes() for path in Path(self.uploads.name).iterdir()
+        }
+        endpoint = f"/comments/{comment_id}/delete"
+        response = self.post_form(
+            endpoint,
+            data={
+                "confirm_delete": "yes",
+                "return_to": "https://example.test",
+                "comment_id": "999999",
+            },
+        )
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(response.location, "/first-article#comments")
+        page = self.client.get(response.location)
+        self.assertEqual(page.status_code, 200)
+        self.assertIn(b"Comment deleted.", page.data)
+        self.assertIn(b"Comments (1)", page.data)
+        self.assertNotIn(b"My first comment", page.data)
+        self.assertEqual(self.database_rows("comments"), retained_comments)
+        self.assertEqual({table: self.database_rows(table) for table in tables}, before)
+        self.assertEqual(
+            {
+                path.name: path.read_bytes()
+                for path in Path(self.uploads.name).iterdir()
+            },
+            files,
+        )
+        self.post_form("/articles/1/comments", data={"body": "A new comment"})
+        for method in (
+            self.client.get,
+            lambda path: self.post_form(path, data={"confirm_delete": "yes"}),
+        ):
+            self.assertEqual(method(endpoint).status_code, 404)
+        self.assertEqual(Comment.query.count(), 3)
+
+    def test_comment_deletion_requires_the_comment_author_not_the_article_owner(self):
+        comment = self.publish_first_comment()
+        reader = self.create_user(email="reader@example.test")
+        comment.author_id = reader.id
+        db.session.commit()
+        endpoint = f"/comments/{comment.id}/delete"
+        before = self.database_rows("comments")
+        for path in (endpoint, "/comments/999999/delete"):
+            self.assertEqual(self.client.get(path).status_code, 404)
+            self.assertEqual(
+                self.post_form(
+                    path, data={"confirm_delete": "yes", "author_id": str(reader.id)}
+                ).status_code,
+                404,
+            )
+        self.assertNotIn(endpoint.encode(), self.client.get("/first-article").data)
+        self.post_form("/logout")
+        self.assertNotIn(endpoint.encode(), self.client.get("/first-article").data)
+        self.assertEqual(self.client.get(endpoint).status_code, 401)
+        self.assertEqual(
+            self.post_form(endpoint, data={"confirm_delete": "yes"}).status_code, 401
+        )
+        self.post_form(
+            "/auth/login",
+            data={
+                "login_email": "reader@example.test",
+                "login_password": "password123",
+            },
+        )
+        self.assertEqual(self.client.get(endpoint).status_code, 200)
+        self.assertIn(endpoint.encode(), self.client.get("/first-article").data)
+        self.assertEqual(self.database_rows("comments"), before)
+        self.assertEqual(
+            self.post_form(endpoint, data={"confirm_delete": "yes"}).status_code, 303
+        )
+
+    def test_comment_deletion_requires_confirmation_and_session_csrf(self):
+        comment = self.publish_first_comment()
+        endpoint = f"/comments/{comment.id}/delete"
+        before = self.database_rows("comments")
+        for confirmation in (None, "", "no", "true"):
+            with self.subTest(confirmation=confirmation):
+                response = self.post_form(
+                    endpoint,
+                    data={}
+                    if confirmation is None
+                    else {"confirm_delete": confirmation},
+                )
+                self.assertEqual(response.status_code, 400)
+                self.assertIn(b"Please confirm", response.data)
+                self.assertIn(b"My first comment", response.data)
+        with self.app.app_context():
+            foreign_token = self.csrf_token(client=self.app.test_client())
+        with (
+            self.app.app_context(),
+            patch(
+                "itsdangerous.timed.TimestampSigner.get_timestamp",
+                return_value=int(time()) - 3601,
+            ),
+        ):
+            expired_token = self.csrf_token()
+        for token in (None, "invalid", foreign_token, expired_token):
+            with self.subTest(token=token):
+                data = {"confirm_delete": "yes"}
+                if token is not None:
+                    data["csrf_token"] = token
+                response = self.client.post(endpoint, data=data)
+                self.assertEqual(response.status_code, 400)
+                self.assertIn(b"Your form could not be verified", response.data)
+        self.assertEqual(self.database_rows("comments"), before)
+
+    def test_deleting_last_comment_on_a_page_returns_to_first_page(self):
+        comment = self.publish_first_comment()
+        comment_id = comment.id
+        self.post_form("/articles/1/comments", data={"body": "Newest comment"})
+        with patch.dict(self.app.config, {"COMMENTS_PER_PAGE": 1}):
+            second = self.client.get("/first-article?comments_page=2")
+            self.assertIn(f"/comments/{comment_id}/delete".encode(), second.data)
+            response = self.post_form(
+                f"/comments/{comment_id}/delete",
+                data={"confirm_delete": "yes"},
+                follow_redirects=True,
+            )
+            self.assertEqual(response.status_code, 200)
+            self.assertIn(b"Newest comment", response.data)
+            self.assertNotIn(b"My first comment", response.data)
+            self.assertIn(b"Comments (1)", response.data)
+
+    def test_comment_deletion_database_failure_rolls_back(self):
+        comment = self.publish_first_comment()
+        endpoint = f"/comments/{comment.id}/delete"
+        tables = ("users", "articles", "categories", "tags", "article_tags", "comments")
+        before = {table: self.database_rows(table) for table in tables}
+
+        def fail_commit():
+            self.assertEqual(Comment.query.count(), 0)
+            db.session.execute(text("SELECT 1 / 0"))
+
+        with patch.object(db.session, "commit", side_effect=fail_commit):
+            with self.assertLogs(self.app.logger, level="ERROR"):
+                response = self.post_form(endpoint, data={"confirm_delete": "yes"})
+        self.assertEqual(response.status_code, 500)
+        self.assertIn(b"Check the comments before trying again", response.data)
+        self.assertNotIn(b"Delete permanently", response.data)
+        self.assertNotIn(b"SELECT 1 / 0", response.data)
+        self.assertEqual({table: self.database_rows(table) for table in tables}, before)
+        self.assertEqual(
+            self.post_form(endpoint, data={"confirm_delete": "yes"}).status_code, 303
+        )
+
+    def test_uncertain_comment_deletion_uses_saved_details_without_retrying(self):
+        comment = self.publish_first_comment()
+        endpoint = f"/comments/{comment.id}/delete"
+        commit = db.session.commit
+
+        def uncertain_commit():
+            commit()
+            raise SQLAlchemyError("Commit acknowledgement lost")
+
+        with patch.object(db.session, "commit", side_effect=uncertain_commit):
+            with self.assertLogs(self.app.logger, level="ERROR"):
+                response = self.post_form(endpoint, data={"confirm_delete": "yes"})
+        self.assertEqual(response.status_code, 500)
+        self.assertIn(b"My first comment", response.data)
+        self.assertIn(b"Check the comments", response.data)
+        self.assertNotIn(b"Delete permanently", response.data)
+        self.assertEqual(Comment.query.count(), 0)
+        self.assertEqual(self.client.get(endpoint).status_code, 404)
+
+    def test_comment_deletion_rechecks_ownership_in_the_delete_statement(self):
+        comment_id = self.publish_first_comment().id
+        other_author_id = self.create_user(email="reader@example.test").id
+
+        def transfer_after_lookup(*args, **kwargs):
+            details = get_owned_comment_details(*args, **kwargs)
+            with db.engine.begin() as connection:
+                connection.execute(
+                    Comment.__table__.update()
+                    .where(Comment.id == comment_id)
+                    .values(author_id=other_author_id)
+                )
+            return details
+
+        with patch(
+            "app.comments.routes.get_owned_comment_details",
+            side_effect=transfer_after_lookup,
+        ):
+            response = self.post_form(
+                f"/comments/{comment_id}/delete", data={"confirm_delete": "yes"}
+            )
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(Comment.query.one().author_id, other_author_id)
+
+    def test_comment_deletion_handles_a_concurrent_article_cascade(self):
+        comment = self.publish_first_comment()
+        endpoint = f"/comments/{comment.id}/delete"
+        article_id = comment.article_id
+
+        def remove_article_after_lookup(*args, **kwargs):
+            details = get_owned_comment_details(*args, **kwargs)
+            with db.engine.begin() as connection:
+                connection.execute(
+                    Article.__table__.delete().where(Article.id == article_id)
+                )
+            return details
+
+        with patch(
+            "app.comments.routes.get_owned_comment_details",
+            side_effect=remove_article_after_lookup,
+        ):
+            response = self.post_form(endpoint, data={"confirm_delete": "yes"})
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(Comment.query.count(), 0)
+        self.assertEqual(User.query.count(), 1)
+        self.assertEqual(self.client.get(endpoint).status_code, 404)
+
+    def test_simultaneous_comment_deletions_remove_the_comment_once(self):
+        comment_id = self.publish_first_comment().id
+        self.post_form("/articles/1/comments", data={"body": "Keep this comment"})
+        db.session.remove()
+        start = Barrier(2)
+
+        def synchronize_lookup(*args, **kwargs):
+            details = get_owned_comment_details(*args, **kwargs)
+            start.wait(timeout=10)
+            return details
+
+        def submit(_):
+            with self.app.test_client() as client:
+                self.post_form(
+                    "/auth/login",
+                    client=client,
+                    data={
+                        "login_email": "author@example.test",
+                        "login_password": "password123",
+                    },
+                )
+                return self.post_form(
+                    f"/comments/{comment_id}/delete",
+                    client=client,
+                    data={"confirm_delete": "yes"},
+                ).status_code
+
+        with patch(
+            "app.comments.routes.get_owned_comment_details",
+            side_effect=synchronize_lookup,
+        ):
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                statuses = list(executor.map(submit, range(2)))
+        self.assertEqual(sorted(statuses), [303, 404])
+        self.assertEqual(Comment.query.one().body, "Keep this comment")
 
     def test_edit_form_prefills_saved_values_and_does_not_change_data(self):
         article = self.publish_first_article()
