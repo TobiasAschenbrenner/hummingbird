@@ -1,7 +1,8 @@
 # Hummingbird API 🐦
 
 Express and TypeScript foundation for the rewrite. It currently provides only a
-health endpoint; authentication, database access and Angular come in later commits.
+health endpoint; authentication and database access come in later commits.
+The [Angular client](../client/README.md) uses it to check the API connection.
 
 ## 🚀 Getting started
 

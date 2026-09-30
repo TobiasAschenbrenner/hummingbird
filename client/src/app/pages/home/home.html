@@ -1,0 +1,50 @@
+<section class="hero">
+  <div class="container">
+    <h1>The Hummingbird Blog</h1>
+    <p>Your source for great content</p>
+  </div>
+</section>
+
+<section class="container status-section" aria-labelledby="status-heading">
+  <h2 id="status-heading">Application status</h2>
+  <p class="intro">
+    The Angular frontend is taking shape. Articles, accounts and database access come next.
+  </p>
+
+  <div class="status-panel">
+    <p
+      role="status"
+      aria-live="polite"
+      class="status-message"
+      [class.connected]="status() === 'connected'"
+      [class.unavailable]="status() === 'unavailable'"
+    >
+      @switch (status()) {
+        @case ('checking') {
+          Checking the API connection…
+        }
+        @case ('connected') {
+          API connected
+        }
+        @case ('unavailable') {
+          API unavailable
+        }
+      }
+    </p>
+
+    @if (status() === 'unavailable') {
+      <p>Make sure the Express server is running, then try again.</p>
+    } @else {
+      <p>This checks the Express API only. The database is not connected yet.</p>
+    }
+
+    <button
+      type="button"
+      class="button"
+      [disabled]="status() === 'checking'"
+      (click)="checkStatus()"
+    >
+      {{ status() === 'checking' ? 'Checking…' : 'Check again' }}
+    </button>
+  </div>
+</section>
