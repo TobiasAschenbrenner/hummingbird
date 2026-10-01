@@ -8,7 +8,7 @@
 <section class="container status-section" aria-labelledby="status-heading">
   <h2 id="status-heading">Application status</h2>
   <p class="intro">
-    The Angular frontend is taking shape. Articles, accounts and database access come next.
+    You can now create an account and sign in. Article browsing and publishing come next.
   </p>
 
   <div class="status-panel">
@@ -35,7 +35,7 @@
     @if (status() === 'unavailable') {
       <p>Make sure the Express server is running, then try again.</p>
     } @else {
-      <p>This checks the Express API only. The database is not connected yet.</p>
+      <p>This checks the API process only, not the database connection.</p>
     }
 
     <button

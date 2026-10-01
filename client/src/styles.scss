@@ -20,7 +20,8 @@ body {
   background: var(--background);
 }
 
-button {
+button,
+input {
   font: inherit;
 }
 
@@ -39,7 +40,8 @@ a {
   margin-inline: auto;
 }
 
-.button {
+.button,
+input {
   display: inline-block;
   padding: 0.6rem 1rem;
   border: 0;

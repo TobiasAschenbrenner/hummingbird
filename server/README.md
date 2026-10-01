@@ -1,8 +1,8 @@
 # Hummingbird API 🐦
 
 Express, TypeScript and Prisma API for the rewrite. Health, registration, login
-and logout are available; Angular account screens and blog routes come later.
-The [Angular client](../client/README.md) uses it to check the API connection.
+and logout are available; blog routes come later.
+The [Angular client](../client/README.md) uses it for account flows and an API connection check.
 
 ## 🚀 Getting started
 

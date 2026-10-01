@@ -32,7 +32,7 @@ describe('Home', () => {
 
     expect(element.querySelector('[role="status"]')?.textContent).toContain('API connected');
     expect(button.disabled).toBe(false);
-    expect(element.textContent).toContain('The database is not connected yet.');
+    expect(element.textContent).toContain('not the database connection.');
   });
 
   it('allows a failed connection to be retried', async () => {

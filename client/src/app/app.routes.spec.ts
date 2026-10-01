@@ -1,9 +1,13 @@
+import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { of } from 'rxjs';
 
 import { routes } from './app.routes';
+import { Login } from './pages/login/login';
+import { Register } from './pages/register/register';
 import { Home } from './pages/home/home';
 import { NotFound } from './pages/not-found/not-found';
 import { HealthApi } from './services/health/health';
@@ -13,6 +17,8 @@ describe('Application routes', () => {
     TestBed.configureTestingModule({
       providers: [
         provideRouter(routes),
+        provideHttpClient(),
+        provideHttpClientTesting(),
         { provide: HealthApi, useValue: { getStatus: () => of({ status: 'ok' }) } },
       ],
     });
@@ -26,6 +32,24 @@ describe('Application routes', () => {
       'The Hummingbird Blog',
     );
     expect(document.title).toBe('Hummingbird | Home');
+  });
+
+  it('opens the account pages with their own titles and accessible headings', async () => {
+    const harness = await RouterTestingHarness.create();
+    await harness.navigateByUrl('/login', Login);
+    expect(harness.routeNativeElement?.querySelector('h1')?.textContent).toBe('Log in');
+    expect(document.title).toBe('Hummingbird | Log in');
+    await harness.navigateByUrl('/register', Register);
+    expect(harness.routeNativeElement?.querySelector('h1')?.textContent).toBe('Create an account');
+    expect(document.title).toBe('Hummingbird | Register');
+  });
+
+  it('shows the registration confirmation on the login page', async () => {
+    const harness = await RouterTestingHarness.create();
+    await harness.navigateByUrl('/login?registered=1', Login);
+    expect(harness.routeNativeElement?.querySelector('[role="status"]')?.textContent).toContain(
+      'Account created',
+    );
   });
 
   it('shows a useful fallback for unknown URLs and links back home', async () => {

@@ -8,5 +8,36 @@
       ariaCurrentWhenActive="page"
       >Home</a
     >
+    <div class="account-nav">
+      @if (auth.status() === 'checking') {
+        <span role="status">Checking session…</span>
+      } @else if (auth.user(); as user) {
+        <span class="username">Signed in as {{ user.username }}</span>
+        <button
+          type="button"
+          class="nav-button"
+          [disabled]="pending() || auth.pending()"
+          (click)="logout()"
+        >
+          {{ pending() ? 'Logging out…' : 'Log out' }}
+        </button>
+      } @else {
+        <a routerLink="/login" routerLinkActive="active" ariaCurrentWhenActive="page">Log in</a>
+        <a routerLink="/register" routerLinkActive="active" ariaCurrentWhenActive="page"
+          >Register</a
+        >
+      }
+    </div>
   </nav>
+  @if (auth.status() === 'unavailable') {
+    <p class="container header-message" role="status">
+      Session check unavailable.
+      <button type="button" class="nav-button" [disabled]="auth.pending()" (click)="retrySession()">
+        Try again
+      </button>
+    </p>
+  }
+  @if (errorMessage()) {
+    <p class="container header-message" role="alert">{{ errorMessage() }}</p>
+  }
 </header>

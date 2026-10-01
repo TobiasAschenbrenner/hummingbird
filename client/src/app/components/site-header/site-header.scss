@@ -2,32 +2,57 @@ header {
   background: var(--surface-dark);
   color: #fff;
 }
-
 nav {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 2rem;
   padding-block: 1rem;
 }
-
-a {
+a,
+.nav-button {
   color: inherit;
   text-decoration: none;
-
   &:hover,
   &.active {
     text-decoration: underline;
   }
 }
-
 .logo {
   font-size: 1.5rem;
   font-weight: 600;
 }
-
-@media (max-width: 480px) {
+.account-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+  margin-left: auto;
+}
+.username {
+  max-width: 28ch;
+  overflow-wrap: anywhere;
+}
+.nav-button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  &:disabled {
+    cursor: wait;
+    opacity: 0.7;
+  }
+}
+.header-message {
+  margin-block: 0;
+  padding-bottom: 1rem;
+}
+@media (max-width: 640px) {
   nav {
-    justify-content: space-between;
     gap: 1rem;
+  }
+  .account-nav {
+    width: 100%;
+    margin-left: 0;
   }
 }
