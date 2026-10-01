@@ -13,6 +13,7 @@ database.db
 node_modules/
 /server/dist/
 /server/coverage/
+/server/src/generated/
 .env.*
 !.env.example
 npm-debug.log*

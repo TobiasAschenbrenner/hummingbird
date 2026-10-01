@@ -6,7 +6,7 @@ Readers can browse articles, while registered users can publish posts and join t
 > **Rewrite in progress:** The Angular/Express replacement is being built on
 > `rewrite/angular-express`. See [client setup](client/README.md) and
 > [server setup](server/README.md) to run the Angular status page and Express API.
-> Blog features and the new database connection are not implemented yet. The Flask
+> The Prisma database foundation is ready; blog features are not implemented yet. The Flask
 > instructions below remain valid; its baseline is tagged `flask-baseline`.
 
 ---

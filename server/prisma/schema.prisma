@@ -1,0 +1,85 @@
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "ts"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id           Int       @id @default(autoincrement())
+  username     String    @db.VarChar(80)
+  email        String    @unique(map: "users_email_key") @db.VarChar(120)
+  passwordHash String    @map("password_hash") @db.VarChar(250)
+  articles     Article[]
+  comments     Comment[]
+
+  @@map("users")
+}
+
+model Article {
+  id            Int          @id @default(autoincrement())
+  slug          String       @unique(map: "articles_slug_key") @db.VarChar(80)
+  title         String       @db.VarChar(55)
+  description   String       @db.VarChar(250)
+  body          String       @db.Text
+  version       BigInt       @default(1)
+  imageFilename String?      @map("image_filename") @db.VarChar(250)
+  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  authorId      Int          @map("author_id")
+  author        User         @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  categoryId    Int          @map("category_id")
+  category      Category     @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  tags          ArticleTag[]
+  comments      Comment[]
+
+  @@index([authorId], map: "ix_articles_author_id")
+  @@index([categoryId], map: "ix_articles_category_id")
+  @@map("articles")
+}
+
+model Category {
+  id       Int       @id @default(autoincrement())
+  slug     String    @unique(map: "categories_slug_key") @db.VarChar(80)
+  name     String    @db.VarChar(80)
+  articles Article[]
+
+  @@map("categories")
+}
+
+model Tag {
+  id       Int          @id @default(autoincrement())
+  slug     String       @unique(map: "tags_slug_key") @db.VarChar(80)
+  name     String       @db.VarChar(40)
+  articles ArticleTag[]
+
+  @@map("tags")
+}
+
+model ArticleTag {
+  articleId Int     @map("article_id")
+  tagId     Int     @map("tag_id")
+  article   Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  tag       Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([articleId, tagId])
+  @@index([tagId], map: "ix_article_tags_tag_id")
+  @@map("article_tags")
+}
+
+model Comment {
+  id        Int      @id @default(autoincrement())
+  body      String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  articleId Int      @map("article_id")
+  article   Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  authorId  Int      @map("author_id")
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Restrict)
+
+  @@index([articleId, id], map: "ix_comments_article_id_id")
+  @@index([authorId], map: "ix_comments_author_id")
+  @@map("comments")
+}
