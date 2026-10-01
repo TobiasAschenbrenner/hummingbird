@@ -1,11 +1,6 @@
-import validator from 'validator';
-
 import { HttpError } from '../errors/http-error.ts';
 import type { RegistrationInput } from '../models/user.model.ts';
-
-function isWellFormed(value: string): boolean {
-  return !/[\uD800-\uDFFF]/u.test(value);
-}
+import { isValidEmail, isValidPassword, isWellFormed } from './credentials.validator.ts';
 
 export function parseRegistration(body: unknown): RegistrationInput {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
@@ -33,16 +28,11 @@ export function parseRegistration(body: unknown): RegistrationInput {
     fields.username = 'Use 1–80 characters without control characters.';
   }
 
-  if (
-    email.length > 120 ||
-    /[^\x21-\x7E]/.test(rawEmail) ||
-    !validator.isEmail(email, { allow_utf8_local_part: false })
-  ) {
+  if (!isValidEmail(rawEmail)) {
     fields.email = 'Use a valid ASCII email address of at most 120 characters.';
   }
 
-  const passwordLength = [...password].length;
-  if (passwordLength < 15 || passwordLength > 128 || !password.trim() || !isWellFormed(password)) {
+  if (!isValidPassword(password)) {
     fields.password = 'Use 15–128 characters, not only whitespace.';
   }
 

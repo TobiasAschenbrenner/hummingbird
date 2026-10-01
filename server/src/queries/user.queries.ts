@@ -17,6 +17,12 @@ function isEmailConstraint(error: Prisma.PrismaClientKnownRequestError): boolean
 
 export function createUserQueries(database: PrismaClient) {
   return {
+    findUserByEmail(email: string) {
+      return database.user.findUnique({
+        where: { email },
+        select: { id: true, username: true, email: true, passwordHash: true },
+      });
+    },
     async createUser(input: CreateUserInput): Promise<PublicUser> {
       try {
         return await database.user.create({

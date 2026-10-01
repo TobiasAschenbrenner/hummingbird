@@ -1,7 +1,7 @@
 # Hummingbird API 🐦
 
-Express, TypeScript and Prisma API for the rewrite. Health and account registration
-are available; login and blog routes come later.
+Express, TypeScript and Prisma API for the rewrite. Health, registration, login
+and logout are available; Angular account screens and blog routes come later.
 The [Angular client](../client/README.md) uses it to check the API connection.
 
 ## 🚀 Getting started
@@ -96,7 +96,7 @@ Demo mode requires `development` or `test`, a local host, and the database name
 `hummingbird_rewrite` or `hummingbird_rewrite_test`. Use a plain database URL or
 `?schema=public`, without connection overrides. Demo authors have a disabled
 password marker, not a shared login password. Register your own account through
-the API; signing in is not implemented yet.
+the API, then sign in with your own credentials.
 
 Seeds [run explicitly](https://www.prisma.io/docs/orm/v7/prisma-migrate/workflows/seeding),
 not automatically during migrations. They do not change the schema or reset data.
@@ -161,6 +161,37 @@ Validation errors include `error.fields`; other errors contain `error.message`.
 The database unique key handles duplicate emails even during concurrent requests.
 The request limit is kept in memory per server process and resets on restart.
 
+## 🔑 Login and sessions
+
+| Request                 | Result                                   |
+| ----------------------- | ---------------------------------------- |
+| `POST /api/auth/login`  | Sign in with an email and password       |
+| `GET /api/auth/me`      | Return the current `{ "user": { ... } }` |
+| `POST /api/auth/logout` | Revoke the current session; return `204` |
+
+Login accepts UTF-8 JSON with the same email normalization as registration.
+Passwords are checked unchanged. Unknown accounts, wrong passwords and disabled
+demo accounts return the same `401` error. Login is limited to 20 attempts per IP
+per minute; the in-memory limits reset on restart and are not shared across servers.
+
+Login and logout require `X-Hummingbird-Request: 1`. Browser requests must use the
+same origin through Angular's `/api` proxy; cross-origin CORS access is not enabled.
+This [custom-header protection](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html#employing-custom-request-headers-for-ajaxapi)
+guards cookie-based requests against CSRF. Use the same middleware for future write routes.
+
+The browser receives an HTTP-only, `SameSite=Lax` cookie, never a token in JSON or
+local storage. PostgreSQL stores only its SHA-256 hash, user ID and timestamps.
+Sessions expire after 24 hours without renewal. A successful login replaces the
+presented session in one transaction and removes expired rows; other devices stay
+signed in. Logout invalidates copied cookies too. Sessions survive API restarts.
+
+Without a valid session, `/me` returns `401` and clears the stale cookie.
+Logout is safe to repeat. All account responses use `Cache-Control: no-store`.
+Set `NODE_ENV=production` behind HTTPS to use a Secure `__Host-` cookie; local
+HTTP development uses `hummingbird_session`. Hosting configuration comes later.
+See [OWASP session guidance](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html)
+for the cookie and session design.
+
 ## 🧪 Checks and Postman
 
 ```bash
@@ -180,13 +211,20 @@ They apply committed migrations to `TEST_DATABASE_URL` and test joins, uniquenes
 foreign keys, delete rules, content constraints and transaction rollback.
 They also check seed repeatability, preserved edits and demo restrictions.
 Registration tests cover stored password hashes, duplicates and concurrent requests.
+Authentication tests cover expiry, session rotation, persistence, logout, SQL
+constraints and rollback when creating a replacement session fails.
 The test database is emptied before each test and when the suite finishes.
 
 Import [the Postman collection](../postman/hummingbird.postman_collection.json).
 Its `baseUrl` defaults to `http://127.0.0.1:3000`; change it if you use another port.
-Run **Register account**, then **Duplicate email**. Registration generates a new
-test address each time; these requests create real accounts in the configured database.
-The collection's password is a test example, not a credential for a real account.
+Run the requests in order: **Register account**, **Duplicate email**, **Login**,
+**Current user**, **Wrong password**, **Session still active**, **Logout**, then
+**Session revoked**. Keep Postman's cookie jar enabled; the collection includes
+the required request header and checks each response.
+
+Registration generates a new test address each time. These requests create real
+accounts and sessions in the configured rewrite database. The collection's password
+is a test example, not a credential for a real account.
 
 To run the compiled application, stop the development server first:
 

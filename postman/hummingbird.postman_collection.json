@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Hummingbird API",
-    "description": "Local requests for the Angular/Express rewrite: health, registration and duplicate-email handling. Registration writes to the configured rewrite database.",
+    "description": "Local requests for the Angular/Express rewrite: health, registration and cookie-based authentication. Run in order with the cookie jar enabled. Requests write to the configured rewrite database.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -145,6 +145,184 @@
               "  pm.expect(pm.response.json()).to.eql({",
               "    error: { message: 'An account with this email already exists.' }",
               "  });",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Login",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Hummingbird-Request",
+            "value": "1"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/auth/login",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{registrationEmail}}\",\n  \"password\": \"{{registrationPassword}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Signed in with an HTTP-only session cookie', function () {",
+              "  pm.response.to.have.status(200);",
+              "  const user = pm.response.json().user;",
+              "  pm.expect(Object.keys(user).sort()).to.eql(['email', 'id', 'username']);",
+              "  pm.expect(user.email).to.eql(pm.collectionVariables.get('registrationEmail'));",
+              "  pm.expect(pm.response.headers.get('Set-Cookie')).to.include('HttpOnly');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Current user",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/auth/me"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Session identifies the registered account', function () {",
+              "  pm.response.to.have.status(200);",
+              "  pm.expect(pm.response.json().user.email).to.eql(pm.collectionVariables.get('registrationEmail'));",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Wrong password",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Hummingbird-Request",
+            "value": "1"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/auth/login",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{registrationEmail}}\",\n  \"password\": \"incorrect test password\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Incorrect password returns a generic error', function () {",
+              "  pm.response.to.have.status(401);",
+              "  pm.expect(pm.response.json()).to.eql({ error: { message: 'Invalid email or password.' } });",
+              "  pm.expect(pm.response.headers.has('Set-Cookie')).to.eql(false);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Session still active",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/auth/me"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Failed login preserved the existing session', function () {",
+              "  pm.response.to.have.status(200);",
+              "  pm.expect(pm.response.json().user.email).to.eql(pm.collectionVariables.get('registrationEmail'));",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Logout",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Hummingbird-Request",
+            "value": "1"
+          }
+        ],
+        "url": "{{baseUrl}}/api/auth/logout"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Logged out and cookie cleared', function () {",
+              "  pm.response.to.have.status(204);",
+              "  pm.expect(pm.response.text()).to.eql('');",
+              "  pm.expect(pm.response.headers.get('Set-Cookie')).to.include('Expires=Thu, 01 Jan 1970');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Session revoked",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/auth/me"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Logged-out request cannot authenticate', function () {",
+              "  pm.response.to.have.status(401);",
+              "  pm.expect(pm.response.json()).to.eql({ error: { message: 'Please sign in.' } });",
               "});"
             ]
           }

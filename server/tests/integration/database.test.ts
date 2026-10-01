@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { once } from 'node:events';
@@ -7,6 +8,8 @@ import { verify } from 'argon2';
 import { after, before, beforeEach, test } from 'node:test';
 
 import { createApp } from '../../src/app.ts';
+import { createSessionQueries } from '../../src/queries/session.queries.ts';
+import { createAuthenticationService } from '../../src/services/authentication.service.ts';
 import { createUserQueries } from '../../src/queries/user.queries.ts';
 import { createRegistrationService } from '../../src/services/registration.service.ts';
 import { createDatabaseClient } from '../../src/database/client.ts';
@@ -49,6 +52,10 @@ before(async () => {
   databaseVerified = true;
   server = createApp({
     registerUser: createRegistrationService(createUserQueries(database)),
+    authentication: createAuthenticationService(
+      createUserQueries(database),
+      createSessionQueries(database),
+    ),
   }).listen(0, '127.0.0.1');
   await once(server, 'listening');
   const address = server.address();
@@ -58,7 +65,7 @@ before(async () => {
 
 async function clearDatabase() {
   assert.ok(databaseVerified, 'Refusing to clear an unverified database.');
-  await database.$executeRaw`TRUNCATE TABLE public.comments, public.article_tags,
+  await database.$executeRaw`TRUNCATE TABLE public.sessions, public.comments, public.article_tags,
     public.articles, public.tags, public.categories, public.users RESTART IDENTITY CASCADE`;
 }
 
@@ -577,4 +584,221 @@ test('non-email uniqueness failures are not reported as duplicate email addresse
   } finally {
     await database.$executeRaw`ALTER TABLE users DROP CONSTRAINT registration_test_unique_username`;
   }
+});
+
+async function registerForLogin(password = 'a long test password') {
+  const response = await registerAccount('author@example.test', password);
+  assert.equal(response.status, 201);
+  return (await response.json()).user as { id: number; username: string; email: string };
+}
+
+function signIn(email = 'author@example.test', password = 'a long test password', cookie?: string) {
+  return fetch(`${baseUrl}/api/auth/login`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Hummingbird-Request': '1',
+      ...(cookie ? { Cookie: cookie } : {}),
+    },
+    body: JSON.stringify({ email, password }),
+  });
+}
+
+function responseSession(response: Response) {
+  const cookie = response.headers.get('set-cookie')?.split(';')[0];
+  assert.ok(cookie);
+  const token = cookie.slice(cookie.indexOf('=') + 1);
+  assert.match(token, /^[A-Za-z0-9_-]{43}$/);
+  return { cookie, token, tokenHash: createHash('sha256').update(token).digest('hex') };
+}
+
+function currentUser(cookie: string) {
+  return fetch(`${baseUrl}/api/auth/me`, { headers: { Cookie: cookie } });
+}
+
+test('login stores only a token hash, joins the current user and logout invalidates copied cookies', async () => {
+  const password = '  a lengthy 🔑 password  ';
+  const user = await registerForLogin(password);
+  const loginResponse = await signIn('  AUTHOR@EXAMPLE.TEST  ', password);
+  assert.equal(loginResponse.status, 200);
+  assert.deepEqual(await loginResponse.json(), { user });
+  const session = responseSession(loginResponse);
+  const stored = await database.session.findUniqueOrThrow({
+    where: { tokenHash: session.tokenHash },
+  });
+  assert.equal(stored.userId, user.id);
+  assert.equal(stored.expiresAt.getTime() - stored.createdAt.getTime(), 86_400_000);
+  assert.ok(!JSON.stringify(stored).includes(session.token));
+  const me = await currentUser(session.cookie);
+  assert.equal(me.status, 200);
+  assert.deepEqual(await me.json(), { user });
+  const logoutResponse = await fetch(`${baseUrl}/api/auth/logout`, {
+    method: 'POST',
+    headers: { 'X-Hummingbird-Request': '1', Cookie: session.cookie },
+  });
+  assert.equal(logoutResponse.status, 204);
+  assert.equal(await database.session.count(), 0);
+  const stale = await currentUser(session.cookie);
+  assert.equal(stale.status, 401);
+  await stale.arrayBuffer();
+  const repeatedLogout = await fetch(`${baseUrl}/api/auth/logout`, {
+    method: 'POST',
+    headers: { 'X-Hummingbird-Request': '1', Cookie: session.cookie },
+  });
+  assert.equal(repeatedLogout.status, 204);
+});
+
+test('unknown accounts, wrong passwords, disabled demo accounts and malformed hashes fail identically', async () => {
+  await registerForLogin();
+  await seedDatabase(database, { demo: true });
+  await database.user.create({
+    data: {
+      username: 'Broken hash',
+      email: 'broken@example.test',
+      passwordHash: '$argon2id$malformed',
+    },
+  });
+  for (const [email, password] of [
+    ['missing@example.test', 'any candidate password'],
+    ['author@example.test', 'wrong'],
+    ['author@hummingbird.example', 'any candidate password'],
+    ['broken@example.test', 'any candidate password'],
+  ]) {
+    const response = await signIn(email, password);
+    assert.equal(response.status, 401);
+    assert.equal(response.headers.get('set-cookie'), null);
+    assert.deepEqual(await response.json(), { error: { message: 'Invalid email or password.' } });
+  }
+  assert.equal(await database.session.count(), 0);
+});
+
+test('successful login rotates only the presented session and leaves other device sessions active', async () => {
+  await registerForLogin();
+  const firstResponse = await signIn();
+  assert.equal(firstResponse.status, 200);
+  await firstResponse.arrayBuffer();
+  const first = responseSession(firstResponse);
+  const otherDevice = await signIn();
+  assert.equal(otherDevice.status, 200);
+  await otherDevice.arrayBuffer();
+  const other = responseSession(otherDevice);
+  const rotated = await signIn('author@example.test', 'a long test password', first.cookie);
+  assert.equal(rotated.status, 200);
+  await rotated.arrayBuffer();
+  const replacement = responseSession(rotated);
+  assert.notEqual(replacement.token, first.token);
+  assert.equal(await database.session.count(), 2);
+  for (const [cookie, expectedStatus] of [
+    [first.cookie, 401],
+    [other.cookie, 200],
+    [replacement.cookie, 200],
+  ] as const) {
+    const response = await currentUser(cookie);
+    assert.equal(response.status, expectedStatus);
+    await response.arrayBuffer();
+  }
+});
+
+test('expired, malformed, forged and missing tokens cannot authenticate; login cleans up expired sessions', async () => {
+  const user = await registerForLogin();
+  const expiredHash = createHash('sha256').update('e'.repeat(43)).digest('hex');
+  await database.session.create({
+    data: {
+      tokenHash: expiredHash,
+      userId: user.id,
+      createdAt: new Date(Date.now() - 2000),
+      expiresAt: new Date(Date.now() - 1000),
+    },
+  });
+  for (const cookie of [
+    `hummingbird_session=${'e'.repeat(43)}`,
+    `hummingbird_session=${'f'.repeat(43)}`,
+    'hummingbird_session=malformed',
+    'hummingbird_session=%invalid',
+    '',
+  ]) {
+    const response = await currentUser(cookie);
+    assert.equal(response.status, 401);
+    await response.arrayBuffer();
+  }
+  const response = await signIn();
+  assert.equal(response.status, 200);
+  await response.arrayBuffer();
+  assert.equal(await database.session.count(), 1);
+  assert.equal(await database.session.findUnique({ where: { tokenHash: expiredHash } }), null);
+});
+
+test('sessions survive a fresh database client and reflect current user data', async () => {
+  const user = await registerForLogin();
+  const response = await signIn();
+  assert.equal(response.status, 200);
+  await response.arrayBuffer();
+  const session = responseSession(response);
+  await database.user.update({ where: { id: user.id }, data: { username: 'Renamed author' } });
+  const restartedDatabase = createDatabaseClient(readTestDatabaseUrl());
+  try {
+    const restartedAuth = createAuthenticationService(
+      createUserQueries(restartedDatabase),
+      createSessionQueries(restartedDatabase),
+    );
+    assert.deepEqual(await restartedAuth.getUser(session.token), {
+      ...user,
+      username: 'Renamed author',
+    });
+  } finally {
+    await restartedDatabase.$disconnect();
+  }
+});
+
+test('failed login and failed session insertion preserve the previous session without partial rotation', async () => {
+  await registerForLogin();
+  const initial = await signIn();
+  assert.equal(initial.status, 200);
+  await initial.arrayBuffer();
+  const session = responseSession(initial);
+  const wrongPassword = await signIn('author@example.test', 'wrong', session.cookie);
+  assert.equal(wrongPassword.status, 401);
+  await wrongPassword.arrayBuffer();
+  await database.$executeRaw`ALTER TABLE sessions ADD CONSTRAINT auth_test_reject_new_sessions CHECK (false) NOT VALID`;
+  try {
+    const failed = await signIn('author@example.test', 'a long test password', session.cookie);
+    assert.equal(failed.status, 500);
+    assert.equal(failed.headers.get('set-cookie'), null);
+    await failed.arrayBuffer();
+    assert.equal(await database.session.count(), 1);
+    const preserved = await currentUser(session.cookie);
+    assert.equal(preserved.status, 200);
+    await preserved.arrayBuffer();
+  } finally {
+    await database.$executeRaw`ALTER TABLE sessions DROP CONSTRAINT auth_test_reject_new_sessions`;
+  }
+});
+
+test('session SQL constraints enforce token hashes, expiry, foreign keys, uniqueness and user deletion', async () => {
+  const user = await registerForLogin();
+  const now = new Date();
+  const valid = {
+    tokenHash: 'a'.repeat(64),
+    userId: user.id,
+    createdAt: now,
+    expiresAt: new Date(now.getTime() + 1000),
+  };
+  await database.session.create({ data: valid });
+  await assert.rejects(database.session.create({ data: valid }), { code: 'P2002' });
+  await assert.rejects(
+    database.session.create({ data: { ...valid, tokenHash: 'b'.repeat(64), userId: 99999 } }),
+    { code: 'P2003' },
+  );
+  for (const tokenHash of ['plaintext-token', 'A'.repeat(64)]) {
+    await assert.rejects(
+      database.session.create({ data: { ...valid, tokenHash } }),
+      /sessions_token_hash_format/,
+    );
+  }
+  await assert.rejects(
+    database.session.create({ data: { ...valid, tokenHash: 'c'.repeat(64), expiresAt: now } }),
+    /sessions_expiry_after_creation/,
+  );
+  await database.user.delete({ where: { id: user.id } });
+  assert.equal(await database.session.count(), 0);
 });

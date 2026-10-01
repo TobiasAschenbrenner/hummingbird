@@ -16,6 +16,7 @@ model User {
   passwordHash String    @map("password_hash") @db.VarChar(250)
   articles     Article[]
   comments     Comment[]
+  sessions     Session[]
 
   @@map("users")
 }
@@ -82,4 +83,16 @@ model Comment {
   @@index([articleId, id], map: "ix_comments_article_id_id")
   @@index([authorId], map: "ix_comments_author_id")
   @@map("comments")
+}
+
+model Session {
+  tokenHash String   @id @map("token_hash") @db.VarChar(64)
+  userId    Int      @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+
+  @@index([userId], map: "ix_sessions_user_id")
+  @@index([expiresAt], map: "ix_sessions_expires_at")
+  @@map("sessions")
 }
