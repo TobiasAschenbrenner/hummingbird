@@ -1,13 +1,28 @@
 {
   "info": {
     "name": "Hummingbird API",
-    "description": "Local requests for the Angular/Express rewrite. No database connection is implemented yet.",
+    "description": "Local requests for the Angular/Express rewrite: health, registration and duplicate-email handling. Registration writes to the configured rewrite database.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
     {
       "key": "baseUrl",
       "value": "http://127.0.0.1:3000",
+      "type": "string"
+    },
+    {
+      "key": "registrationUsername",
+      "value": "Postman Author",
+      "type": "string"
+    },
+    {
+      "key": "registrationPassword",
+      "value": "postman test password only",
+      "type": "string"
+    },
+    {
+      "key": "registrationEmail",
+      "value": "",
       "type": "string"
     }
   ],
@@ -29,6 +44,107 @@
               "pm.test('API is healthy', function () {",
               "  pm.response.to.have.status(200);",
               "  pm.expect(pm.response.json()).to.eql({ status: 'ok' });",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Register account",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"username\": \"{{registrationUsername}}\",\n  \"email\": \"{{registrationEmail}}\",\n  \"password\": \"{{registrationPassword}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{baseUrl}}/api/auth/register",
+        "description": "Creates a real test account with a new generated address on every run. Does not log in."
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const id = pm.variables.replaceIn('{{$guid}}');",
+              "pm.collectionVariables.set('registrationEmail', `postman-${id}@example.test`);"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Account created with public fields only', function () {",
+              "  pm.response.to.have.status(201);",
+              "  const user = pm.response.json().user;",
+              "  pm.expect(Object.keys(user).sort()).to.eql(['email', 'id', 'username']);",
+              "  pm.expect(user.id).to.be.a('number');",
+              "  pm.expect(user.email).to.eql(pm.collectionVariables.get('registrationEmail'));",
+              "  pm.expect(user.username).to.eql(pm.variables.get('registrationUsername'));",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Duplicate email",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"username\": \"{{registrationUsername}}\",\n  \"email\": \"{{duplicateEmail}}\",\n  \"password\": \"{{registrationPassword}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{baseUrl}}/api/auth/register",
+        "description": "Run Register account first. The same address, with uppercase letters and surrounding spaces, must return 409 without changing the account."
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const email = pm.collectionVariables.get('registrationEmail');",
+              "if (!email) throw new Error('Run Register account first.');",
+              "pm.variables.set('duplicateEmail', ` ${email.toUpperCase()} `);"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Duplicate address rejected', function () {",
+              "  pm.response.to.have.status(409);",
+              "  pm.expect(pm.response.json()).to.eql({",
+              "    error: { message: 'An account with this email already exists.' }",
+              "  });",
               "});"
             ]
           }

@@ -1,7 +1,7 @@
 # Hummingbird API 🐦
 
-Express, TypeScript and Prisma foundation for the rewrite. The API currently
-provides only a health endpoint; authentication and blog routes come later.
+Express, TypeScript and Prisma API for the rewrite. Health and account registration
+are available; login and blog routes come later.
 The [Angular client](../client/README.md) uses it to check the API connection.
 
 ## 🚀 Getting started
@@ -27,7 +27,7 @@ Percent-encode special characters in URL credentials (for example, `@` becomes `
 | --------------------- | ----------------------------------------------------- |
 | `PORT`                | API port; defaults to `3000`                          |
 | `NODE_ENV`            | `development` (default), `test` or `production`       |
-| `DATABASE_URL`        | Rewrite database connection                           |
+| `DATABASE_URL`        | Required rewrite database connection                  |
 | `SHADOW_DATABASE_URL` | Separate, disposable database for creating migrations |
 | `TEST_DATABASE_URL`   | Separate, disposable database ending in `_test`       |
 
@@ -95,8 +95,8 @@ Demo emails already used by login accounts cause the entire seed to roll back.
 Demo mode requires `development` or `test`, a local host, and the database name
 `hummingbird_rewrite` or `hummingbird_rewrite_test`. Use a plain database URL or
 `?schema=public`, without connection overrides. Demo authors have a disabled
-password marker, not a shared login password; register your own account once the
-authentication API is implemented.
+password marker, not a shared login password. Register your own account through
+the API; signing in is not implemented yet.
 
 Seeds [run explicitly](https://www.prisma.io/docs/orm/v7/prisma-migrate/workflows/seeding),
 not automatically during migrations. They do not change the schema or reset data.
@@ -128,13 +128,46 @@ Open [the health endpoint](http://127.0.0.1:3000/api/health). It returns
 `{"status":"ok"}`. This checks that the API is running, not database availability.
 The server currently listens only on your own computer (`127.0.0.1`).
 
+## 👤 Register an account
+
+Send `POST /api/auth/register` with `Content-Type: application/json`:
+
+```json
+{
+  "username": "Author",
+  "email": "author@example.com",
+  "password": "replace with your own long password"
+}
+```
+
+- **Username:** 1–80 characters after trimming; no control characters. Names may be shared.
+- **Email:** Valid ASCII address, at most 120 characters; trimmed and stored lowercase.
+- **Password:** 15–128 characters, not only whitespace. Unicode and spaces are preserved.
+
+Success returns `201` and `{ "user": { "id": 1, "username": "Author", "email": "author@example.com" } }`.
+Passwords are stored as salted Argon2id hashes using [OWASP's recommended minimum settings](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html).
+Responses never include passwords or hashes. Registration does not sign you in.
+
+| Status | Meaning                                       |
+| ------ | --------------------------------------------- |
+| `400`  | Invalid fields or JSON                        |
+| `409`  | Email already registered                      |
+| `413`  | Body exceeds 16 KiB                           |
+| `415`  | Wrong media type, charset or compressed body  |
+| `429`  | More than 50 attempts per IP per minute       |
+| `500`  | Unexpected failure; internal details withheld |
+
+Validation errors include `error.fields`; other errors contain `error.message`.
+The database unique key handles duplicate emails even during concurrent requests.
+The request limit is kept in memory per server process and resets on restart.
+
 ## 🧪 Checks and Postman
 
 ```bash
 npm run check
 ```
 
-This validates the schema, checks types, runs HTTP/configuration tests, checks
+This validates the schema, checks types, runs HTTP/configuration/password tests, checks
 formatting and builds the application. These tests do not need a database.
 
 For PostgreSQL integration tests:
@@ -146,10 +179,14 @@ npm run test:db
 They apply committed migrations to `TEST_DATABASE_URL` and test joins, uniqueness,
 foreign keys, delete rules, content constraints and transaction rollback.
 They also check seed repeatability, preserved edits and demo restrictions.
+Registration tests cover stored password hashes, duplicates and concurrent requests.
 The test database is emptied before each test and when the suite finishes.
 
 Import [the Postman collection](../postman/hummingbird.postman_collection.json).
 Its `baseUrl` defaults to `http://127.0.0.1:3000`; change it if you use another port.
+Run **Register account**, then **Duplicate email**. Registration generates a new
+test address each time; these requests create real accounts in the configured database.
+The collection's password is a test example, not a credential for a real account.
 
 To run the compiled application, stop the development server first:
 

@@ -1,8 +1,14 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { once } from 'node:events';
+import type { Server } from 'node:http';
+import { verify } from 'argon2';
 import { after, before, beforeEach, test } from 'node:test';
 
+import { createApp } from '../../src/app.ts';
+import { createUserQueries } from '../../src/queries/user.queries.ts';
+import { createRegistrationService } from '../../src/services/registration.service.ts';
 import { createDatabaseClient } from '../../src/database/client.ts';
 import { readTestDatabaseUrl } from '../helpers/database.ts';
 import { seedDatabase } from '../../prisma/seed-database.ts';
@@ -10,6 +16,8 @@ import { DEMO_PASSWORD_DISABLED } from '../../prisma/seed-data.ts';
 
 let database: ReturnType<typeof createDatabaseClient>;
 let databaseVerified = false;
+let server: Server | undefined;
+let baseUrl: string;
 
 before(async () => {
   const connectionString = readTestDatabaseUrl();
@@ -39,6 +47,13 @@ before(async () => {
   >`SELECT current_database() AS name`;
   assert.equal(connection?.name, decodeURIComponent(new URL(connectionString).pathname.slice(1)));
   databaseVerified = true;
+  server = createApp({
+    registerUser: createRegistrationService(createUserQueries(database)),
+  }).listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  baseUrl = `http://127.0.0.1:${address.port}`;
 });
 
 async function clearDatabase() {
@@ -49,6 +64,11 @@ async function clearDatabase() {
 
 beforeEach(clearDatabase);
 after(async () => {
+  if (server?.listening) {
+    await new Promise<void>((resolve, reject) => {
+      server!.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
   if (database) {
     try {
       if (databaseVerified) {
@@ -465,4 +485,96 @@ test('Prisma seed commands forward demo options and refuse production demo write
   assert.notEqual(production.status, 0);
   assert.match(production.stderr, /Seeding failed/);
   assert.deepEqual(await readSeedSnapshot(), before);
+});
+
+function registerAccount(email = 'author@example.test', password = 'a long test password') {
+  return fetch(`${baseUrl}/api/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: '  Author 🐦  ', email, password }),
+  });
+}
+
+test('registration stores a canonical email and verifiable hash, returning only public fields', async () => {
+  const password = '  a lengthy 🔑 password  ';
+  const response = await registerAccount('  Author@Example.Test  ', password);
+  assert.equal(response.status, 201);
+  const result = await response.json();
+  const stored = await database.user.findUniqueOrThrow({ where: { email: 'author@example.test' } });
+  assert.deepEqual(result, { user: { id: stored.id, username: 'Author 🐦', email: stored.email } });
+  assert.match(stored.passwordHash, /^\$argon2id\$/);
+  assert.equal(await verify(stored.passwordHash, password), true);
+  assert.equal(await verify(stored.passwordHash, password.trim()), false);
+  assert.equal(await database.user.count(), 1);
+});
+
+test('invalid registration never inserts a user', async () => {
+  const response = await registerAccount('not an email', 'short');
+  assert.equal(response.status, 400);
+  await response.arrayBuffer();
+  assert.equal(await database.user.count(), 0);
+});
+
+test('duplicate registration preserves the original account and hash', async () => {
+  const initial = await registerAccount();
+  assert.equal(initial.status, 201);
+  await initial.arrayBuffer();
+  const original = await database.user.findUniqueOrThrow({
+    where: { email: 'author@example.test' },
+  });
+  const duplicate = await registerAccount('  AUTHOR@EXAMPLE.TEST  ', 'another lengthy password');
+  assert.equal(duplicate.status, 409);
+  assert.deepEqual(await duplicate.json(), {
+    error: { message: 'An account with this email already exists.' },
+  });
+  assert.equal(await database.user.count(), 1);
+  assert.deepEqual(await database.user.findUniqueOrThrow({ where: { id: original.id } }), original);
+});
+
+test('concurrent registrations of the same normalized email create exactly one account', async () => {
+  const responses = await Promise.all([
+    registerAccount('Author@Example.Test'),
+    registerAccount(' author@example.test '),
+  ]);
+  assert.deepEqual(responses.map((response) => response.status).sort(), [201, 409]);
+  await Promise.all(responses.map((response) => response.arrayBuffer()));
+  assert.equal(await database.user.count(), 1);
+});
+
+test('display names are not account identifiers and may be shared', async () => {
+  for (const email of ['one@example.test', 'two@example.test']) {
+    const response = await registerAccount(email);
+    assert.equal(response.status, 201);
+    await response.arrayBuffer();
+  }
+  assert.equal(await database.user.count({ where: { username: 'Author 🐦' } }), 2);
+});
+
+test('a failed registration insert returns a safe error and leaves no partial account', async () => {
+  await database.$executeRaw`ALTER TABLE users ADD CONSTRAINT registration_test_reject_users CHECK (false)`;
+  try {
+    const response = await registerAccount();
+    assert.equal(response.status, 500);
+    assert.deepEqual(await response.json(), {
+      error: { message: 'Unable to process the request. Try again later.' },
+    });
+    assert.equal(await database.user.count(), 0);
+  } finally {
+    await database.$executeRaw`ALTER TABLE users DROP CONSTRAINT registration_test_reject_users`;
+  }
+});
+
+test('non-email uniqueness failures are not reported as duplicate email addresses', async () => {
+  await database.user.create({
+    data: { username: 'Author 🐦', email: 'existing@example.test', passwordHash: 'test-disabled' },
+  });
+  await database.$executeRaw`ALTER TABLE users ADD CONSTRAINT registration_test_unique_username UNIQUE (username)`;
+  try {
+    const response = await registerAccount();
+    assert.equal(response.status, 500);
+    await response.arrayBuffer();
+    assert.equal(await database.user.count(), 1);
+  } finally {
+    await database.$executeRaw`ALTER TABLE users DROP CONSTRAINT registration_test_unique_username`;
+  }
 });
