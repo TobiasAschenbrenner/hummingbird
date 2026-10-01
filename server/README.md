@@ -58,7 +58,6 @@ The [Prisma schema](prisma/schema.prisma) defines the tables and relations.
 [SQL migrations](prisma/migrations/) also enforce nonblank content, positive
 article versions and a 2,000-character comment limit. Emails must be stored
 trimmed and lowercase so the unique key treats login addresses consistently.
-There is no seed data yet.
 
 For future schema changes, use `npm run db:migrate -- --name describe_change`,
 then `npm run db:generate`. Review the generated SQL before committing it; use
@@ -68,6 +67,39 @@ Use migrations rather than `prisma db push`, which would miss those constraints.
 > [!WARNING]
 > Prisma erases the shadow database while creating migrations. Tests erase data in
 > the test database. Neither URL may point at the development or Flask database.
+
+## 🌱 Seed data
+
+After applying migrations, add the default categories (**Tech, Design, Mobile**):
+
+```bash
+npm run db:seed
+```
+
+For optional demo content in the local rewrite database:
+
+```bash
+npm run db:seed:demo
+```
+
+On an empty database, the demo creates 3 categories, 2 users, 3 articles, 3 tags,
+5 article–tag links and 2 comments. The sample text and UTC timestamps are fixed
+in [seed-data.ts](prisma/seed-data.ts); no external data or images are downloaded.
+This is a small development fixture, not a performance benchmark dataset.
+
+Both commands add missing records in one transaction without overwriting existing
+content. Repeated runs create no duplicates. Existing article slugs are skipped,
+including their tags and comments, so user edits and removed links stay unchanged.
+Demo emails already used by login accounts cause the entire seed to roll back.
+
+Demo mode requires `development` or `test`, a local host, and the database name
+`hummingbird_rewrite` or `hummingbird_rewrite_test`. Use a plain database URL or
+`?schema=public`, without connection overrides. Demo authors have a disabled
+password marker, not a shared login password; register your own account once the
+authentication API is implemented.
+
+Seeds [run explicitly](https://www.prisma.io/docs/orm/v7/prisma-migrate/workflows/seeding),
+not automatically during migrations. They do not change the schema or reset data.
 
 ## 🔍 DataGrip
 
@@ -113,6 +145,7 @@ npm run test:db
 
 They apply committed migrations to `TEST_DATABASE_URL` and test joins, uniqueness,
 foreign keys, delete rules, content constraints and transaction rollback.
+They also check seed repeatability, preserved edits and demo restrictions.
 The test database is emptied before each test and when the suite finishes.
 
 Import [the Postman collection](../postman/hummingbird.postman_collection.json).

@@ -5,6 +5,8 @@ import { after, before, beforeEach, test } from 'node:test';
 
 import { createDatabaseClient } from '../../src/database/client.ts';
 import { readTestDatabaseUrl } from '../helpers/database.ts';
+import { seedDatabase } from '../../prisma/seed-database.ts';
+import { DEMO_PASSWORD_DISABLED } from '../../prisma/seed-data.ts';
 
 let database: ReturnType<typeof createDatabaseClient>;
 let databaseVerified = false;
@@ -268,4 +270,199 @@ test('failed transactions leave no partially stored records', async () => {
   assert.equal(await database.user.count(), 0);
   assert.equal(await database.category.count(), 0);
   assert.equal(await database.comment.count(), 0);
+});
+
+async function readSeedSnapshot() {
+  return Promise.all([
+    database.user.findMany({ orderBy: { id: 'asc' } }),
+    database.category.findMany({ orderBy: { id: 'asc' } }),
+    database.tag.findMany({ orderBy: { id: 'asc' } }),
+    database.article.findMany({ orderBy: { id: 'asc' } }),
+    database.articleTag.findMany({ orderBy: [{ articleId: 'asc' }, { tagId: 'asc' }] }),
+    database.comment.findMany({ orderBy: { id: 'asc' } }),
+  ]);
+}
+
+test('default seed adds only missing categories and preserves custom catalog entries', async () => {
+  await database.category.createMany({
+    data: [
+      { slug: 'tech', name: 'Custom technology name' },
+      { slug: 'science', name: 'Science' },
+    ],
+  });
+  assert.deepEqual(await seedDatabase(database), {
+    categories: 2,
+    users: 0,
+    tags: 0,
+    articles: 0,
+    articleTags: 0,
+    comments: 0,
+  });
+  assert.equal(
+    (await database.category.findUniqueOrThrow({ where: { slug: 'tech' } })).name,
+    'Custom technology name',
+  );
+  const before = await readSeedSnapshot();
+  assert.deepEqual(await seedDatabase(database), {
+    categories: 0,
+    users: 0,
+    tags: 0,
+    articles: 0,
+    articleTags: 0,
+    comments: 0,
+  });
+  assert.deepEqual(await readSeedSnapshot(), before);
+  assert.equal(await database.category.count(), 4);
+  assert.equal(await database.user.count(), 0);
+});
+
+test('demo seed creates a connected dataset once with disabled accounts and fixed dates', async () => {
+  assert.deepEqual(await seedDatabase(database, { demo: true }), {
+    categories: 3,
+    users: 2,
+    tags: 3,
+    articles: 3,
+    articleTags: 5,
+    comments: 2,
+  });
+  const article = await database.article.findUniqueOrThrow({
+    where: { slug: 'demo-relational-databases' },
+    include: {
+      author: true,
+      category: true,
+      tags: { include: { tag: true } },
+      comments: { include: { author: true } },
+    },
+  });
+  assert.equal(article.author.passwordHash, DEMO_PASSWORD_DISABLED);
+  assert.equal(article.author.email, 'author@hummingbird.example');
+  assert.equal(article.category.slug, 'tech');
+  assert.deepEqual(article.tags.map((link) => link.tag.slug).sort(), [
+    'databases',
+    'web-development',
+  ]);
+  assert.equal(article.comments[0]?.author.email, 'reader@hummingbird.example');
+  assert.equal(article.createdAt.toISOString(), '2026-10-01T09:00:00.000Z');
+  const sharedTag = await database.tag.findUniqueOrThrow({
+    where: { slug: 'web-development' },
+    include: { articles: true },
+  });
+  assert.equal(sharedTag.articles.length, 2);
+
+  const before = await readSeedSnapshot();
+  assert.deepEqual(await seedDatabase(database, { demo: true }), {
+    categories: 0,
+    users: 0,
+    tags: 0,
+    articles: 0,
+    articleTags: 0,
+    comments: 0,
+  });
+  assert.deepEqual(await readSeedSnapshot(), before);
+});
+
+test('rerunning the demo seed leaves user edits, removed links and other articles unchanged', async () => {
+  await createArticle();
+  await seedDatabase(database, { demo: true });
+  const article = await database.article.findUniqueOrThrow({
+    where: { slug: 'demo-relational-databases' },
+  });
+  await database.article.update({
+    where: { id: article.id },
+    data: { body: 'Edited content.', version: 2n },
+  });
+  await database.articleTag.deleteMany({ where: { articleId: article.id } });
+  await database.comment.updateMany({
+    where: { articleId: article.id },
+    data: { body: 'Edited comment.' },
+  });
+  await database.category.update({ where: { slug: 'tech' }, data: { name: 'Changed category' } });
+  await database.tag.update({ where: { slug: 'databases' }, data: { name: 'Changed tag' } });
+  await database.user.update({
+    where: { email: 'author@hummingbird.example' },
+    data: { username: 'Changed author' },
+  });
+  const before = await readSeedSnapshot();
+  await seedDatabase(database, { demo: true });
+  assert.deepEqual(await readSeedSnapshot(), before);
+});
+
+test('a conflicting demo article slug leaves the existing article and its relationships untouched', async () => {
+  const { article } = await createArticle();
+  await database.article.update({
+    where: { id: article.id },
+    data: { slug: 'demo-relational-databases' },
+  });
+  const before = await database.article.findUniqueOrThrow({
+    where: { id: article.id },
+    include: { tags: true, comments: true },
+  });
+  const added = await seedDatabase(database, { demo: true });
+  assert.equal(added.articles, 2);
+  assert.deepEqual(
+    await database.article.findUniqueOrThrow({
+      where: { id: article.id },
+      include: { tags: true, comments: true },
+    }),
+    before,
+  );
+});
+
+test('a conflicting demo email aborts the seed without altering an existing login account', async () => {
+  const { author } = await createArticle();
+  await database.user.update({
+    where: { id: author.id },
+    data: { email: 'author@hummingbird.example' },
+  });
+  const before = await readSeedSnapshot();
+  await assert.rejects(
+    seedDatabase(database, { demo: true }),
+    /demo email belongs to an existing login account/,
+  );
+  assert.deepEqual(await readSeedSnapshot(), before);
+});
+
+test('a database failure during demo comments rolls back every earlier seed insert', async () => {
+  await createArticle();
+  const before = await readSeedSnapshot();
+  await database.$executeRaw`ALTER TABLE comments ADD CONSTRAINT seed_test_reject_comments CHECK (false)`;
+  try {
+    await assert.rejects(seedDatabase(database, { demo: true }));
+    assert.deepEqual(await readSeedSnapshot(), before);
+  } finally {
+    await database.$executeRaw`ALTER TABLE comments DROP CONSTRAINT seed_test_reject_comments`;
+  }
+});
+
+test('Prisma seed commands forward demo options and refuse production demo writes', async () => {
+  const connectionString = readTestDatabaseUrl();
+  function runSeed(args: string[], nodeEnv = 'test') {
+    return spawnSync(
+      process.execPath,
+      [
+        fileURLToPath(new URL('../../node_modules/prisma/build/index.js', import.meta.url)),
+        'db',
+        'seed',
+        ...args,
+      ],
+      {
+        cwd: fileURLToPath(new URL('../../', import.meta.url)),
+        env: { ...process.env, DATABASE_URL: connectionString, NODE_ENV: nodeEnv },
+        encoding: 'utf8',
+        timeout: 30_000,
+      },
+    );
+  }
+  const defaults = runSeed([]);
+  assert.equal(defaults.status, 0, 'Default seed command failed.');
+  assert.match(defaults.stdout, /3 categories, 0 users/);
+  assert.equal(await database.article.count(), 0);
+  const demo = runSeed(['--', '--demo']);
+  assert.equal(demo.status, 0, 'Demo seed command failed.');
+  assert.match(demo.stdout, /2 users, 3 tags, 3 articles, 5 articleTags, 2 comments/);
+  const before = await readSeedSnapshot();
+  const production = runSeed(['--', '--demo'], 'production');
+  assert.notEqual(production.status, 0);
+  assert.match(production.stderr, /Seeding failed/);
+  assert.deepEqual(await readSeedSnapshot(), before);
 });

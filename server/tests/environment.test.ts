@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import { readConfig } from '../src/config/environment.ts';
 import { readDatabaseUrl, readMigrationDatasource } from '../src/config/database.ts';
 import { readTestDatabaseUrl } from './helpers/database.ts';
+import { readSeedOptions } from '../prisma/seed-options.ts';
 
 test('uses local development defaults without requiring Flask settings', () => {
   assert.deepEqual(readConfig({}), { port: 3000, nodeEnv: 'development' });
@@ -108,4 +109,45 @@ test('client generation needs no database URL, but shadow migrations require iso
       /SHADOW_DATABASE_URL must not point to DATABASE_URL/,
     );
   }
+});
+
+test('seeding defaults to categories and rejects unrecognized arguments', () => {
+  assert.deepEqual(readSeedOptions([], { NODE_ENV: 'production' }), { demo: false });
+  for (const args of [['--unknown'], ['demo'], ['--demo=false']]) {
+    assert.throws(() => readSeedOptions(args));
+  }
+});
+
+test('demo seed guard permits only local rewrite development or test databases', () => {
+  for (const host of ['localhost', 'LOCALHOST', '127.0.0.1', '[::1]']) {
+    for (const name of ['hummingbird_rewrite', 'hummingbird_rewrite_test']) {
+      assert.deepEqual(
+        readSeedOptions(['--demo'], {
+          DATABASE_URL: `postgresql://user@${host}:5432/${name}`,
+          NODE_ENV: 'test',
+        }),
+        { demo: true },
+      );
+    }
+  }
+  const url = 'postgresql://user:secret@localhost/hummingbird_rewrite';
+  assert.deepEqual(readSeedOptions(['--demo'], { DATABASE_URL: url }), { demo: true });
+  assert.deepEqual(readSeedOptions(['--demo'], { DATABASE_URL: `${url}?schema=public` }), {
+    demo: true,
+  });
+  for (const environment of [
+    { DATABASE_URL: url, NODE_ENV: 'production' },
+    { DATABASE_URL: url, NODE_ENV: 'staging' },
+    { DATABASE_URL: 'postgresql://user@remote.example/hummingbird_rewrite' },
+    { DATABASE_URL: 'postgresql://user@localhost/hummingbird' },
+    { DATABASE_URL: 'postgresql://user@localhost/hummingbird_rewrite_shadow' },
+    { DATABASE_URL: `${url}?schema=other` },
+    { DATABASE_URL: `${url}?schema=public&schema=other` },
+    { DATABASE_URL: `${url}?host=remote.example` },
+    { DATABASE_URL: `${url}?port=5433` },
+    { DATABASE_URL: `${url}?options=-c%20search_path=other` },
+  ]) {
+    assert.throws(() => readSeedOptions(['--demo'], environment), /limited to local rewrite/);
+  }
+  assert.throws(() => readSeedOptions(['--demo'], {}), /DATABASE_URL must be/);
 });

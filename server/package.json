@@ -21,6 +21,8 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:status": "prisma migrate status",
+    "db:seed": "prisma db seed",
+    "db:seed:demo": "prisma db seed -- --demo",
     "test:db": "node --env-file-if-exists=.env --test tests/integration/*.test.ts"
   },
   "dependencies": {
