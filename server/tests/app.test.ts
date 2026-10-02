@@ -9,6 +9,11 @@ import type { RegistrationInput, PublicUser } from '../src/models/user.model.ts'
 import type { AuthenticationService, LoginInput } from '../src/models/session.model.ts';
 import { HttpError } from '../src/errors/http-error.ts';
 import type { AuthOptions } from '../src/routes/auth.routes.ts';
+import type {
+  ArticleDetail,
+  ArticlePageInput,
+  ArticleQueries,
+} from '../src/models/article.model.ts';
 
 let server: Server;
 let baseUrl: string;
@@ -44,6 +49,40 @@ const authentication: AuthenticationService = {
   },
 };
 
+const exampleArticle: ArticleDetail = {
+  id: 11,
+  slug: 'first-article',
+  title: 'First article',
+  description: 'An introduction.',
+  imageFilename: null,
+  createdAt: '2026-10-01T09:00:00.000Z',
+  author: { id: 7, username: 'Author' },
+  category: { id: 3, slug: 'tech', name: 'Tech' },
+  tags: [{ id: 2, slug: 'databases', name: 'Databases' }],
+  commentCount: 2,
+  body: 'First paragraph.\n\nSecond paragraph.',
+  version: '9007199254740993',
+};
+let articlePageInputs: ArticlePageInput[] = [];
+let articleSlugs: string[] = [];
+let articleError: Error | undefined;
+const articles: ArticleQueries = {
+  async listArticles({ page, pageSize }) {
+    articlePageInputs.push({ page, pageSize });
+    if (articleError) throw articleError;
+    const { body: _body, version: _version, ...summary } = exampleArticle;
+    return {
+      articles: [summary].slice((page - 1) * pageSize, page * pageSize),
+      pagination: { page, pageSize, total: 1, totalPages: 1 },
+    };
+  },
+  async findArticleBySlug(slug) {
+    articleSlugs.push(slug);
+    if (articleError) throw articleError;
+    return slug === exampleArticle.slug ? exampleArticle : null;
+  },
+};
+
 const validInput = {
   username: 'Author',
   email: 'author@example.test',
@@ -52,6 +91,7 @@ const validInput = {
 
 beforeEach(async () => {
   server = createApp({
+    articles,
     authentication,
     registerUser: async (input) => {
       receivedInputs.push(input);
@@ -73,6 +113,9 @@ beforeEach(() => {
   userTokens = [];
   logoutTokens = [];
   signedInUser = publicUser;
+  articlePageInputs = [];
+  articleSlugs = [];
+  articleError = undefined;
 });
 
 afterEach(async () => {
@@ -250,6 +293,7 @@ test('unexpected service failures do not expose passwords, SQL or connection cre
 test('registration limits attempts before invoking the service and leaves health available', async () => {
   let calls = 0;
   const limitedServer = createApp({
+    articles,
     authentication,
     registerUser: async ({ username, email }) => {
       calls++;
@@ -505,7 +549,7 @@ test('authentication failures return safe errors without issuing or clearing an 
 });
 
 async function withApp(options: AuthOptions, check: (url: string) => Promise<void>) {
-  const temporaryServer = createApp(options).listen(0, '127.0.0.1');
+  const temporaryServer = createApp({ ...options, articles }).listen(0, '127.0.0.1');
   try {
     await once(temporaryServer, 'listening');
     const address = temporaryServer.address();
@@ -584,4 +628,147 @@ test('login limits attempts before service calls without blocking logout or curr
     });
     assert.equal(logoutResponse.status, 204);
   });
+});
+
+test('article listing is public, paginated and returns summaries without reading a session', async () => {
+  const response = await fetch(`${baseUrl}/api/articles`, {
+    headers: { Cookie: 'hummingbird_session=stale-cookie' },
+  });
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-type') ?? '', /application\/json/);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  assert.equal(response.headers.get('set-cookie'), null);
+  const { body: _body, version: _version, ...summary } = exampleArticle;
+  assert.deepEqual(await response.json(), {
+    articles: [summary],
+    pagination: { page: 1, pageSize: 12, total: 1, totalPages: 1 },
+  });
+  assert.deepEqual(articlePageInputs, [{ page: 1, pageSize: 12 }]);
+  assert.deepEqual(userTokens, []);
+});
+
+test('article listing accepts bounded page sizes and returns empty pages without a 404', async () => {
+  for (const [page, pageSize] of [
+    [2, 1],
+    [10_000, 50],
+  ]) {
+    const response = await fetch(`${baseUrl}/api/articles?page=${page}&pageSize=${pageSize}`);
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      articles: [],
+      pagination: { page, pageSize, total: 1, totalPages: 1 },
+    });
+  }
+  assert.deepEqual(articlePageInputs, [
+    { page: 2, pageSize: 1 },
+    { page: 10_000, pageSize: 50 },
+  ]);
+});
+
+test('article listing rejects malformed, repeated and unsupported query parameters before querying', async () => {
+  const queries = [
+    'page=',
+    'page=0',
+    'page=-1',
+    'page=1.5',
+    'page=01',
+    'page=+1',
+    'page=1e2',
+    'page=10001',
+    'page=9007199254740993',
+    'page=1&page=2',
+    'page[]=1',
+    'page[number]=1',
+    'pageSize=',
+    'pageSize=0',
+    'pageSize=-2',
+    'pageSize=51',
+    'pageSize=2.5',
+    'pageSize=2&pageSize=3',
+    'pageSize[]=12',
+    'q=search',
+    'category=tech',
+    'unknown=value',
+    '__proto__=value',
+  ];
+  for (const query of queries) {
+    const response = await fetch(`${baseUrl}/api/articles?${query}`);
+    assert.equal(response.status, 400, query);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.ok((await response.json()).error.message);
+  }
+  assert.deepEqual(articlePageInputs, []);
+});
+
+test('article detail is public and preserves text, timestamps and a large version string', async () => {
+  const response = await fetch(`${baseUrl}/api/articles/first-article`);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  assert.equal(response.headers.get('set-cookie'), null);
+  assert.deepEqual(await response.json(), { article: exampleArticle });
+  assert.deepEqual(articleSlugs, ['first-article']);
+  assert.deepEqual(userTokens, []);
+});
+
+test('a valid missing article slug returns a safe article-specific 404', async () => {
+  const response = await fetch(`${baseUrl}/api/articles/missing-article`);
+  assert.equal(response.status, 404);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  assert.deepEqual(await response.json(), { error: { message: 'Article not found.' } });
+  assert.deepEqual(articleSlugs, ['missing-article']);
+});
+
+test('article slugs reject invalid paths and accept the documented length boundary', async () => {
+  for (const slug of [
+    'Uppercase',
+    '-first',
+    'first-',
+    'first--article',
+    'first_article',
+    'a'.repeat(81),
+    '%00',
+    '%2F',
+    '%FF',
+    '%ZZ',
+    '%F0%9F%90%A6',
+    'first%27%20OR%201%3D1',
+  ]) {
+    const response = await fetch(`${baseUrl}/api/articles/${slug}`);
+    assert.equal(response.status, 400, slug);
+    await response.arrayBuffer();
+  }
+  assert.deepEqual(articleSlugs, []);
+  for (const slug of ['1', 'a'.repeat(80)]) {
+    const response = await fetch(`${baseUrl}/api/articles/${slug}`);
+    assert.equal(response.status, 404);
+    await response.arrayBuffer();
+  }
+  assert.deepEqual(articleSlugs, ['1', 'a'.repeat(80)]);
+});
+
+test('article query failures produce safe JSON errors without leaking database details', async () => {
+  articleError = new Error('SELECT users password_hash; postgresql://user:secret@localhost');
+  for (const route of ['/api/articles', '/api/articles/first-article']) {
+    const response = await fetch(`${baseUrl}${route}`);
+    assert.equal(response.status, 500);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.deepEqual(await response.json(), {
+      error: { message: 'Unable to process the request. Try again later.' },
+    });
+  }
+});
+
+test('article read routes do not implement create, update or delete', async () => {
+  for (const [method, route] of [
+    ['POST', '/api/articles'],
+    ['PUT', '/api/articles/first-article'],
+    ['PATCH', '/api/articles/first-article'],
+    ['DELETE', '/api/articles/first-article'],
+  ]) {
+    const response = await fetch(`${baseUrl}${route}`, { method });
+    assert.equal(response.status, 404);
+    await response.arrayBuffer();
+  }
+  assert.deepEqual(articlePageInputs, []);
+  assert.deepEqual(articleSlugs, []);
 });

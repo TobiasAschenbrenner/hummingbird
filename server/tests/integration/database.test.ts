@@ -8,6 +8,7 @@ import { verify } from 'argon2';
 import { after, before, beforeEach, test } from 'node:test';
 
 import { createApp } from '../../src/app.ts';
+import { createArticleQueries } from '../../src/queries/article.queries.ts';
 import { createSessionQueries } from '../../src/queries/session.queries.ts';
 import { createAuthenticationService } from '../../src/services/authentication.service.ts';
 import { createUserQueries } from '../../src/queries/user.queries.ts';
@@ -51,6 +52,7 @@ before(async () => {
   assert.equal(connection?.name, decodeURIComponent(new URL(connectionString).pathname.slice(1)));
   databaseVerified = true;
   server = createApp({
+    articles: createArticleQueries(database),
     registerUser: createRegistrationService(createUserQueries(database)),
     authentication: createAuthenticationService(
       createUserQueries(database),
@@ -801,4 +803,187 @@ test('session SQL constraints enforce token hashes, expiry, foreign keys, unique
   );
   await database.user.delete({ where: { id: user.id } });
   assert.equal(await database.session.count(), 0);
+});
+
+test('article read API returns an empty catalog and a 404 for a missing article', async () => {
+  const list = await fetch(`${baseUrl}/api/articles`);
+  assert.equal(list.status, 200);
+  assert.deepEqual(await list.json(), {
+    articles: [],
+    pagination: { page: 1, pageSize: 12, total: 0, totalPages: 0 },
+  });
+  const missing = await fetch(`${baseUrl}/api/articles/missing-article`);
+  assert.equal(missing.status, 404);
+  assert.deepEqual(await missing.json(), { error: { message: 'Article not found.' } });
+});
+
+test('article listing reads seed relationships without exposing accounts, bodies or comment content', async () => {
+  await seedDatabase(database, { demo: true });
+  const response = await fetch(`${baseUrl}/api/articles`);
+  assert.equal(response.status, 200);
+  const result = await response.json();
+  assert.deepEqual(result.pagination, { page: 1, pageSize: 12, total: 3, totalPages: 1 });
+  assert.deepEqual(
+    result.articles.map((article: { slug: string }) => article.slug),
+    ['demo-mobile-reading', 'demo-readable-blog', 'demo-relational-databases'],
+  );
+  const stored = await database.article.findUniqueOrThrow({
+    where: { slug: 'demo-relational-databases' },
+    include: { author: true, category: true, tags: { include: { tag: true } } },
+  });
+  assert.deepEqual(result.articles[2], {
+    id: stored.id,
+    slug: stored.slug,
+    title: stored.title,
+    description: stored.description,
+    imageFilename: null,
+    createdAt: '2026-10-01T09:00:00.000Z',
+    author: { id: stored.author.id, username: 'Demo Author' },
+    category: { id: stored.category.id, slug: 'tech', name: 'Tech' },
+    tags: stored.tags
+      .map(({ tag }) => tag)
+      .sort((first, second) => first.name.localeCompare(second.name)),
+    commentCount: 1,
+  });
+  assert.deepEqual(
+    result.articles.map((article: { commentCount: number }) => article.commentCount),
+    [0, 1, 1],
+  );
+  const json = JSON.stringify(result);
+  for (const privateValue of [
+    'passwordHash',
+    'password_hash',
+    'email',
+    'tokenHash',
+    'sessions',
+    'body',
+    'version',
+  ]) {
+    assert.ok(!json.includes(`"${privateValue}"`), privateValue);
+  }
+});
+
+test('article pagination is deterministic across tied timestamps and uses creation time before IDs', async () => {
+  const { author, category, article } = await createArticle();
+  const timestamp = new Date('2026-10-01T10:00:00Z');
+  await database.article.update({ where: { id: article.id }, data: { createdAt: timestamp } });
+  const tied = await database.article.create({
+    data: {
+      title: 'Tied article',
+      slug: 'tied-article',
+      description: 'Same timestamp.',
+      body: 'Tied body.',
+      createdAt: timestamp,
+      authorId: author.id,
+      categoryId: category.id,
+    },
+  });
+  const older = await database.article.create({
+    data: {
+      title: 'Older article',
+      slug: 'older-article',
+      description: 'Higher ID, older timestamp.',
+      body: 'Older body.',
+      createdAt: new Date('2026-10-01T09:00:00Z'),
+      authorId: author.id,
+      categoryId: category.id,
+    },
+  });
+  const ids: number[] = [];
+  for (const page of [1, 2, 3, 4]) {
+    const response = await fetch(`${baseUrl}/api/articles?page=${page}&pageSize=1`);
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.deepEqual(result.pagination, { page, pageSize: 1, total: 3, totalPages: 3 });
+    assert.equal(result.articles.length, page <= 3 ? 1 : 0);
+    ids.push(...result.articles.map((item: { id: number }) => item.id));
+  }
+  assert.deepEqual(ids, [tied.id, article.id, older.id]);
+});
+
+test('article summaries keep shared tags unique, sort them by name and count comments independently', async () => {
+  const { author, article } = await createArticle();
+  const tags = [];
+  for (const [slug, name] of [
+    ['zulu', 'Zulu'],
+    ['alpha-one', 'Alpha'],
+    ['alpha-two', 'Alpha'],
+  ] as const) {
+    tags.push(await database.tag.create({ data: { slug, name } }));
+  }
+  await database.articleTag.createMany({
+    data: tags.map((tag) => ({ articleId: article.id, tagId: tag.id })),
+  });
+  await database.comment.createMany({
+    data: [
+      { body: 'First comment.', articleId: article.id, authorId: author.id },
+      { body: 'Second comment.', articleId: article.id, authorId: author.id },
+    ],
+  });
+  const response = await fetch(`${baseUrl}/api/articles`);
+  assert.equal(response.status, 200);
+  const result = await response.json();
+  assert.equal(result.pagination.total, 1);
+  assert.equal(result.articles.length, 1);
+  assert.deepEqual(result.articles[0].tags, [tags[1], tags[2], tags[0]]);
+  assert.equal(result.articles[0].commentCount, 2);
+});
+
+test('article detail serializes PostgreSQL bigint versions exactly and preserves stored text', async () => {
+  const { author, category, article } = await createArticle();
+  const body = 'Unicode 🐦 and <script>plain text</script>.\n\nSecond paragraph.';
+  await database.article.update({
+    where: { id: article.id },
+    data: {
+      body,
+      version: 9_007_199_254_740_993n,
+      imageFilename: 'test-cover.webp',
+      createdAt: new Date('2026-10-01T09:00:00Z'),
+    },
+  });
+  const response = await fetch(`${baseUrl}/api/articles/first-article`);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('set-cookie'), null);
+  assert.deepEqual(await response.json(), {
+    article: {
+      id: article.id,
+      slug: article.slug,
+      title: article.title,
+      description: article.description,
+      imageFilename: 'test-cover.webp',
+      createdAt: '2026-10-01T09:00:00.000Z',
+      author: { id: author.id, username: author.username },
+      category: { id: category.id, slug: category.slug, name: category.name },
+      tags: [],
+      commentCount: 0,
+      body,
+      version: '9007199254740993',
+    },
+  });
+});
+
+test('article reads reflect edited relations, comment deletion and article deletion without writes', async () => {
+  const { author, article } = await createArticle();
+  const comment = await database.comment.create({
+    data: { body: 'Comment.', articleId: article.id, authorId: author.id },
+  });
+  const first = await fetch(`${baseUrl}/api/articles/first-article`);
+  assert.equal(first.status, 200);
+  assert.equal((await first.json()).article.commentCount, 1);
+  await database.user.update({ where: { id: author.id }, data: { username: 'Renamed author' } });
+  await database.comment.delete({ where: { id: comment.id } });
+  const edited = await fetch(`${baseUrl}/api/articles/first-article`);
+  assert.equal(edited.status, 200);
+  const result = (await edited.json()).article;
+  assert.equal(result.author.username, 'Renamed author');
+  assert.equal(result.commentCount, 0);
+  assert.equal(result.version, '1');
+  assert.equal(await database.session.count(), 0);
+  await database.article.delete({ where: { id: article.id } });
+  const deleted = await fetch(`${baseUrl}/api/articles/first-article`);
+  assert.equal(deleted.status, 404);
+  await deleted.arrayBuffer();
+  const listing = await fetch(`${baseUrl}/api/articles`);
+  assert.equal(listing.status, 200);
+  assert.equal((await listing.json()).pagination.total, 0);
 });

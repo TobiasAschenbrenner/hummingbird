@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Hummingbird API",
-    "description": "Local requests for the Angular/Express rewrite: health, registration and cookie-based authentication. Run in order with the cookie jar enabled. Requests write to the configured rewrite database.",
+    "description": "Local requests for the Angular/Express rewrite: accounts and public article reads. Run account requests in order with the cookie jar enabled. Account requests write to the configured rewrite database; article requests are read-only.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -22,6 +22,11 @@
     },
     {
       "key": "registrationEmail",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "articleSlug",
       "value": "",
       "type": "string"
     }
@@ -323,6 +328,104 @@
               "pm.test('Logged-out request cannot authenticate', function () {",
               "  pm.response.to.have.status(401);",
               "  pm.expect(pm.response.json()).to.eql({ error: { message: 'Please sign in.' } });",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "List articles",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/articles?page=1&pageSize=12",
+        "description": "Public, read-only article summaries. An empty database returns an empty list. Saves the first available slug for Article detail; seed demo data if needed."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Public article summaries and pagination', function () {",
+              "  pm.response.to.have.status(200);",
+              "  const result = pm.response.json();",
+              "  pm.expect(result.articles).to.be.an('array');",
+              "  pm.expect(result.articles.length).to.be.at.most(12);",
+              "  pm.expect(result.pagination.page).to.eql(1);",
+              "  pm.expect(result.pagination.pageSize).to.eql(12);",
+              "  pm.expect(result.pagination.total).to.be.at.least(0);",
+              "  pm.expect(result.pagination.totalPages).to.eql(Math.ceil(result.pagination.total / 12));",
+              "  result.articles.forEach(function (article) {",
+              "    pm.expect(Object.keys(article.author).sort()).to.eql(['id', 'username']);",
+              "    pm.expect(article.tags).to.be.an('array');",
+              "    pm.expect(article.commentCount).to.be.at.least(0);",
+              "    pm.expect(article).not.to.have.property('body');",
+              "    pm.expect(article).not.to.have.property('version');",
+              "  });",
+              "});",
+              "const first = pm.response.json().articles[0];",
+              "if (first) pm.collectionVariables.set('articleSlug', first.slug);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Article detail",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/articles/{{articleSlug}}",
+        "description": "Public, read-only article detail. Run List articles after seeding demo data, or set articleSlug to a valid existing slug."
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "if (!pm.collectionVariables.get('articleSlug')) throw new Error('Seed demo data and run List articles, or set articleSlug.');"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Public article detail with exact version', function () {",
+              "  pm.response.to.have.status(200);",
+              "  const article = pm.response.json().article;",
+              "  pm.expect(article.slug).to.eql(pm.collectionVariables.get('articleSlug'));",
+              "  pm.expect(article.body).to.be.a('string');",
+              "  pm.expect(article.version).to.match(/^[1-9][0-9]*$/);",
+              "  pm.expect(Object.keys(article.author).sort()).to.eql(['id', 'username']);",
+              "  pm.expect(article.tags).to.be.an('array');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Invalid article page",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/articles?page=0",
+        "description": "Invalid pagination must return 400 without querying or changing articles."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Invalid pagination rejected', function () {",
+              "  pm.response.to.have.status(400);",
+              "  pm.expect(pm.response.json().error.message).to.be.a('string');",
               "});"
             ]
           }

@@ -1,6 +1,7 @@
 import { createApp } from './app.ts';
 import { readConfig } from './config/environment.ts';
 import { createDatabaseClient } from './database/client.ts';
+import { createArticleQueries } from './queries/article.queries.ts';
 import { createSessionQueries } from './queries/session.queries.ts';
 import { createUserQueries } from './queries/user.queries.ts';
 import { createAuthenticationService } from './services/authentication.service.ts';
@@ -12,6 +13,7 @@ const users = createUserQueries(database);
 const registerUser = createRegistrationService(users);
 const authentication = createAuthenticationService(users, createSessionQueries(database));
 const server = createApp({
+  articles: createArticleQueries(database),
   registerUser,
   authentication,
   secureCookies: config.nodeEnv === 'production',

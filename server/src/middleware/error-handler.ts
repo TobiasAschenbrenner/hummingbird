@@ -23,6 +23,10 @@ export const errorHandler: ErrorRequestHandler = (error: unknown, _request, resp
     });
     return;
   }
+  if (error instanceof URIError && 'status' in error && error.status === 400) {
+    response.status(400).json({ error: { message: 'Use a valid URL-encoded path.' } });
+    return;
+  }
   if (error instanceof EmailAlreadyExistsError) {
     response.status(409).json({ error: { message: error.message } });
     return;

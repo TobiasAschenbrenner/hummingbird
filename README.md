@@ -7,7 +7,8 @@ Readers can browse articles, while registered users can publish posts and join t
 > `rewrite/angular-express`. See [client setup](client/README.md) and
 > [server setup](server/README.md) to run the Angular status page and Express API.
 > Registration, login and logout now work through Angular and the Express API.
-> Blog features come next. The Flask instructions below remain valid;
+> Article listing and details are available in the API; the Angular blog pages come next.
+> The Flask instructions below remain valid;
 > its baseline is tagged `flask-baseline`.
 
 ---
