@@ -1,0 +1,25 @@
+<article>
+  <p class="category">{{ article().category.name }}</p>
+  <h3>
+    <a
+      [routerLink]="['/articles', article().slug]"
+      [queryParams]="page() > 1 ? { page: page() } : {}"
+      >{{ article().title }}</a
+    >
+  </h3>
+  <p class="description">{{ article().description }}</p>
+  <p class="metadata">
+    {{ article().author.username }} ·
+    <time [dateTime]="article().createdAt">{{
+      article().createdAt | date: 'mediumDate' : 'UTC'
+    }}</time>
+    · {{ article().commentCount }} {{ article().commentCount === 1 ? 'comment' : 'comments' }}
+  </p>
+  @if (article().tags.length) {
+    <ul class="tags" aria-label="Tags">
+      @for (tag of article().tags; track tag.id) {
+        <li>{{ tag.name }}</li>
+      }
+    </ul>
+  }
+</article>

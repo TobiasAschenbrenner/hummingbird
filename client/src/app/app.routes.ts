@@ -15,5 +15,11 @@ export const routes: Routes = [
     loadComponent: () => import('./pages/register/register').then((module) => module.Register),
     title: 'Hummingbird | Register',
   },
+  {
+    path: 'articles/:slug',
+    loadComponent: () =>
+      import('./pages/article-detail/article-detail').then((module) => module.ArticleDetail),
+    title: 'Hummingbird | Article',
+  },
   { path: '**', component: NotFound, title: 'Hummingbird | Page not found' },
 ];

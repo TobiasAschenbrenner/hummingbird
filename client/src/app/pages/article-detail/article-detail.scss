@@ -1,0 +1,26 @@
+@use '../../../styles/article-metadata';
+
+.detail-page {
+  max-width: 780px;
+  padding-block: 2.5rem;
+  overflow-wrap: anywhere;
+}
+.back-link {
+  display: inline-block;
+  margin-bottom: 2rem;
+}
+h1 {
+  margin: 0;
+  font-size: clamp(2rem, 5vw, 2.75rem);
+  line-height: 1.2;
+}
+.description {
+  color: var(--text-muted);
+  font-size: 1.15rem;
+}
+.article-body {
+  margin-top: 2rem;
+  padding-top: 2rem;
+  border-top: 1px solid var(--border);
+  white-space: pre-wrap;
+}

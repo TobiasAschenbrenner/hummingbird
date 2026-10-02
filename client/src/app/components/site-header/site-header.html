@@ -4,7 +4,12 @@
     <a
       routerLink="/"
       routerLinkActive="active"
-      [routerLinkActiveOptions]="{ exact: true }"
+      [routerLinkActiveOptions]="{
+        paths: 'exact',
+        queryParams: 'ignored',
+        matrixParams: 'ignored',
+        fragment: 'ignored',
+      }"
       ariaCurrentWhenActive="page"
       >Home</a
     >

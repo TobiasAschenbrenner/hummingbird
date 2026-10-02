@@ -2,7 +2,7 @@
 
 Express, TypeScript and Prisma API for the rewrite. Accounts, article listing
 and article details are available; publishing and comments come later.
-The [Angular client](../client/README.md) uses it for account flows and an API connection check.
+The [Angular client](../client/README.md) uses it for account flows and article browsing.
 
 ## 🚀 Getting started
 
@@ -216,8 +216,8 @@ Summaries include the author ID and display name, category, alphabetically sorte
 tags and comment count, but no body or private account fields. Details return
 `{ "article": { ... } }` with the body and a decimal-string version to preserve
 PostgreSQL bigint precision. Dates are UTC ISO strings. `imageFilename` is nullable
-metadata; the rewrite does not serve uploaded images yet. Render article bodies
-as text in the future client, not as trusted HTML.
+metadata; the rewrite does not serve uploaded images yet. The client renders
+article bodies as text, not as trusted HTML.
 
 Slugs use 1–80 lowercase letters/digits separated by single hyphens. A valid
 missing slug returns `404`; invalid slugs or pagination return `400`. Database

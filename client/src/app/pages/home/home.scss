@@ -1,54 +1,43 @@
 .hero {
   display: grid;
-  min-height: 300px;
+  min-height: 240px;
   place-items: center;
   padding-block: 3rem;
   color: #fff;
   background: var(--surface-dark);
   text-align: center;
-
   h1 {
     margin: 0 0 0.5rem;
     font-size: clamp(2rem, 5vw, 2.5rem);
     line-height: 1.2;
   }
-
   p {
     margin: 0;
   }
 }
-
-.status-section {
+.articles-section {
   padding-block: 2.5rem;
-
   h2 {
     margin: 0;
   }
 }
-
-.intro {
+.article-total {
   color: var(--text-muted);
 }
-
-.status-panel {
-  margin-top: 1.5rem;
-  padding: 1.5rem;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-
-  p:first-child {
-    margin-top: 0;
-  }
+.article-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  gap: 1.5rem;
 }
-
-.status-message {
-  font-weight: 600;
-
-  &.connected {
-    color: #17603e;
-  }
-
-  &.unavailable {
-    color: #a32323;
-  }
+.pagination {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+}
+.inactive {
+  color: var(--text-muted);
 }

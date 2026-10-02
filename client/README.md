@@ -1,7 +1,7 @@
 # Hummingbird client 🐦
 
-Angular frontend for the rewrite, with registration, login, logout and an API
-connection check. Blog features come next.
+Angular frontend for the rewrite, with account flows, article listing and
+article detail pages. Publishing and discussion come later.
 
 ## 🚀 Run locally
 
@@ -22,8 +22,9 @@ npm ci
 npm start
 ```
 
-Open [Hummingbird](http://127.0.0.1:4200). You should see **API connected**.
-If the API is stopped, the page shows an error and lets you check again.
+Open [Hummingbird](http://127.0.0.1:4200) to browse articles. An empty database
+shows **No articles yet**; use the optional demo seed in the server setup for
+sample posts. Failed requests show a retry button.
 Use Ctrl+C in each terminal to stop the servers.
 
 ## 👤 Accounts
@@ -40,13 +41,25 @@ The app restores your session on refresh through `/api/auth/me`. Cookies stay
 HTTP-only; passwords and session tokens are never saved in browser storage.
 The backend remains responsible for authentication and session expiry.
 
+## 📚 Articles
+
+- **Homepage:** newest articles first, 12 per page, with author, category, tags and comment counts.
+- **Details:** `/articles/:slug` shows the full article and a link back to the list.
+
+The list page stays in the URL (`/?page=2`) and is preserved when opening an
+article and returning. Direct links and refreshes work. Dates are shown in UTC;
+bodies are plain text with paragraph breaks, never trusted HTML.
+
+Reading is public. Search, filtering, publishing, comment bodies and cover images
+are not implemented in the rewrite yet. Categories and tags are labels for now.
+
 ## 📁 Structure
 
 - `src/app/pages/`: routed pages
 - `src/app/components/`: reusable interface elements
 - `src/app/services/`: API communication
 - `src/app/models/`: API response types
-- `src/app/validators/`: shared form validation
+- `src/app/validators/`: shared input validation
 
 Components keep their HTML, SCSS and tests together, as in Chirp.
 
@@ -69,7 +82,8 @@ npm run check
 
 This runs the Angular tests, checks formatting and builds the production bundle
 in `dist/hummingbird-client/browser/`. The build also checks TypeScript and templates.
-Tests cover forms, navigation, session restoration, logout and request failures.
+Tests cover accounts, article reads, pagination, navigation, safe text rendering,
+missing data, failures and cancellation of stale requests.
 They simulate HTTP responses and do not need a running API or database.
 
 Use `npm run test:watch` while developing.

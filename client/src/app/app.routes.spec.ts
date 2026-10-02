@@ -1,32 +1,32 @@
 import { provideHttpClient } from '@angular/common/http';
-import { provideHttpClientTesting } from '@angular/common/http/testing';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
-import { of } from 'rxjs';
 
 import { routes } from './app.routes';
 import { Login } from './pages/login/login';
 import { Register } from './pages/register/register';
 import { Home } from './pages/home/home';
 import { NotFound } from './pages/not-found/not-found';
-import { HealthApi } from './services/health/health';
+import { ArticleDetail } from './pages/article-detail/article-detail';
+import { articleFixture, articlePageFixture } from '../testing/article-fixtures';
 
 describe('Application routes', () => {
+  let http: HttpTestingController;
   beforeEach(() => {
     TestBed.configureTestingModule({
-      providers: [
-        provideRouter(routes),
-        provideHttpClient(),
-        provideHttpClientTesting(),
-        { provide: HealthApi, useValue: { getStatus: () => of({ status: 'ok' }) } },
-      ],
+      providers: [provideRouter(routes), provideHttpClient(), provideHttpClientTesting()],
     });
+    http = TestBed.inject(HttpTestingController);
   });
+  afterEach(() => http.verify());
 
   it('opens the homepage at the root URL', async () => {
     const harness = await RouterTestingHarness.create();
     await harness.navigateByUrl('/', Home);
+    http.expectOne('/api/articles?page=1&pageSize=12').flush(articlePageFixture());
+    await harness.fixture.whenStable();
 
     expect(harness.routeNativeElement?.querySelector('h1')?.textContent).toBe(
       'The Hummingbird Blog',
@@ -50,6 +50,36 @@ describe('Application routes', () => {
     expect(harness.routeNativeElement?.querySelector('[role="status"]')?.textContent).toContain(
       'Account created',
     );
+  });
+
+  it('opens an article directly and updates its title after loading', async () => {
+    const harness = await RouterTestingHarness.create();
+    await harness.navigateByUrl('/articles/article-1', ArticleDetail);
+    http.expectOne('/api/articles/article-1').flush({ article: articleFixture() });
+    await harness.fixture.whenStable();
+    expect(harness.routeNativeElement?.querySelector('h1')?.textContent).toBe('Article 1');
+    expect(document.title).toBe('Hummingbird | Article 1');
+  });
+
+  it('preserves page two through an article visit and the back-to-articles link', async () => {
+    const harness = await RouterTestingHarness.create();
+    await harness.navigateByUrl('/?page=2', Home);
+    http.expectOne('/api/articles?page=2&pageSize=12').flush(articlePageFixture(2, 13));
+    await harness.fixture.whenStable();
+    const articleLink = harness.routeNativeElement?.querySelector('h3 a')?.getAttribute('href');
+    expect(articleLink).toBe('/articles/article-13?page=2');
+    await harness.navigateByUrl(articleLink!, ArticleDetail);
+    http
+      .expectOne('/api/articles/article-13')
+      .flush({ article: articleFixture({ id: 13, slug: 'article-13', title: 'Article 13' }) });
+    await harness.fixture.whenStable();
+    const backLink = harness.routeNativeElement?.querySelector('.back-link')?.getAttribute('href');
+    expect(backLink).toBe('/?page=2');
+    await harness.navigateByUrl(backLink!, Home);
+    http.expectOne('/api/articles?page=2&pageSize=12').flush(articlePageFixture(2, 13));
+    await harness.fixture.whenStable();
+    expect(harness.routeNativeElement?.querySelector('h3')?.textContent).toContain('Article 13');
+    expect(document.title).toBe('Hummingbird | Home');
   });
 
   it('shows a useful fallback for unknown URLs and links back home', async () => {

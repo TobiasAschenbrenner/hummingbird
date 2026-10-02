@@ -1,0 +1,28 @@
+@use '../../../styles/article-metadata';
+
+:host {
+  display: block;
+}
+article {
+  height: 100%;
+  padding: 1.5rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow-wrap: anywhere;
+}
+h3 {
+  margin: 0;
+  font-size: 1.3rem;
+  line-height: 1.4;
+}
+h3 a {
+  display: block;
+  color: var(--text);
+  text-decoration: none;
+}
+h3 a:hover {
+  text-decoration: underline;
+}
+.description {
+  margin-block: 1rem;
+}
