@@ -1,6 +1,7 @@
 import { HttpError } from '../errors/http-error.ts';
 import type {
   ArticleCreationInput,
+  ArticleDeletionInput,
   ArticlePageInput,
   ArticleUpdateInput,
 } from '../models/article.model.ts';
@@ -118,6 +119,14 @@ export function parseArticleCreation(body: unknown): ArticleCreationInput {
 export function parseArticleUpdate(body: unknown): ArticleUpdateInput {
   const input = readArticleObject(body, [...contentFields, 'version']);
   const fields: Record<string, string> = {};
+  const version = readVersion(input, fields);
+  const content = readContent(input, fields, true);
+  if (Object.keys(fields).length)
+    throw new HttpError(400, 'Please check your article details.', fields);
+  return { ...content, version };
+}
+
+function readVersion(input: Record<string, unknown>, fields: Record<string, string>): string {
   const version = input.version;
   if (
     typeof version !== 'string' ||
@@ -126,8 +135,15 @@ export function parseArticleUpdate(body: unknown): ArticleUpdateInput {
   ) {
     fields.version = 'Supply the current article version as a positive bigint string.';
   }
-  const content = readContent(input, fields, true);
+  return version as string;
+}
+
+export function parseArticleDeletion(body: unknown): ArticleDeletionInput {
+  const input = readArticleObject(body, ['articleId', 'version']);
+  const fields: Record<string, string> = {};
+  const version = readVersion(input, fields);
+  if (!isDatabaseId(input.articleId)) fields.articleId = 'Supply the current article ID.';
   if (Object.keys(fields).length)
-    throw new HttpError(400, 'Please check your article details.', fields);
-  return { ...content, version: version as string };
+    throw new HttpError(400, 'Please check the article ID and version.', fields);
+  return { articleId: input.articleId as number, version };
 }

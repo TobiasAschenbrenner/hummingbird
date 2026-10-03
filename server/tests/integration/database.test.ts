@@ -1458,3 +1458,219 @@ test('editing increments bigint versions beyond JavaScript safe integers and rej
   assert.ok((await exhausted.json()).error.fields.version);
   assert.deepEqual(await readSeedSnapshot(), before);
 });
+
+function deleteArticle(cookie: string, slug: string, articleId: number, version: string) {
+  return fetch(`${baseUrl}/api/articles/${slug}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json', 'X-Hummingbird-Request': '1', Cookie: cookie },
+    body: JSON.stringify({ articleId, version }),
+  });
+}
+
+test('deletion cascades only the selected article comments and tag links, preserving shared data and other articles', async () => {
+  const { cookie, article, user, input } = await editingContext();
+  const otherResponse = await publishArticle(cookie, { ...input, slug: 'keep-this-article' });
+  const other = (await otherResponse.json()).article;
+  for (const articleId of [article.id, other.id]) {
+    await database.comment.create({ data: { body: 'A comment.', articleId, authorId: user.id } });
+  }
+  const categories = await database.category.findMany();
+  const tags = await database.tag.findMany();
+  const users = await database.user.findMany();
+  const response = await deleteArticle(cookie, article.slug, article.id, article.version);
+  assert.equal(response.status, 204);
+  assert.equal(await response.text(), '');
+  assert.equal(await database.article.findUnique({ where: { id: article.id } }), null);
+  assert.equal(await database.comment.count({ where: { articleId: article.id } }), 0);
+  assert.equal(await database.articleTag.count({ where: { articleId: article.id } }), 0);
+  assert.equal(await database.comment.count({ where: { articleId: other.id } }), 1);
+  assert.equal(await database.articleTag.count({ where: { articleId: other.id } }), 2);
+  assert.deepEqual(await database.category.findMany(), categories);
+  assert.deepEqual(await database.tag.findMany(), tags);
+  assert.deepEqual(await database.user.findMany(), users);
+  const detail = await fetch(`${baseUrl}/api/articles/${article.slug}`);
+  assert.equal(detail.status, 404);
+  await detail.arrayBuffer();
+  const list = await fetch(`${baseUrl}/api/articles`);
+  const result = await list.json();
+  assert.equal(result.pagination.total, 1);
+  assert.deepEqual(
+    result.articles.map((item: { id: number }) => item.id),
+    [other.id],
+  );
+  const repeated = await deleteArticle(cookie, article.slug, article.id, article.version);
+  assert.equal(repeated.status, 404);
+  await repeated.arrayBuffer();
+  assert.equal(await database.session.count(), 1);
+});
+
+test('other authors and missing articles cannot delete data and revoked sessions are rejected', async () => {
+  const { cookie, article } = await editingContext();
+  const registered = await registerAccount('other@example.test');
+  assert.equal(registered.status, 201);
+  await registered.arrayBuffer();
+  const login = await signIn('other@example.test');
+  assert.equal(login.status, 200);
+  await login.arrayBuffer();
+  const otherCookie = responseSession(login).cookie;
+  const before = await readSeedSnapshot();
+  for (const [session, slug, status] of [
+    [otherCookie, article.slug, 403],
+    [cookie, 'missing-article', 404],
+  ] as const) {
+    const response = await deleteArticle(session, slug, article.id, article.version);
+    assert.equal(response.status, status);
+    await response.arrayBuffer();
+    assert.deepEqual(await readSeedSnapshot(), before);
+  }
+  const logout = await fetch(`${baseUrl}/api/auth/logout`, {
+    method: 'POST',
+    headers: { 'X-Hummingbird-Request': '1', Cookie: cookie },
+  });
+  assert.equal(logout.status, 204);
+  await logout.arrayBuffer();
+  const denied = await deleteArticle(cookie, article.slug, article.id, article.version);
+  assert.equal(denied.status, 401);
+  await denied.arrayBuffer();
+  assert.deepEqual(await readSeedSnapshot(), before);
+});
+
+test('an expired session cannot delete an article or its child records', async () => {
+  const { cookie, article } = await editingContext();
+  await database.session.updateMany({
+    data: {
+      createdAt: new Date(Date.now() - 172800000),
+      expiresAt: new Date(Date.now() - 86400000),
+    },
+  });
+  const before = await readSeedSnapshot();
+  const denied = await deleteArticle(cookie, article.slug, article.id, article.version);
+  assert.equal(denied.status, 401);
+  assert.match(denied.headers.get('set-cookie')!, /^hummingbird_session=;/);
+  await denied.arrayBuffer();
+  assert.deepEqual(await readSeedSnapshot(), before);
+});
+
+test('a stale deletion leaves a newer article edit and its relationships intact', async () => {
+  const { cookie, article, update, tags } = await editingContext();
+  const saved = await updateArticle(cookie, article.slug, {
+    ...update,
+    title: 'Keep this newer edit',
+    tagIds: [tags[0]!.id],
+  });
+  assert.equal(saved.status, 200);
+  const current = (await saved.json()).article;
+  const before = await readSeedSnapshot();
+  const stale = await deleteArticle(cookie, article.slug, article.id, article.version);
+  assert.equal(stale.status, 409);
+  assert.ok((await stale.json()).error.fields.version);
+  assert.deepEqual(await readSeedSnapshot(), before);
+  const confirmed = await deleteArticle(cookie, article.slug, current.id, current.version);
+  assert.equal(confirmed.status, 204);
+  await confirmed.arrayBuffer();
+});
+
+test('an old deletion confirmation cannot delete a replacement article at the same URL', async () => {
+  const { cookie, article, input } = await editingContext();
+  const removed = await deleteArticle(cookie, article.slug, article.id, article.version);
+  assert.equal(removed.status, 204);
+  await removed.arrayBuffer();
+  const created = await publishArticle(cookie, { ...input, title: 'Replacement article' });
+  assert.equal(created.status, 201);
+  const replacement = (await created.json()).article;
+  assert.notEqual(replacement.id, article.id);
+  assert.equal(replacement.version, article.version);
+  const before = await readSeedSnapshot();
+  const stale = await deleteArticle(cookie, article.slug, article.id, article.version);
+  assert.equal(stale.status, 409);
+  await stale.arrayBuffer();
+  assert.deepEqual(await readSeedSnapshot(), before);
+});
+
+test('two concurrent deletions have only one successful request and no orphaned children', async () => {
+  const { cookie, article, user } = await editingContext();
+  await database.comment.create({
+    data: { body: 'Remove with the article.', articleId: article.id, authorId: user.id },
+  });
+  const responses = await Promise.all(
+    [1, 2].map(() => deleteArticle(cookie, article.slug, article.id, article.version)),
+  );
+  assert.equal(responses.filter((response) => response.status === 204).length, 1);
+  assert.ok(responses.every((response) => [204, 404, 409].includes(response.status)));
+  for (const response of responses) await response.arrayBuffer();
+  assert.equal(await database.article.count(), 0);
+  assert.equal(await database.articleTag.count(), 0);
+  assert.equal(await database.comment.count(), 0);
+  assert.equal(await database.tag.count(), 2);
+});
+
+test('a concurrent edit and deletion of one version cannot both succeed', async () => {
+  const { cookie, article, update, tags } = await editingContext();
+  const [edited, deleted] = await Promise.all([
+    updateArticle(cookie, article.slug, {
+      ...update,
+      title: 'Winning edit',
+      tagIds: [tags[0]!.id],
+    }),
+    deleteArticle(cookie, article.slug, article.id, article.version),
+  ]);
+  if (edited.status === 200) {
+    assert.equal(deleted.status, 409);
+    const saved = (await edited.json()).article;
+    assert.equal(saved.version, '2');
+    assert.equal(await database.article.count(), 1);
+    assert.deepEqual(
+      (await database.articleTag.findMany()).map((link) => link.tagId),
+      [tags[0]!.id],
+    );
+  } else {
+    assert.equal(deleted.status, 204);
+    assert.ok([404, 409].includes(edited.status));
+    await edited.arrayBuffer();
+    assert.equal(await database.article.count(), 0);
+    assert.equal(await database.articleTag.count(), 0);
+  }
+  await deleted.arrayBuffer();
+});
+
+test('a failure during cascaded comment deletion rolls back the article and all its children', async () => {
+  const { cookie, article, user } = await editingContext();
+  await database.comment.create({
+    data: { body: 'Keep after failure.', articleId: article.id, authorId: user.id },
+  });
+  const before = await readSeedSnapshot();
+  await database.$executeRaw`CREATE FUNCTION deletion_test_reject_comment() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'test cascade failure'; END; $$`;
+  try {
+    await database.$executeRaw`CREATE TRIGGER deletion_test_reject_comment BEFORE DELETE ON comments FOR EACH ROW EXECUTE FUNCTION deletion_test_reject_comment()`;
+    try {
+      const failed = await deleteArticle(cookie, article.slug, article.id, article.version);
+      assert.equal(failed.status, 500);
+      assert.deepEqual(await failed.json(), {
+        error: { message: 'Unable to process the request. Try again later.' },
+      });
+      assert.deepEqual(await readSeedSnapshot(), before);
+    } finally {
+      await database.$executeRaw`DROP TRIGGER deletion_test_reject_comment ON comments`;
+    }
+  } finally {
+    await database.$executeRaw`DROP FUNCTION deletion_test_reject_comment()`;
+  }
+  const retry = await deleteArticle(cookie, article.slug, article.id, article.version);
+  assert.equal(retry.status, 204);
+  await retry.arrayBuffer();
+});
+
+test('deletion checks bigint versions exactly and allows deleting an article at the maximum version', async () => {
+  const { cookie, article } = await editingContext();
+  await database.article.update({
+    where: { id: article.id },
+    data: { version: 9223372036854775807n },
+  });
+  const stale = await deleteArticle(cookie, article.slug, article.id, '9223372036854775806');
+  assert.equal(stale.status, 409);
+  await stale.arrayBuffer();
+  const deleted = await deleteArticle(cookie, article.slug, article.id, '9223372036854775807');
+  assert.equal(deleted.status, 204);
+  await deleted.arrayBuffer();
+  assert.equal(await database.article.count(), 0);
+});

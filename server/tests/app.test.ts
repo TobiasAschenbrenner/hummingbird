@@ -13,6 +13,7 @@ import type {
   ArticleDetail,
   CreateArticleInput,
   UpdateArticleInput,
+  DeleteArticleInput,
   ArticlePageInput,
   ArticleQueries,
 } from '../src/models/article.model.ts';
@@ -77,6 +78,7 @@ const catalogs = {
 };
 let articleCreations: CreateArticleInput[] = [];
 let articleUpdates: UpdateArticleInput[] = [];
+let articleDeletions: DeleteArticleInput[] = [];
 let articlePageInputs: ArticlePageInput[] = [];
 let articleSlugs: string[] = [];
 let articleError: Error | undefined;
@@ -107,6 +109,10 @@ const articles: ArticleQueries = {
       version: (BigInt(input.version) + 1n).toString(),
       tags: exampleArticle.tags.filter((tag) => input.tagIds.includes(tag.id)),
     };
+  },
+  async deleteArticle(input) {
+    articleDeletions.push(input);
+    if (articleError) throw articleError;
   },
   async listArticles({ page, pageSize }) {
     articlePageInputs.push({ page, pageSize });
@@ -158,6 +164,7 @@ beforeEach(() => {
   articlePageInputs = [];
   articleCreations = [];
   articleUpdates = [];
+  articleDeletions = [];
   articleSlugs = [];
   articleError = undefined;
 });
@@ -803,11 +810,8 @@ test('article query failures produce safe JSON errors without leaking database d
   }
 });
 
-test('partial article updates and deletion are not implemented', async () => {
-  for (const [method, route] of [
-    ['PATCH', '/api/articles/first-article'],
-    ['DELETE', '/api/articles/first-article'],
-  ]) {
+test('partial article updates are not implemented', async () => {
+  for (const [method, route] of [['PATCH', '/api/articles/first-article']]) {
     const response = await fetch(`${baseUrl}${route}`, { method });
     assert.equal(response.status, 404);
     await response.arrayBuffer();
@@ -1317,21 +1321,182 @@ test('editing preserves missing, ownership and stale-version errors and hides un
   });
 });
 
-test('publishing and editing share a write limit without blocking public reads', async () => {
-  for (let attempt = 0; attempt < 10; attempt++) {
-    const created = await publish();
-    assert.equal(created.status, 201);
-    await created.arrayBuffer();
-    const edited = await editArticle();
-    assert.equal(edited.status, 200);
-    await edited.arrayBuffer();
+test('publishing, editing and deletion share a write limit without blocking public reads', async () => {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    for (const [request, status] of [
+      [publish, 201],
+      [editArticle, 200],
+      [deleteArticle, 204],
+    ] as const) {
+      const response = await request();
+      assert.equal(response.status, status);
+      await response.arrayBuffer();
+    }
   }
-  const blocked = await editArticle();
-  assert.equal(blocked.status, 429);
-  assert.ok(blocked.headers.get('retry-after'));
-  await blocked.arrayBuffer();
-  assert.equal(articleUpdates.length, 10);
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const response = await deleteArticle();
+    assert.equal(response.status, 204);
+    await response.arrayBuffer();
+  }
+  for (const request of [publish, editArticle, deleteArticle]) {
+    const blocked = await request();
+    assert.equal(blocked.status, 429);
+    assert.ok(blocked.headers.get('retry-after'));
+    await blocked.arrayBuffer();
+  }
+  assert.equal(articleDeletions.length, 10);
   const detail = await fetch(`${baseUrl}/api/articles/first-article`);
   assert.equal(detail.status, 200);
   await detail.arrayBuffer();
+});
+
+const validDeletion = { articleId: exampleArticle.id, version: exampleArticle.version };
+function deleteArticle(
+  body: unknown = validDeletion,
+  slug = exampleArticle.slug,
+  headers: Record<string, string> = {},
+) {
+  return fetch(`${baseUrl}/api/articles/${slug}`, {
+    method: 'DELETE',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Hummingbird-Request': '1',
+      Cookie: `hummingbird_session=${sessionToken}`,
+      ...headers,
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+test('deletion passes session ownership, identity and exact bigint version and returns an empty uncached 204', async () => {
+  const response = await deleteArticle();
+  assert.equal(response.status, 204);
+  assert.equal(await response.text(), '');
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  assert.deepEqual(articleDeletions, [
+    { ...validDeletion, slug: exampleArticle.slug, authorId: publicUser.id },
+  ]);
+});
+
+test('deletion rejects unsafe headers before session or persistence access', async () => {
+  const unsafeHeaders: Record<string, string>[] = [
+    { 'X-Hummingbird-Request': '' },
+    { 'X-Hummingbird-Request': '0' },
+    { 'Sec-Fetch-Site': 'cross-site' },
+  ];
+  for (const headers of unsafeHeaders) {
+    const response = await deleteArticle(validDeletion, exampleArticle.slug, headers);
+    assert.equal(response.status, 403);
+    await response.arrayBuffer();
+  }
+  assert.deepEqual(userTokens, []);
+  assert.deepEqual(articleDeletions, []);
+});
+
+test('deletion clears missing, revoked and ambiguous sessions before parsing the body', async () => {
+  signedInUser = null;
+  for (const Cookie of [
+    '',
+    `hummingbird_session=${sessionToken}`,
+    'hummingbird_session=one; hummingbird_session=two',
+  ]) {
+    const response = await deleteArticle(null, exampleArticle.slug, { Cookie });
+    assert.equal(response.status, 401);
+    assert.match(response.headers.get('set-cookie')!, /^hummingbird_session=;/);
+    await response.arrayBuffer();
+  }
+  assert.deepEqual(articleDeletions, []);
+});
+
+test('deletion requires a canonical positive bigint version', async () => {
+  for (const version of [
+    undefined,
+    null,
+    1,
+    '',
+    '0',
+    '-1',
+    '01',
+    ' 1',
+    '1.5',
+    '1e3',
+    '9223372036854775808',
+    '9'.repeat(100),
+  ]) {
+    const response = await deleteArticle({ ...validDeletion, version });
+    assert.equal(response.status, 400);
+    assert.ok((await response.json()).error.fields.version);
+  }
+  const maximum = await deleteArticle({ ...validDeletion, version: '9223372036854775807' });
+  assert.equal(maximum.status, 204);
+  await maximum.arrayBuffer();
+  assert.equal(articleDeletions.length, 1);
+});
+
+test('deletion requires an integer article ID and rejects additional fields, nonobjects and unsafe slugs', async () => {
+  for (const articleId of [undefined, null, '11', 0, -1, 1.5, 2147483648]) {
+    const response = await deleteArticle({ ...validDeletion, articleId });
+    assert.equal(response.status, 400);
+    assert.ok((await response.json()).error.fields.articleId);
+  }
+  for (const body of [
+    null,
+    [],
+    { ...validDeletion, authorId: 7 },
+    { ...validDeletion, slug: 'another' },
+  ]) {
+    const response = await deleteArticle(body);
+    assert.equal(response.status, 400);
+    await response.arrayBuffer();
+  }
+  for (const slug of ['Uppercase', 'double--hyphen', 'a'.repeat(81)]) {
+    const response = await deleteArticle(validDeletion, slug);
+    assert.equal(response.status, 400);
+    await response.arrayBuffer();
+  }
+  assert.deepEqual(articleDeletions, []);
+});
+
+test('deletion rejects malformed, oversized and unsupported request formats without deleting', async () => {
+  for (const [body, headers, status] of [
+    ['{"private":', {}, 400],
+    [JSON.stringify({ junk: 'x'.repeat(131072) }), {}, 413],
+    ['{}', { 'Content-Type': 'text/plain' }, 415],
+    ['{}', { 'Content-Type': 'application/json; charset=utf-16le' }, 415],
+    ['{}', { 'Content-Encoding': 'gzip' }, 415],
+  ] as const) {
+    const response = await fetch(`${baseUrl}/api/articles/first-article`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Hummingbird-Request': '1',
+        Cookie: `hummingbird_session=${sessionToken}`,
+        ...headers,
+      },
+      body,
+    });
+    assert.equal(response.status, status);
+    assert.ok(!JSON.stringify(await response.json()).includes('private'));
+  }
+  assert.deepEqual(articleDeletions, []);
+});
+
+test('deletion preserves missing, forbidden and conflict errors while hiding unexpected failures', async () => {
+  for (const status of [403, 404, 409]) {
+    articleError = new HttpError(
+      status,
+      'Safe rejection.',
+      status === 409 ? { version: 'Load the latest article.' } : undefined,
+    );
+    const response = await deleteArticle();
+    assert.equal(response.status, status);
+    if (status === 409) assert.ok((await response.json()).error.fields.version);
+    else await response.arrayBuffer();
+  }
+  articleError = new Error('private SQL and password');
+  const failed = await deleteArticle();
+  assert.equal(failed.status, 500);
+  assert.deepEqual(await failed.json(), {
+    error: { message: 'Unable to process the request. Try again later.' },
+  });
 });

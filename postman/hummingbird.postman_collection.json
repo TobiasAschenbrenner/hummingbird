@@ -59,6 +59,11 @@
       "key": "initialArticleVersion",
       "value": "",
       "type": "string"
+    },
+    {
+      "key": "newArticleId",
+      "value": "",
+      "type": "string"
     }
   ],
   "item": [
@@ -507,6 +512,7 @@
               "  pm.expect(article.version).to.eql('1');",
               "  pm.collectionVariables.set('articleVersion', article.version);",
               "  pm.collectionVariables.set('initialArticleVersion', article.version);",
+              "  pm.collectionVariables.set('newArticleId', article.id);",
               "});"
             ]
           }
@@ -640,6 +646,221 @@
               "  pm.expect(article.body).to.eql('Updated paragraph.\\n\\nAnother paragraph.');",
               "  pm.expect(article.tags).to.eql([]);",
               "  pm.expect(article.version).to.eql(pm.collectionVariables.get('articleVersion'));",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "List articles",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/articles?page=1&pageSize=12",
+        "description": "Public, read-only article summaries. An empty database returns an empty list. Saves the first available slug for Article detail; seed demo data if needed."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Public article summaries and pagination', function () {",
+              "  pm.response.to.have.status(200);",
+              "  const result = pm.response.json();",
+              "  pm.expect(result.articles).to.be.an('array');",
+              "  pm.expect(result.articles.length).to.be.at.most(12);",
+              "  pm.expect(result.pagination.page).to.eql(1);",
+              "  pm.expect(result.pagination.pageSize).to.eql(12);",
+              "  pm.expect(result.pagination.total).to.be.at.least(0);",
+              "  pm.expect(result.pagination.totalPages).to.eql(Math.ceil(result.pagination.total / 12));",
+              "  result.articles.forEach(function (article) {",
+              "    pm.expect(Object.keys(article.author).sort()).to.eql(['id', 'username']);",
+              "    pm.expect(article.tags).to.be.an('array');",
+              "    pm.expect(article.commentCount).to.be.at.least(0);",
+              "    pm.expect(article).not.to.have.property('body');",
+              "    pm.expect(article).not.to.have.property('version');",
+              "  });",
+              "});",
+              "const first = pm.response.json().articles[0];",
+              "if (first) pm.collectionVariables.set('articleSlug', first.slug);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Article detail",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/articles/{{articleSlug}}",
+        "description": "Public, read-only article detail. Run List articles after seeding demo data, or set articleSlug to a valid existing slug."
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "if (!pm.collectionVariables.get('articleSlug')) throw new Error('Seed demo data and run List articles, or set articleSlug.');"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Public article detail with exact version', function () {",
+              "  pm.response.to.have.status(200);",
+              "  const article = pm.response.json().article;",
+              "  pm.expect(article.slug).to.eql(pm.collectionVariables.get('articleSlug'));",
+              "  pm.expect(article.body).to.be.a('string');",
+              "  pm.expect(article.version).to.match(/^[1-9][0-9]*$/);",
+              "  pm.expect(Object.keys(article.author).sort()).to.eql(['id', 'username']);",
+              "  pm.expect(article.tags).to.be.an('array');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Stale article deletion",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "X-Hummingbird-Request",
+            "value": "1"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/articles/{{newArticleSlug}}",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"articleId\": {{newArticleId}},\n  \"version\": \"{{initialArticleVersion}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Stale article deletion', function () {",
+              "  pm.response.to.have.status(409);",
+              "  pm.expect(pm.response.json().error.fields.version).to.be.a('string');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Delete own article",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "X-Hummingbird-Request",
+            "value": "1"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/articles/{{newArticleSlug}}",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"articleId\": {{newArticleId}},\n  \"version\": \"{{articleVersion}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Delete own article', function () {",
+              "  pm.response.to.have.status(204);",
+              "  pm.expect(pm.response.text()).to.eql('');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Repeated article deletion",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "X-Hummingbird-Request",
+            "value": "1"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/articles/{{newArticleSlug}}",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"articleId\": {{newArticleId}},\n  \"version\": \"{{articleVersion}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Repeated article deletion', function () {",
+              "  pm.response.to.have.status(404);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Deleted article detail",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/articles/{{newArticleSlug}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Deleted article detail', function () {",
+              "  pm.response.to.have.status(404);",
               "});"
             ]
           }
@@ -787,74 +1008,38 @@
       ]
     },
     {
-      "name": "List articles",
+      "name": "Deletion after logout",
       "request": {
-        "method": "GET",
-        "header": [],
-        "url": "{{baseUrl}}/api/articles?page=1&pageSize=12",
-        "description": "Public, read-only article summaries. An empty database returns an empty list. Saves the first available slug for Article detail; seed demo data if needed."
-      },
-      "event": [
-        {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test('Public article summaries and pagination', function () {",
-              "  pm.response.to.have.status(200);",
-              "  const result = pm.response.json();",
-              "  pm.expect(result.articles).to.be.an('array');",
-              "  pm.expect(result.articles.length).to.be.at.most(12);",
-              "  pm.expect(result.pagination.page).to.eql(1);",
-              "  pm.expect(result.pagination.pageSize).to.eql(12);",
-              "  pm.expect(result.pagination.total).to.be.at.least(0);",
-              "  pm.expect(result.pagination.totalPages).to.eql(Math.ceil(result.pagination.total / 12));",
-              "  result.articles.forEach(function (article) {",
-              "    pm.expect(Object.keys(article.author).sort()).to.eql(['id', 'username']);",
-              "    pm.expect(article.tags).to.be.an('array');",
-              "    pm.expect(article.commentCount).to.be.at.least(0);",
-              "    pm.expect(article).not.to.have.property('body');",
-              "    pm.expect(article).not.to.have.property('version');",
-              "  });",
-              "});",
-              "const first = pm.response.json().articles[0];",
-              "if (first) pm.collectionVariables.set('articleSlug', first.slug);"
-            ]
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "X-Hummingbird-Request",
+            "value": "1"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/articles/{{newArticleSlug}}",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"articleId\": {{newArticleId}},\n  \"version\": \"{{articleVersion}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
           }
         }
-      ]
-    },
-    {
-      "name": "Article detail",
-      "request": {
-        "method": "GET",
-        "header": [],
-        "url": "{{baseUrl}}/api/articles/{{articleSlug}}",
-        "description": "Public, read-only article detail. Run List articles after seeding demo data, or set articleSlug to a valid existing slug."
       },
       "event": [
-        {
-          "listen": "prerequest",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "if (!pm.collectionVariables.get('articleSlug')) throw new Error('Seed demo data and run List articles, or set articleSlug.');"
-            ]
-          }
-        },
         {
           "listen": "test",
           "script": {
             "type": "text/javascript",
             "exec": [
-              "pm.test('Public article detail with exact version', function () {",
-              "  pm.response.to.have.status(200);",
-              "  const article = pm.response.json().article;",
-              "  pm.expect(article.slug).to.eql(pm.collectionVariables.get('articleSlug'));",
-              "  pm.expect(article.body).to.be.a('string');",
-              "  pm.expect(article.version).to.match(/^[1-9][0-9]*$/);",
-              "  pm.expect(Object.keys(article.author).sort()).to.eql(['id', 'username']);",
-              "  pm.expect(article.tags).to.be.an('array');",
+              "pm.test('Deletion after logout', function () {",
+              "  pm.response.to.have.status(401);",
               "});"
             ]
           }

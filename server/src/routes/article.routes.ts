@@ -50,5 +50,13 @@ export function createArticleRouter({
     articleJsonBody,
     controllers.update,
   );
+  router.delete(
+    '/:slug',
+    writeLimit,
+    requireApiRequest,
+    createRequireSession(authentication, secureCookies),
+    articleJsonBody,
+    controllers.delete,
+  );
   return router;
 }

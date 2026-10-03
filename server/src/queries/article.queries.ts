@@ -157,6 +157,28 @@ export function createArticleQueries(database: PrismaClient): ArticleQueries {
         throwWriteError(error);
       }
     },
+    async deleteArticle({ slug, authorId, articleId, version }) {
+      await database.$transaction(async (transaction) => {
+        const article = await transaction.article.findUnique({
+          where: { slug },
+          select: { id: true, authorId: true, version: true },
+        });
+        if (!article) throw new HttpError(404, 'Article not found.');
+        if (article.authorId !== authorId)
+          throw new HttpError(403, 'You can only delete your own articles.');
+        const expectedVersion = BigInt(version);
+        const conflict = () =>
+          new HttpError(409, 'The article changed. Reload and review it before deleting.', {
+            version: 'Load the latest article before deleting.',
+          });
+        if (article.id !== articleId || article.version !== expectedVersion) throw conflict();
+        // The conditional DELETE locks the parent row; foreign keys cascade its children.
+        const deleted = await transaction.article.deleteMany({
+          where: { id: articleId, slug, authorId, version: expectedVersion },
+        });
+        if (deleted.count !== 1) throw conflict();
+      });
+    },
     async listArticles({ page, pageSize }) {
       // Keep the page and its total on the same snapshot while other users publish.
       const { articles, total } = await database.$transaction(

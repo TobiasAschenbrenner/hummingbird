@@ -16,6 +16,16 @@ export interface UpdateArticleInput extends ArticleUpdateInput {
   authorId: number;
 }
 
+export interface ArticleDeletionInput {
+  articleId: number;
+  version: string;
+}
+
+export interface DeleteArticleInput extends ArticleDeletionInput {
+  slug: string;
+  authorId: number;
+}
+
 export interface CreateArticleInput extends ArticleCreationInput {
   authorId: number;
 }
@@ -51,6 +61,7 @@ export interface ArticlePage {
 export interface ArticleQueries {
   createArticle(input: CreateArticleInput): Promise<ArticleDetail>;
   updateArticle(input: UpdateArticleInput): Promise<ArticleDetail>;
+  deleteArticle(input: DeleteArticleInput): Promise<void>;
   listArticles(input: ArticlePageInput): Promise<ArticlePage>;
   findArticleBySlug(slug: string): Promise<ArticleDetail | null>;
 }

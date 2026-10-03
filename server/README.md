@@ -222,7 +222,7 @@ article bodies as text, not as trusted HTML.
 Slugs use 1–80 lowercase letters/digits separated by single hyphens. A valid
 missing slug returns `404`; invalid slugs or pagination return `400`. Database
 failures return the same safe `500` error as other API routes. Responses are not
-cached. Search, category/tag filters, editing, deletion and comment routes are not
+cached. Search, category/tag filters and comment routes are not
 yet implemented; unsupported list query parameters return `400`.
 
 ## ✍️ Publish articles
@@ -261,7 +261,8 @@ Invalid fields or missing catalog entries return `400` with `error.fields`.
 Missing/expired sessions return `401`, unsafe request headers `403`, and duplicate
 slugs or concurrent relationship changes `409`. Bodies over 128 KiB return `413`;
 unsupported media types, charsets and compression return `415`. Publishing is
-limited to 20 article changes per IP per minute (`429`), shared with editing and independent of public reads.
+limited to 20 article changes per IP per minute (`429`), shared with editing and
+deletion, and independent of public reads.
 Unexpected failures return a safe `500`. The Angular creation form uses these
 routes; images and catalog management are separate steps.
 
@@ -293,6 +294,27 @@ latest article and review your draft before retrying. Versions stay bigint strin
 never JavaScript numbers. Success returns `200` and `{ "article": { ... } }`.
 Failed saves roll back every change. Writes are never automatically retried.
 
+## 🗑️ Delete articles
+
+Send `DELETE /api/articles/:slug` with a valid session, `X-Hummingbird-Request: 1`
+and UTF-8 JSON (the same 128 KiB limit as other article writes):
+
+```json
+{ "articleId": 1, "version": "2" }
+```
+
+Use the ID and exact string version from the article you reviewed. Only its author
+may delete it (`403` otherwise). A missing article returns `404`; a changed version
+or a replacement article at the same URL returns `409`. Reload and review before
+confirming again. Invalid input returns `400`; session, format and rate-limit
+errors match other article writes. Success is `204` with no response body.
+
+A conditional delete and PostgreSQL foreign-key cascades remove the article, its
+comments and tag links in one transaction. Failures roll everything back. Shared
+categories, tags, accounts and other articles stay intact. This is permanent,
+without undo. Repeating the request returns `404`; deletion is never retried
+automatically. The rewrite does not yet upload or manage image files.
+
 ## 🧪 Checks and Postman
 
 ```bash
@@ -317,7 +339,10 @@ constraints and rollback when creating a replacement session fails.
 Article tests cover public reads, relation selection, stable pagination, counts,
 changed data and exact bigint serialization. Publishing tests cover session ownership,
 Unicode limits, missing catalog entries, concurrent duplicate slugs and rollback
-when inserting tag links fails. Editing tests cover author permissions, stale and concurrent saves, exact version increments and rollback of replaced tag links. Each database test gets a fresh API instance
+when inserting tag links fails. Editing tests cover author permissions, stale and
+concurrent saves, exact version increments and rollback of replaced tag links.
+Deletion tests cover ownership, expired sessions, stale confirmations, URL reuse,
+concurrent writes, cascades and rollback. Each database test gets a fresh API instance
 so rate-limit counters do not leak between tests.
 The test database is emptied before each test and when the suite finishes.
 
@@ -325,9 +350,10 @@ Import [the Postman collection](../postman/hummingbird.postman_collection.json).
 Its `baseUrl` defaults to `http://127.0.0.1:3000`; change it if you use another port.
 Run `npm run db:seed` first, then run the collection in order with Postman's
 cookie jar enabled. It registers and signs in, loads catalog options, publishes
-an article, checks duplicate-slug rejection and reads the stored result. Logout
-then checks that the revoked session cannot publish. Required headers and response
-checks are included.
+an article, checks duplicate-slug rejection and reads the stored result. It checks
+stale deletion, removes its own article and verifies a repeated delete and detail
+read return `404`. Logout then checks that the revoked session cannot publish, edit
+or delete. Required headers and response checks are included.
 
 The list/detail requests are public reads and work without a session. **List articles**
 works with an empty database; when articles exist it saves a slug for **Article
@@ -342,8 +368,9 @@ created article’s tag links in this collection.
 
 Registration generates a new test address and publishing a new slug on each run.
 The collection creates real accounts, sessions, articles and tag links in the
-configured rewrite database; it does not remove them. Its password is a test
-example, not a credential for a real account.
+configured rewrite database. It deletes its own article during a successful full
+run, but leaves the test account and shared catalog entries in place. Its password
+is a test example, not a credential for a real account.
 
 To run the compiled application, stop the development server first:
 
