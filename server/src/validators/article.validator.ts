@@ -1,5 +1,9 @@
 import { HttpError } from '../errors/http-error.ts';
-import type { ArticleCreationInput, ArticlePageInput } from '../models/article.model.ts';
+import type {
+  ArticleCreationInput,
+  ArticlePageInput,
+  ArticleUpdateInput,
+} from '../models/article.model.ts';
 import { isWellFormed } from './credentials.validator.ts';
 
 function readPositiveInteger(value: unknown, fallback: number, maximum: number, field: string) {
@@ -38,27 +42,28 @@ function isDatabaseId(value: unknown): value is number {
   );
 }
 
-export function parseArticleCreation(body: unknown): ArticleCreationInput {
+const contentFields = ['title', 'description', 'body', 'categoryId', 'tagIds'];
+
+function readArticleObject(body: unknown, allowed: string[]): Record<string, unknown> {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     throw new HttpError(400, 'Provide article details in a JSON object.');
   }
   const input = body as Record<string, unknown>;
-  const allowed = ['slug', 'title', 'description', 'body', 'categoryId', 'tagIds'];
   if (Object.keys(input).some((field) => !allowed.includes(field))) {
-    throw new HttpError(
-      400,
-      'Only slug, title, description, body, categoryId and tagIds are accepted.',
-    );
+    throw new HttpError(400, `Only ${allowed.join(', ')} are accepted.`);
   }
-  const slug = typeof input.slug === 'string' ? input.slug : '';
+  return input;
+}
+
+function readContent(
+  input: Record<string, unknown>,
+  fields: Record<string, string>,
+  requireTags = false,
+) {
   const title = typeof input.title === 'string' ? input.title.trim() : '';
   const description = typeof input.description === 'string' ? input.description.trim() : '';
   const articleBody = typeof input.body === 'string' ? input.body : '';
-  const tagIds = input.tagIds === undefined ? [] : input.tagIds;
-  const fields: Record<string, string> = {};
-  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) || slug.length > 80) {
-    fields.slug = 'Use 1–80 lowercase letters, digits and single hyphens.';
-  }
+  const tagIds = input.tagIds === undefined && !requireTags ? [] : input.tagIds;
   if (!title || [...title].length > 55 || !isWellFormed(title) || /\p{Cc}/u.test(title)) {
     fields.title = 'Use 1–55 characters without control characters.';
   }
@@ -88,14 +93,41 @@ export function parseArticleCreation(body: unknown): ArticleCreationInput {
   ) {
     fields.tagIds = 'Select up to 10 distinct existing tags.';
   }
-  if (Object.keys(fields).length)
-    throw new HttpError(400, 'Please check your article details.', fields);
   return {
-    slug,
     title,
     description,
     body: articleBody,
     categoryId: input.categoryId as number,
     tagIds: tagIds as number[],
   };
+}
+
+export function parseArticleCreation(body: unknown): ArticleCreationInput {
+  const input = readArticleObject(body, ['slug', ...contentFields]);
+  const fields: Record<string, string> = {};
+  const slug = typeof input.slug === 'string' ? input.slug : '';
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) || slug.length > 80) {
+    fields.slug = 'Use 1–80 lowercase letters, digits and single hyphens.';
+  }
+  const content = readContent(input, fields);
+  if (Object.keys(fields).length)
+    throw new HttpError(400, 'Please check your article details.', fields);
+  return { slug, ...content };
+}
+
+export function parseArticleUpdate(body: unknown): ArticleUpdateInput {
+  const input = readArticleObject(body, [...contentFields, 'version']);
+  const fields: Record<string, string> = {};
+  const version = input.version;
+  if (
+    typeof version !== 'string' ||
+    !/^[1-9][0-9]{0,18}$/.test(version) ||
+    BigInt(version) > 9_223_372_036_854_775_807n
+  ) {
+    fields.version = 'Supply the current article version as a positive bigint string.';
+  }
+  const content = readContent(input, fields, true);
+  if (Object.keys(fields).length)
+    throw new HttpError(400, 'Please check your article details.', fields);
+  return { ...content, version: version as string };
 }

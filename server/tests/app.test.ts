@@ -12,6 +12,7 @@ import type { AuthOptions } from '../src/routes/auth.routes.ts';
 import type {
   ArticleDetail,
   CreateArticleInput,
+  UpdateArticleInput,
   ArticlePageInput,
   ArticleQueries,
 } from '../src/models/article.model.ts';
@@ -75,6 +76,7 @@ const catalogs = {
   },
 };
 let articleCreations: CreateArticleInput[] = [];
+let articleUpdates: UpdateArticleInput[] = [];
 let articlePageInputs: ArticlePageInput[] = [];
 let articleSlugs: string[] = [];
 let articleError: Error | undefined;
@@ -91,6 +93,18 @@ const articles: ArticleQueries = {
       version: '1',
       commentCount: 0,
       author: { id: input.authorId, username: 'Author' },
+      tags: exampleArticle.tags.filter((tag) => input.tagIds.includes(tag.id)),
+    };
+  },
+  async updateArticle(input) {
+    articleUpdates.push(input);
+    if (articleError) throw articleError;
+    return {
+      ...exampleArticle,
+      title: input.title,
+      description: input.description,
+      body: input.body,
+      version: (BigInt(input.version) + 1n).toString(),
       tags: exampleArticle.tags.filter((tag) => input.tagIds.includes(tag.id)),
     };
   },
@@ -143,6 +157,7 @@ beforeEach(() => {
   signedInUser = publicUser;
   articlePageInputs = [];
   articleCreations = [];
+  articleUpdates = [];
   articleSlugs = [];
   articleError = undefined;
 });
@@ -788,9 +803,8 @@ test('article query failures produce safe JSON errors without leaking database d
   }
 });
 
-test('article update and delete routes are not implemented', async () => {
+test('partial article updates and deletion are not implemented', async () => {
   for (const [method, route] of [
-    ['PUT', '/api/articles/first-article'],
     ['PATCH', '/api/articles/first-article'],
     ['DELETE', '/api/articles/first-article'],
   ]) {
@@ -1111,4 +1125,213 @@ test('publishing limits writes before session access while keeping public reads 
   const list = await fetch(`${baseUrl}/api/articles`);
   assert.equal(list.status, 200);
   await list.arrayBuffer();
+});
+
+const validUpdate = {
+  title: 'Updated article',
+  description: 'An updated introduction.',
+  body: 'Updated body.',
+  categoryId: 3,
+  tagIds: [2],
+  version: exampleArticle.version,
+};
+function editArticle(
+  body: unknown = validUpdate,
+  slug = exampleArticle.slug,
+  headers: Record<string, string> = {},
+) {
+  return fetch(`${baseUrl}/api/articles/${slug}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Hummingbird-Request': '1',
+      Cookie: `hummingbird_session=${sessionToken}`,
+      ...headers,
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+test('editing passes session ownership and exact version to persistence while preserving body text', async () => {
+  const body = '  Unicode 🐦\n\n\tPlain text.  ';
+  const response = await editArticle({
+    ...validUpdate,
+    title: '  Updated article  ',
+    description: '  An updated introduction.  ',
+    body,
+  });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  const { article } = await response.json();
+  assert.equal(article.slug, exampleArticle.slug);
+  assert.equal(article.version, '9007199254740994');
+  assert.equal(article.body, body);
+  assert.deepEqual(articleUpdates, [
+    { ...validUpdate, body, slug: exampleArticle.slug, authorId: publicUser.id },
+  ]);
+});
+
+test('editing rejects unsafe request headers and invalid sessions before parsing or updating', async () => {
+  const unsafeHeaders: Record<string, string>[] = [
+    { 'X-Hummingbird-Request': '0' },
+    { 'Sec-Fetch-Site': 'cross-site' },
+  ];
+  for (const headers of unsafeHeaders) {
+    const response = await editArticle(validUpdate, exampleArticle.slug, headers);
+    assert.equal(response.status, 403);
+    await response.arrayBuffer();
+  }
+  assert.deepEqual(userTokens, []);
+  signedInUser = null;
+  for (const Cookie of [
+    '',
+    `hummingbird_session=${sessionToken}`,
+    'hummingbird_session=one; hummingbird_session=two',
+  ]) {
+    const response = await editArticle(validUpdate, exampleArticle.slug, { Cookie });
+    assert.equal(response.status, 401);
+    assert.match(response.headers.get('set-cookie')!, /^hummingbird_session=;/);
+    await response.arrayBuffer();
+  }
+  assert.deepEqual(articleUpdates, []);
+});
+
+test('editing requires a canonical positive bigint version and a full replacement tag selection', async () => {
+  for (const version of [
+    undefined,
+    null,
+    1,
+    0,
+    '',
+    '0',
+    '-1',
+    '01',
+    ' 1',
+    '1.5',
+    '1e3',
+    '9223372036854775808',
+    '9'.repeat(100),
+  ]) {
+    const response = await editArticle({ ...validUpdate, version });
+    assert.equal(response.status, 400);
+    assert.ok((await response.json()).error.fields.version);
+  }
+  const response = await editArticle({ ...validUpdate, tagIds: undefined });
+  assert.equal(response.status, 400);
+  assert.ok((await response.json()).error.fields.tagIds);
+  assert.deepEqual(articleUpdates, []);
+});
+
+test('editing rejects server-managed fields, changed slugs and unsafe route slugs', async () => {
+  for (const field of [
+    'slug',
+    'authorId',
+    'author',
+    'id',
+    'createdAt',
+    'imageFilename',
+    'tags',
+    '__proto__',
+  ]) {
+    const response = await editArticle({ ...validUpdate, [field]: 'untrusted' });
+    assert.equal(response.status, 400);
+    await response.arrayBuffer();
+  }
+  for (const slug of ['Uppercase', 'double--hyphen', 'a'.repeat(81)]) {
+    const response = await editArticle(validUpdate, slug);
+    assert.equal(response.status, 400);
+    await response.arrayBuffer();
+  }
+  assert.deepEqual(articleUpdates, []);
+});
+
+test('editing applies the publishing text and relation validation rules', async () => {
+  for (const [field, value] of [
+    ['title', '🐦'.repeat(56)],
+    ['description', 'bad\nlabel'],
+    ['body', ' \t\n '],
+    ['body', '\ud800'],
+    ['categoryId', '3'],
+    ['tagIds', [2, 2]],
+  ] as const) {
+    const response = await editArticle({ ...validUpdate, [field]: value });
+    assert.equal(response.status, 400);
+    assert.ok((await response.json()).error.fields[field]);
+  }
+  const boundary = {
+    ...validUpdate,
+    title: '🐦'.repeat(55),
+    description: '🐦'.repeat(250),
+    body: '🐦'.repeat(20_000),
+    tagIds: [],
+  };
+  const response = await editArticle(boundary);
+  assert.equal(response.status, 200);
+  await response.arrayBuffer();
+  assert.deepEqual(articleUpdates, [
+    { ...boundary, slug: exampleArticle.slug, authorId: publicUser.id },
+  ]);
+});
+
+test('editing rejects malformed, oversized and unsupported request formats', async () => {
+  for (const [body, headers, status] of [
+    ['{"body":"private"', {}, 400],
+    [JSON.stringify({ ...validUpdate, body: 'x'.repeat(131_072) }), {}, 413],
+    ['{}', { 'Content-Type': 'text/plain' }, 415],
+    ['{}', { 'Content-Type': 'application/json; charset=utf-16le' }, 415],
+    ['{}', { 'Content-Encoding': 'gzip' }, 415],
+  ] as const) {
+    const response = await fetch(`${baseUrl}/api/articles/first-article`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Hummingbird-Request': '1',
+        Cookie: `hummingbird_session=${sessionToken}`,
+        ...headers,
+      },
+      body,
+    });
+    assert.equal(response.status, status);
+    assert.ok(!JSON.stringify(await response.json()).includes('private'));
+  }
+  assert.deepEqual(articleUpdates, []);
+});
+
+test('editing preserves missing, ownership and stale-version errors and hides unexpected failures', async () => {
+  for (const status of [403, 404, 409]) {
+    articleError = new HttpError(
+      status,
+      'Safe rejection.',
+      status === 409 ? { version: 'Load the latest article.' } : undefined,
+    );
+    const response = await editArticle();
+    assert.equal(response.status, status);
+    if (status === 409) assert.ok((await response.json()).error.fields.version);
+    else await response.arrayBuffer();
+  }
+  articleError = new Error('private SQL and password');
+  const failed = await editArticle();
+  assert.equal(failed.status, 500);
+  assert.deepEqual(await failed.json(), {
+    error: { message: 'Unable to process the request. Try again later.' },
+  });
+});
+
+test('publishing and editing share a write limit without blocking public reads', async () => {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const created = await publish();
+    assert.equal(created.status, 201);
+    await created.arrayBuffer();
+    const edited = await editArticle();
+    assert.equal(edited.status, 200);
+    await edited.arrayBuffer();
+  }
+  const blocked = await editArticle();
+  assert.equal(blocked.status, 429);
+  assert.ok(blocked.headers.get('retry-after'));
+  await blocked.arrayBuffer();
+  assert.equal(articleUpdates.length, 10);
+  const detail = await fetch(`${baseUrl}/api/articles/first-article`);
+  assert.equal(detail.status, 200);
+  await detail.arrayBuffer();
 });

@@ -5,6 +5,7 @@ import type { ArticleQueries } from '../models/article.model.ts';
 import type { PublicUser } from '../models/user.model.ts';
 import {
   parseArticleCreation,
+  parseArticleUpdate,
   parseArticlePage,
   parseArticleSlug,
 } from '../validators/article.validator.ts';
@@ -15,6 +16,16 @@ export function createArticleControllers(articles: ArticleQueries) {
       const input = parseArticleCreation(request.body);
       const article = await articles.createArticle({ ...input, authorId: response.locals.user.id });
       response.location(`/api/articles/${article.slug}`).status(201).json({ article });
+    },
+    async update(request: Request, response: Response<unknown, { user: PublicUser }>) {
+      const slug = parseArticleSlug(request.params.slug);
+      const input = parseArticleUpdate(request.body);
+      const article = await articles.updateArticle({
+        ...input,
+        slug,
+        authorId: response.locals.user.id,
+      });
+      response.json({ article });
     },
     async list(request: Request, response: Response) {
       response.json(await articles.listArticles(parseArticlePage(request.query)));

@@ -1251,3 +1251,210 @@ test('unrelated uniqueness failures are not mislabeled as duplicate article slug
     await database.$executeRaw`ALTER TABLE articles DROP CONSTRAINT publishing_test_unique_title`;
   }
 });
+
+function updateArticle(cookie: string, slug: string, input: unknown) {
+  return fetch(`${baseUrl}/api/articles/${slug}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'X-Hummingbird-Request': '1', Cookie: cookie },
+    body: JSON.stringify(input),
+  });
+}
+async function editingContext() {
+  const context = await publicationContext();
+  const created = await publishArticle(context.cookie, context.input);
+  assert.equal(created.status, 201);
+  const { article } = await created.json();
+  const { slug: _slug, ...content } = context.input;
+  return { ...context, article, update: { ...content, version: article.version } };
+}
+
+test('editing replaces content, category and tags atomically while preserving ownership, URL, date, image and comments', async () => {
+  const { user, article, cookie, update, tags } = await editingContext();
+  const category = await database.category.findUniqueOrThrow({ where: { slug: 'design' } });
+  await database.article.update({
+    where: { id: article.id },
+    data: { imageFilename: 'existing-cover.webp' },
+  });
+  await database.comment.create({
+    data: { body: 'Keep this comment.', authorId: user.id, articleId: article.id },
+  });
+  const body = '  Updated 🐦\n\n\tPlain text.  ';
+  const response = await updateArticle(cookie, article.slug, {
+    ...update,
+    title: '  Updated title  ',
+    body,
+    categoryId: category.id,
+    tagIds: [tags[1]!.id],
+  });
+  assert.equal(response.status, 200);
+  const result = (await response.json()).article;
+  assert.equal(result.title, 'Updated title');
+  assert.equal(result.body, body);
+  assert.equal(result.version, '2');
+  assert.equal(result.id, article.id);
+  assert.equal(result.slug, article.slug);
+  assert.equal(result.createdAt, article.createdAt);
+  assert.equal(result.imageFilename, 'existing-cover.webp');
+  assert.equal(result.author.id, user.id);
+  assert.equal(result.category.id, category.id);
+  assert.deepEqual(
+    result.tags.map((tag: { id: number }) => tag.id),
+    [tags[1]!.id],
+  );
+  assert.equal(result.commentCount, 1);
+  const stored = await database.article.findUniqueOrThrow({ where: { id: article.id } });
+  assert.equal(stored.version, 2n);
+  assert.equal(stored.body, body);
+  assert.equal(await database.tag.count(), 2);
+  const detail = await fetch(`${baseUrl}/api/articles/${article.slug}`);
+  assert.deepEqual((await detail.json()).article, result);
+  const cleared = await updateArticle(cookie, article.slug, {
+    ...update,
+    version: '2',
+    tagIds: [],
+  });
+  assert.equal(cleared.status, 200);
+  assert.deepEqual((await cleared.json()).article.tags, []);
+  assert.equal(await database.articleTag.count(), 0);
+  assert.equal(await database.comment.count(), 1);
+});
+
+test('other authors, missing articles and revoked sessions cannot update article data or links', async () => {
+  const { cookie, article, update } = await editingContext();
+  const otherAccount = await registerAccount('other@example.test');
+  assert.equal(otherAccount.status, 201);
+  await otherAccount.arrayBuffer();
+  const login = await signIn('other@example.test');
+  assert.equal(login.status, 200);
+  await login.arrayBuffer();
+  const otherCookie = responseSession(login).cookie;
+  const before = await readSeedSnapshot();
+  const forbidden = await updateArticle(otherCookie, article.slug, update);
+  assert.equal(forbidden.status, 403);
+  await forbidden.arrayBuffer();
+  const missing = await updateArticle(cookie, 'missing-article', update);
+  assert.equal(missing.status, 404);
+  await missing.arrayBuffer();
+  assert.deepEqual(await readSeedSnapshot(), before);
+  await database.session.deleteMany();
+  const denied = await updateArticle(cookie, article.slug, update);
+  assert.equal(denied.status, 401);
+  assert.match(denied.headers.get('set-cookie')!, /^hummingbird_session=;/);
+  await denied.arrayBuffer();
+  assert.equal(
+    (await database.article.findUniqueOrThrow({ where: { id: article.id } })).version,
+    1n,
+  );
+  assert.equal(await database.articleTag.count(), 2);
+});
+
+test('stale edits do not overwrite a newer save or its tag relationships', async () => {
+  const { cookie, article, update, tags } = await editingContext();
+  const saved = await updateArticle(cookie, article.slug, {
+    ...update,
+    title: 'Winning edit',
+    tagIds: [tags[0]!.id],
+  });
+  assert.equal(saved.status, 200);
+  await saved.arrayBuffer();
+  const before = await readSeedSnapshot();
+  const stale = await updateArticle(cookie, article.slug, {
+    ...update,
+    title: 'Stale edit',
+    tagIds: [],
+  });
+  assert.equal(stale.status, 409);
+  assert.ok((await stale.json()).error.fields.version);
+  assert.deepEqual(await readSeedSnapshot(), before);
+});
+
+test('two concurrent saves of one version produce exactly one winner with matching content and tags', async () => {
+  const { cookie, article, update, tags } = await editingContext();
+  const candidates = [
+    { ...update, title: 'First concurrent edit', tagIds: [tags[0]!.id] },
+    { ...update, title: 'Second concurrent edit', tagIds: [tags[1]!.id] },
+  ];
+  const responses = await Promise.all(
+    candidates.map((input) => updateArticle(cookie, article.slug, input)),
+  );
+  assert.deepEqual(responses.map((response) => response.status).sort(), [200, 409]);
+  const winnerIndex = responses.findIndex((response) => response.status === 200);
+  const result = (await responses[winnerIndex]!.json()).article;
+  const loser = (await responses[1 - winnerIndex]!.json()).error;
+  assert.ok(loser.fields.version);
+  assert.equal(result.title, candidates[winnerIndex]!.title);
+  assert.equal(result.version, '2');
+  const stored = await database.article.findUniqueOrThrow({ where: { id: article.id } });
+  assert.equal(stored.title, result.title);
+  assert.equal(stored.version, 2n);
+  const links = await database.articleTag.findMany({ where: { articleId: article.id } });
+  assert.deepEqual(
+    links.map((link) => link.tagId),
+    candidates[winnerIndex]!.tagIds,
+  );
+});
+
+test('missing category or tags leave all article fields, version and existing links unchanged', async () => {
+  const { cookie, article, update } = await editingContext();
+  const before = await readSeedSnapshot();
+  for (const fields of [{ categoryId: 99999 }, { tagIds: [99999] }]) {
+    const failed = await updateArticle(cookie, article.slug, {
+      ...update,
+      title: 'Must roll back',
+      ...fields,
+    });
+    assert.equal(failed.status, 400);
+    await failed.arrayBuffer();
+    assert.deepEqual(await readSeedSnapshot(), before);
+  }
+});
+
+test('a replacement tag failure rolls back edited fields, incremented version and deleted links', async () => {
+  const { cookie, article, update } = await editingContext();
+  const before = await readSeedSnapshot();
+  await database.$executeRaw`ALTER TABLE article_tags ADD CONSTRAINT editing_test_reject_tag CHECK (false) NOT VALID`;
+  try {
+    const response = await updateArticle(cookie, article.slug, {
+      ...update,
+      title: 'Must roll back',
+      body: 'Not committed.',
+    });
+    assert.equal(response.status, 500);
+    await response.arrayBuffer();
+    assert.deepEqual(await readSeedSnapshot(), before);
+  } finally {
+    await database.$executeRaw`ALTER TABLE article_tags DROP CONSTRAINT editing_test_reject_tag`;
+  }
+  const retried = await updateArticle(cookie, article.slug, {
+    ...update,
+    title: 'Retry succeeded',
+  });
+  assert.equal(retried.status, 200);
+  assert.equal((await retried.json()).article.version, '2');
+});
+
+test('editing increments bigint versions beyond JavaScript safe integers and rejects the PostgreSQL version limit safely', async () => {
+  const { cookie, article, update } = await editingContext();
+  await database.article.update({
+    where: { id: article.id },
+    data: { version: 9_007_199_254_740_993n },
+  });
+  const response = await updateArticle(cookie, article.slug, {
+    ...update,
+    version: '9007199254740993',
+  });
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).article.version, '9007199254740994');
+  await database.article.update({
+    where: { id: article.id },
+    data: { version: 9_223_372_036_854_775_807n },
+  });
+  const before = await readSeedSnapshot();
+  const exhausted = await updateArticle(cookie, article.slug, {
+    ...update,
+    version: '9223372036854775807',
+  });
+  assert.equal(exhausted.status, 409);
+  assert.ok((await exhausted.json()).error.fields.version);
+  assert.deepEqual(await readSeedSnapshot(), before);
+});

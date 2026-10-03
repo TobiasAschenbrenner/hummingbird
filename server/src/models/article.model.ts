@@ -9,6 +9,13 @@ export interface ArticleCreationInput {
   tagIds: number[];
 }
 
+export type ArticleUpdateInput = Omit<ArticleCreationInput, 'slug'> & { version: string };
+
+export interface UpdateArticleInput extends ArticleUpdateInput {
+  slug: string;
+  authorId: number;
+}
+
 export interface CreateArticleInput extends ArticleCreationInput {
   authorId: number;
 }
@@ -43,6 +50,7 @@ export interface ArticlePage {
 
 export interface ArticleQueries {
   createArticle(input: CreateArticleInput): Promise<ArticleDetail>;
+  updateArticle(input: UpdateArticleInput): Promise<ArticleDetail>;
   listArticles(input: ArticlePageInput): Promise<ArticlePage>;
   findArticleBySlug(slug: string): Promise<ArticleDetail | null>;
 }

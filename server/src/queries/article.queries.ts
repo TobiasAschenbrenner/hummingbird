@@ -56,21 +56,52 @@ function toSummary(article: SummaryRecord): ArticleSummary {
   };
 }
 
+async function validateRelationships(
+  transaction: Prisma.TransactionClient,
+  categoryId: number,
+  tagIds: number[],
+): Promise<void> {
+  const category = await transaction.category.findUnique({
+    where: { id: categoryId },
+    select: { id: true },
+  });
+  const tagCount = await transaction.tag.count({ where: { id: { in: tagIds } } });
+  const fields: Record<string, string> = {};
+  if (!category) fields.categoryId = 'Select an existing category.';
+  if (tagCount !== tagIds.length) fields.tagIds = 'Select existing tags.';
+  if (Object.keys(fields).length)
+    throw new HttpError(400, 'Please check your article details.', fields);
+}
+
+function throwWriteError(error: unknown): never {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    if (error.code === 'P2002' && isSlugConstraint(error)) {
+      throw new HttpError(409, 'An article with this slug already exists.', {
+        slug: 'Choose another article slug.',
+      });
+    }
+    if (error.code === 'P2003') {
+      throw new HttpError(
+        409,
+        'Selected article relationships changed. Reload the options and try again.',
+      );
+    }
+  }
+  throw error;
+}
+
+function staleEdit(): never {
+  throw new HttpError(409, 'The article changed. Load its latest version before saving again.', {
+    version: 'Load the latest article before saving again.',
+  });
+}
+
 export function createArticleQueries(database: PrismaClient): ArticleQueries {
   return {
     async createArticle({ tagIds, ...input }) {
       try {
         return await database.$transaction(async (transaction) => {
-          const category = await transaction.category.findUnique({
-            where: { id: input.categoryId },
-            select: { id: true },
-          });
-          const tagCount = await transaction.tag.count({ where: { id: { in: tagIds } } });
-          const fields: Record<string, string> = {};
-          if (!category) fields.categoryId = 'Select an existing category.';
-          if (tagCount !== tagIds.length) fields.tagIds = 'Select existing tags.';
-          if (Object.keys(fields).length)
-            throw new HttpError(400, 'Please check your article details.', fields);
+          await validateRelationships(transaction, input.categoryId, tagIds);
           const article = await transaction.article.create({ data: input, select: { id: true } });
           if (tagIds.length) {
             await transaction.articleTag.createMany({
@@ -84,20 +115,46 @@ export function createArticleQueries(database: PrismaClient): ArticleQueries {
           return toDetail(saved);
         });
       } catch (error) {
-        if (error instanceof Prisma.PrismaClientKnownRequestError) {
-          if (error.code === 'P2002' && isSlugConstraint(error)) {
-            throw new HttpError(409, 'An article with this slug already exists.', {
-              slug: 'Choose another article slug.',
+        throwWriteError(error);
+      }
+    },
+    async updateArticle({ slug, authorId, version, tagIds, ...content }) {
+      try {
+        return await database.$transaction(async (transaction) => {
+          const article = await transaction.article.findUnique({
+            where: { slug },
+            select: { id: true, authorId: true, version: true },
+          });
+          if (!article) throw new HttpError(404, 'Article not found.');
+          if (article.authorId !== authorId)
+            throw new HttpError(403, 'You can only edit your own articles.');
+          const expectedVersion = BigInt(version);
+          if (article.version !== expectedVersion) staleEdit();
+          if (expectedVersion === 9_223_372_036_854_775_807n) {
+            throw new HttpError(409, 'This article has reached its version limit.', {
+              version: 'This article cannot be edited further.',
             });
           }
-          if (error.code === 'P2003') {
-            throw new HttpError(
-              409,
-              'Selected article relationships changed. Reload the options and try again.',
-            );
-          }
-        }
-        throw error;
+          await validateRelationships(transaction, content.categoryId, tagIds);
+          // The conditional UPDATE locks the row; only one save of this version can win.
+          const updated = await transaction.article.updateMany({
+            where: { id: article.id, authorId, version: expectedVersion },
+            data: { ...content, version: { increment: 1 } },
+          });
+          if (updated.count !== 1) staleEdit();
+          await transaction.articleTag.deleteMany({ where: { articleId: article.id } });
+          if (tagIds.length)
+            await transaction.articleTag.createMany({
+              data: tagIds.map((tagId) => ({ articleId: article.id, tagId })),
+            });
+          const saved = await transaction.article.findUniqueOrThrow({
+            where: { id: article.id },
+            select: detailSelect,
+          });
+          return toDetail(saved);
+        });
+      } catch (error) {
+        throwWriteError(error);
       }
     },
     async listArticles({ page, pageSize }) {

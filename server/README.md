@@ -1,8 +1,8 @@
 # Hummingbird API 🐦
 
-Express, TypeScript and Prisma API for the rewrite. Accounts, article browsing
-and publishing are available; comments come later.
-The [Angular client](../client/README.md) uses all three flows.
+Express, TypeScript and Prisma API for the rewrite. Accounts, article browsing,
+publishing and editing are available; comments come later.
+The [Angular client](../client/README.md) uses accounts, reads and publishing; its editor comes next.
 
 ## 🚀 Getting started
 
@@ -261,9 +261,37 @@ Invalid fields or missing catalog entries return `400` with `error.fields`.
 Missing/expired sessions return `401`, unsafe request headers `403`, and duplicate
 slugs or concurrent relationship changes `409`. Bodies over 128 KiB return `413`;
 unsupported media types, charsets and compression return `415`. Publishing is
-limited to 20 attempts per IP per minute (`429`), independently of public reads.
+limited to 20 article changes per IP per minute (`429`), shared with editing and independent of public reads.
 Unexpected failures return a safe `500`. The Angular creation form uses these
 routes; images and catalog management are separate steps.
+
+## ✏️ Edit articles
+
+Send `PUT /api/articles/:slug` while signed in, with the same request header and
+UTF-8 JSON requirements as publishing:
+
+```json
+{
+  "title": "Updated title",
+  "description": "An updated summary.",
+  "body": "Updated plain text.",
+  "categoryId": 1,
+  "tagIds": [],
+  "version": "1"
+}
+```
+
+Only the author may edit (`403` otherwise); missing articles return `404`.
+Supply every content field and the exact string `version` from article detail.
+Use `[]` to remove all tag links. The URL slug, author, creation time, images and
+comments stay unchanged. Content validation matches publishing.
+
+The content, category, replacement tag links and version increment commit in one
+transaction. A conditional update on the current version lets only one concurrent
+save succeed. Stale versions return `409` with `error.fields.version`; load the
+latest article and review your draft before retrying. Versions stay bigint strings,
+never JavaScript numbers. Success returns `200` and `{ "article": { ... } }`.
+Failed saves roll back every change. Writes are never automatically retried.
 
 ## 🧪 Checks and Postman
 
@@ -289,7 +317,7 @@ constraints and rollback when creating a replacement session fails.
 Article tests cover public reads, relation selection, stable pagination, counts,
 changed data and exact bigint serialization. Publishing tests cover session ownership,
 Unicode limits, missing catalog entries, concurrent duplicate slugs and rollback
-when inserting tag links fails. Each database test gets a fresh API instance
+when inserting tag links fails. Editing tests cover author permissions, stale and concurrent saves, exact version increments and rollback of replaced tag links. Each database test gets a fresh API instance
 so rate-limit counters do not leak between tests.
 The test database is emptied before each test and when the suite finishes.
 
@@ -306,6 +334,11 @@ works with an empty database; when articles exist it saves a slug for **Article
 detail**. If the catalog is empty, run `npm run db:seed:demo` in development or set
 `articleSlug` to an existing slug before running the detail request. **Invalid
 article page** checks validation. These reads do not create or change database rows.
+
+**Update own article**, **Stale article edit** and **Updated article detail** verify
+a save, a rejected stale save and the stored result. **Editing after logout** checks
+that revoked sessions cannot save. Editing keeps the slug fixed and clears the
+created article’s tag links in this collection.
 
 Registration generates a new test address and publishing a new slug on each run.
 The collection creates real accounts, sessions, articles and tag links in the

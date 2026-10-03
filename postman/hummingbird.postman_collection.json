@@ -49,6 +49,16 @@
       "key": "newArticleSlug",
       "value": "",
       "type": "string"
+    },
+    {
+      "key": "articleVersion",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "initialArticleVersion",
+      "value": "",
+      "type": "string"
     }
   ],
   "item": [
@@ -495,6 +505,141 @@
               "  pm.expect(article.slug).to.eql(pm.collectionVariables.get('newArticleSlug'));",
               "  pm.expect(article.body).to.eql('First paragraph.\\n\\nSecond paragraph.');",
               "  pm.expect(article.version).to.eql('1');",
+              "  pm.collectionVariables.set('articleVersion', article.version);",
+              "  pm.collectionVariables.set('initialArticleVersion', article.version);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Update own article",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "X-Hummingbird-Request",
+            "value": "1"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/articles/{{newArticleSlug}}",
+        "description": "Updates content and removes tag links without changing the URL. Run Created article detail first.",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title\": \"Updated from Postman\",\n  \"description\": \"An edited article.\",\n  \"body\": \"Updated paragraph.\\n\\nAnother paragraph.\",\n  \"categoryId\": {{articleCategoryId}},\n  \"tagIds\": [],\n  \"version\": \"{{articleVersion}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "if (!pm.collectionVariables.get('newArticleSlug') || !pm.collectionVariables.get('articleVersion')) throw new Error('Run Created article detail first.');"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Author can save with the current version', function () {",
+              "  pm.response.to.have.status(200);",
+              "  const article = pm.response.json().article;",
+              "  pm.expect(article.slug).to.eql(pm.collectionVariables.get('newArticleSlug'));",
+              "  pm.expect(article.author.id).to.eql(Number(pm.collectionVariables.get('registeredUserId')));",
+              "  pm.expect(article.title).to.eql('Updated from Postman');",
+              "  pm.expect(article.tags).to.eql([]);",
+              "  pm.expect(article.version).to.match(/^[1-9][0-9]*$/);",
+              "  pm.expect(article.version).not.to.eql(pm.collectionVariables.get('articleVersion'));",
+              "  pm.collectionVariables.set('articleVersion', article.version);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Stale article edit",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "X-Hummingbird-Request",
+            "value": "1"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/articles/{{newArticleSlug}}",
+        "description": "Reuses the original version; must not overwrite the saved edit.",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title\": \"Updated from Postman\",\n  \"description\": \"An edited article.\",\n  \"body\": \"Updated paragraph.\\n\\nAnother paragraph.\",\n  \"categoryId\": {{articleCategoryId}},\n  \"tagIds\": [],\n  \"version\": \"{{initialArticleVersion}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "if (!pm.collectionVariables.get('newArticleSlug') || !pm.collectionVariables.get('articleVersion')) throw new Error('Run Created article detail first.');"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Stale version rejected', function () {",
+              "  pm.response.to.have.status(409);",
+              "  pm.expect(pm.response.json().error.fields.version).to.be.a('string');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Updated article detail",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/articles/{{newArticleSlug}}",
+        "description": "Confirms the stored edit was not overwritten by the stale request."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Edited content and version persisted', function () {",
+              "  pm.response.to.have.status(200);",
+              "  const article = pm.response.json().article;",
+              "  pm.expect(article.body).to.eql('Updated paragraph.\\n\\nAnother paragraph.');",
+              "  pm.expect(article.tags).to.eql([]);",
+              "  pm.expect(article.version).to.eql(pm.collectionVariables.get('articleVersion'));",
               "});"
             ]
           }
@@ -586,6 +731,55 @@
               "pm.test('Publishing requires a current session', function () {",
               "  pm.response.to.have.status(401);",
               "  pm.expect(pm.response.json()).to.eql({ error: { message: 'Please sign in.' } });",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Editing after logout",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "X-Hummingbird-Request",
+            "value": "1"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/articles/{{newArticleSlug}}",
+        "description": "Revoked sessions cannot edit an article.",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title\": \"Updated from Postman\",\n  \"description\": \"An edited article.\",\n  \"body\": \"Updated paragraph.\\n\\nAnother paragraph.\",\n  \"categoryId\": {{articleCategoryId}},\n  \"tagIds\": [],\n  \"version\": \"{{articleVersion}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "if (!pm.collectionVariables.get('newArticleSlug') || !pm.collectionVariables.get('articleVersion')) throw new Error('Run Created article detail first.');"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Editing requires an active session', function () {",
+              "  pm.response.to.have.status(401);",
               "});"
             ]
           }

@@ -21,12 +21,12 @@ export function createArticleRouter({
 }: ArticleOptions) {
   const router = Router();
   const controllers = createArticleControllers(articles);
-  const publicationLimit = rateLimit({
+  const writeLimit = rateLimit({
     windowMs: 60_000,
     limit: 20,
     standardHeaders: 'draft-8',
     legacyHeaders: false,
-    message: { error: { message: 'Too many publishing attempts. Try again later.' } },
+    message: { error: { message: 'Too many article changes. Try again later.' } },
   });
   router.use((_request, response, next) => {
     response.set('Cache-Control', 'no-store');
@@ -36,11 +36,19 @@ export function createArticleRouter({
   router.get('/:slug', controllers.detail);
   router.post(
     '/',
-    publicationLimit,
+    writeLimit,
     requireApiRequest,
     createRequireSession(authentication, secureCookies),
     articleJsonBody,
     controllers.create,
+  );
+  router.put(
+    '/:slug',
+    writeLimit,
+    requireApiRequest,
+    createRequireSession(authentication, secureCookies),
+    articleJsonBody,
+    controllers.update,
   );
   return router;
 }
