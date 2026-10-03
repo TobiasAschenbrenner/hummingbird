@@ -331,4 +331,65 @@ describe('ArticlesApi', () => {
     expect(request.cancelled).toBe(true);
     http.expectNone('/api/articles/article-1');
   });
+
+  it('deletes only the reviewed article ID and exact version with the session and request header', async () => {
+    const input = { articleId: 1, version: '9223372036854775807', authorId: 999 };
+    const result = firstValueFrom(service.remove('article-1', input));
+    const request = http.expectOne('/api/articles/article-1');
+    expect(request.request.method).toBe('DELETE');
+    expect(request.request.withCredentials).toBe(true);
+    expect(request.request.headers.get('X-Hummingbird-Request')).toBe('1');
+    expect(request.request.body).toEqual({ articleId: 1, version: '9223372036854775807' });
+    request.flush(null, { status: 204, statusText: 'No Content' });
+    await expect(result).resolves.toBeUndefined();
+  });
+
+  it('rejects invalid deletion slugs, identities and versions before HTTP access', async () => {
+    for (const slug of ['../auth/logout', 'Uppercase', 'a'.repeat(81)]) {
+      await expect(
+        firstValueFrom(service.remove(slug, { articleId: 1, version: '1' })),
+      ).rejects.toThrow('Invalid article slug.');
+    }
+    for (const articleId of [0, -1, 1.5, NaN, 2147483648]) {
+      await expect(
+        firstValueFrom(service.remove('article-1', { articleId, version: '1' })),
+      ).rejects.toThrow('Invalid article ID.');
+    }
+    for (const version of ['', '0', '01', '1.5', '1e3', '9223372036854775808']) {
+      await expect(
+        firstValueFrom(service.remove('article-1', { articleId: 1, version })),
+      ).rejects.toThrow('Invalid article version.');
+    }
+    http.expectNone((request) => request.method === 'DELETE');
+  });
+
+  it('rejects unexpected deletion confirmations and forwards safe HTTP status errors without retrying', async () => {
+    for (const [status, body] of [
+      [200, ''],
+      [204, 'unexpected body'],
+    ] as const) {
+      const result = firstValueFrom(service.remove('article-1', { articleId: 1, version: '1' }));
+      const rejected = expect(result).rejects.toThrow('Unexpected article deletion response.');
+      http.expectOne('/api/articles/article-1').flush(body, { status, statusText: 'Unexpected' });
+      await rejected;
+    }
+    for (const status of [401, 403, 404, 409, 429, 500]) {
+      const result = firstValueFrom(service.remove('article-1', { articleId: 1, version: '1' }));
+      const rejected = expect(result).rejects.toMatchObject({ status });
+      http.expectOne('/api/articles/article-1').flush('', { status, statusText: 'Rejected' });
+      await rejected;
+      http.expectNone('/api/articles/article-1');
+    }
+  });
+
+  it('cancels timed-out deletion without an automatic retry', async () => {
+    vi.useFakeTimers();
+    const result = firstValueFrom(service.remove('article-1', { articleId: 1, version: '1' }));
+    const rejected = expect(result).rejects.toMatchObject({ name: 'TimeoutError' });
+    const request = http.expectOne('/api/articles/article-1');
+    await vi.advanceTimersByTimeAsync(10_000);
+    await rejected;
+    expect(request.cancelled).toBe(true);
+    http.expectNone('/api/articles/article-1');
+  });
 });

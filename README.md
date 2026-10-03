@@ -8,7 +8,7 @@ Readers can browse articles, while registered users can publish posts and join t
 > [server setup](server/README.md) to run the Angular app and Express API.
 > Registration, login and logout now work through Angular and the Express API.
 > Article browsing, publishing and editing now work through Angular and the API.
-> Author-only deletion is now available in the API; Angular confirmation comes next.
+> Delete your own articles from Angular with a confirmation and version check.
 > Discussion comes later.
 > The Flask instructions below remain valid;
 > its baseline is tagged `flask-baseline`.

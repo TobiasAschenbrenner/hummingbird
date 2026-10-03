@@ -7,6 +7,7 @@ import {
   MAX_ARTICLE_PAGE,
   ArticleDetail,
   ArticleCreationInput,
+  ArticleDeletionInput,
   ArticleUpdateInput,
   ArticlePage,
 } from '../../models/article.model';
@@ -64,6 +65,30 @@ export class ArticlesApi {
             if (article.version !== (BigInt(body.version) + 1n).toString())
               throw new Error('Unexpected saved article version.');
             return article;
+          }),
+        );
+    });
+  }
+
+  remove(slug: string, input: ArticleDeletionInput): Observable<void> {
+    return defer(() => {
+      if (!isArticleSlug(slug)) throw new Error('Invalid article slug.');
+      if (!isArticleVersion(input.version)) throw new Error('Invalid article version.');
+      if (!Number.isInteger(input.articleId) || input.articleId < 1 || input.articleId > 2147483647)
+        throw new Error('Invalid article ID.');
+      return this.http
+        .delete(`/api/articles/${slug}`, {
+          body: { articleId: input.articleId, version: input.version },
+          withCredentials: true,
+          headers: { 'X-Hummingbird-Request': '1' },
+          observe: 'response',
+          responseType: 'text',
+        })
+        .pipe(
+          timeout(10_000),
+          map((response) => {
+            if (response.status !== 204 || (response.body !== null && response.body !== ''))
+              throw new Error('Unexpected article deletion response.');
           }),
         );
     });

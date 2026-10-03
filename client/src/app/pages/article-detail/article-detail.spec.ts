@@ -2,7 +2,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Title } from '@angular/platform-browser';
-import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
+import { ActivatedRoute, convertToParamMap, provideRouter, Router } from '@angular/router';
 import { BehaviorSubject } from 'rxjs';
 
 import { Auth } from '../../services/auth/auth';
@@ -174,5 +174,79 @@ describe('ArticleDetail', () => {
       .flush({ user: { id: 2, username: 'Other', email: 'other@example.test' } });
     await fixture.whenStable();
     expect(element.querySelector('a[href*="/edit"]')).toBeNull();
+  });
+
+  const deleteButton = (text: string) =>
+    [...element.querySelectorAll<HTMLButtonElement>('button')].find(
+      (candidate) => candidate.textContent?.trim() === text,
+    )!;
+  async function openDeletion(): Promise<void> {
+    http.expectOne('/api/articles/article-1').flush({ article: articleFixture() });
+    TestBed.inject(Auth).restoreSession().subscribe();
+    http
+      .expectOne('/api/auth/me')
+      .flush({ user: { id: 1, username: 'Author', email: 'author@example.test' } });
+    await fixture.whenStable();
+    deleteButton('Delete article').click();
+    await fixture.whenStable();
+  }
+
+  it('returns to the current list page only after successful deletion and keeps a fallback confirmation', async () => {
+    const navigate = vi
+      .spyOn(TestBed.inject(Router), 'navigate')
+      .mockRejectedValue(new Error('Navigation failed'));
+    await openDeletion();
+    query.next(convertToParamMap({ page: '3' }));
+    deleteButton('Permanently delete').click();
+    expect(navigate).not.toHaveBeenCalled();
+    http
+      .expectOne('/api/articles/article-1')
+      .flush(null, { status: 204, statusText: 'No Content' });
+    await fixture.whenStable();
+    expect(navigate).toHaveBeenCalledExactlyOnceWith(['/'], { queryParams: { page: 3 } });
+    expect(element.querySelector('h1')?.textContent).toBe('Article deleted');
+    expect(element.querySelector('.article-body')).toBeNull();
+    expect(element.querySelector('.back-link')?.getAttribute('href')).toBe('/?page=3');
+    expect(TestBed.inject(Title).getTitle()).toBe('Hummingbird | Article deleted');
+  });
+
+  it('shows an already removed article as not found without claiming deletion or navigating', async () => {
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigate');
+    await openDeletion();
+    deleteButton('Permanently delete').click();
+    http.expectOne('/api/articles/article-1').flush('', { status: 404, statusText: 'Missing' });
+    await fixture.whenStable();
+    expect(element.querySelector('h1')?.textContent).toBe('Article not found');
+    expect(element.querySelector('.article-body')).toBeNull();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('reloads a changed article for review and requires a new confirmation of the updated version', async () => {
+    await openDeletion();
+    deleteButton('Permanently delete').click();
+    http.expectOne('/api/articles/article-1').flush('', { status: 409, statusText: 'Conflict' });
+    await fixture.whenStable();
+    deleteButton('Reload article').click();
+    fixture.detectChanges();
+    expect(element.querySelector('h1')?.textContent).toContain('Loading article');
+    http.expectOne('/api/articles/article-1').flush({
+      article: articleFixture({
+        title: 'Review the new title',
+        body: 'Changed content.',
+        version: '2',
+      }),
+    });
+    await fixture.whenStable();
+    expect(element.textContent).toContain('Review the new title');
+    expect(element.textContent).toContain('Changed content.');
+    expect(element.querySelector('#article-deletion-confirmation')).toBeNull();
+    http.expectNone((request) => request.method === 'DELETE');
+    deleteButton('Delete article').click();
+    await fixture.whenStable();
+    deleteButton('Permanently delete').click();
+    const request = http.expectOne('/api/articles/article-1');
+    expect(request.request.body).toEqual({ articleId: 1, version: '2' });
+    request.flush('', { status: 429, statusText: 'Limited' });
+    await fixture.whenStable();
   });
 });

@@ -10,9 +10,10 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { Title } from '@angular/platform-browser';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { catchError, combineLatest, map, of, startWith, Subject, switchMap } from 'rxjs';
 
+import { ArticleDelete } from '../../components/article-delete/article-delete';
 import { ArticleDetail as Article } from '../../models/article.model';
 import { Auth } from '../../services/auth/auth';
 import { ArticlesApi } from '../../services/articles/articles';
@@ -22,11 +23,12 @@ type ArticleState =
   | { status: 'loading' }
   | { status: 'ready'; article: Article }
   | { status: 'not-found' }
+  | { status: 'deleted' }
   | { status: 'error' };
 
 @Component({
   selector: 'app-article-detail',
-  imports: [DatePipe, RouterLink],
+  imports: [DatePipe, RouterLink, ArticleDelete],
   templateUrl: './article-detail.html',
   styleUrl: './article-detail.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -35,6 +37,7 @@ export class ArticleDetail implements OnInit {
   protected readonly auth = inject(Auth);
   private readonly api = inject(ArticlesApi);
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
   private readonly title = inject(Title);
   private readonly retry = new Subject<void>();
@@ -75,6 +78,23 @@ export class ArticleDetail implements OnInit {
               : 'Hummingbird | Article',
         );
       });
+  }
+
+  protected reloadArticle(): void {
+    if (this.state().status === 'ready') this.retry.next();
+  }
+
+  protected articleRemoved(result: 'deleted' | 'not-found'): void {
+    this.state.set({ status: result });
+    this.title.setTitle(
+      result === 'deleted' ? 'Hummingbird | Article deleted' : 'Hummingbird | Article not found',
+    );
+    if (result === 'deleted') {
+      // Keep the confirmation visible if navigation fails; the back link still works.
+      void this.router
+        .navigate(['/'], { queryParams: this.listPage() > 1 ? { page: this.listPage() } : {} })
+        .catch(() => undefined);
+    }
   }
 
   protected tryAgain(): void {

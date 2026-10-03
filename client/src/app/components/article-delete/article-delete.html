@@ -1,0 +1,72 @@
+@if (!finished() && (ownsArticle() || opened() || needsReview())) {
+  <div class="deletion" [attr.aria-busy]="pending()">
+    <button
+      #trigger
+      type="button"
+      class="button danger"
+      [disabled]="disabled() || opened()"
+      [attr.aria-expanded]="opened()"
+      aria-controls="article-deletion-confirmation"
+      (click)="open()"
+    >
+      Delete article
+    </button>
+    @if (opened()) {
+      <section
+        id="article-deletion-confirmation"
+        class="confirmation"
+        aria-labelledby="deletion-title"
+      >
+        <h2 id="deletion-title">Delete “{{ article().title }}”?</h2>
+        <p>
+          This permanently removes the article, its {{ article().commentCount }}
+          {{ article().commentCount === 1 ? 'comment' : 'comments' }} and its tag links. Shared
+          categories and tags remain. This cannot be undone.
+        </p>
+        <div class="actions">
+          <button
+            #cancelButton
+            type="button"
+            class="button secondary"
+            [disabled]="pending()"
+            (click)="cancel()"
+          >
+            Cancel
+          </button>
+          <button type="button" class="button danger" [disabled]="disabled()" (click)="confirm()">
+            {{ pending() ? 'Deleting…' : 'Permanently delete' }}
+          </button>
+        </div>
+      </section>
+    }
+    @if (message()) {
+      <p role="alert">{{ message() }}</p>
+    }
+    @if (opened() && !ownsArticle()) {
+      <p>
+        Sign in as the article’s author to delete it.
+        <a routerLink="/login" target="_blank" rel="noopener">Log in in a new tab</a>
+      </p>
+      <button
+        type="button"
+        class="button secondary"
+        [disabled]="pending() || auth.pending() || auth.status() === 'checking'"
+        (click)="checkSession()"
+      >
+        Check session
+      </button>
+    }
+    @if (needsReview() || forbidden()) {
+      <p>Reloading reads the article again. It does not delete anything.</p>
+      <button
+        #reloadButton
+        type="button"
+        class="button secondary"
+        [disabled]="pending()"
+        (click)="reloadArticle()"
+      >
+        Reload article
+      </button>
+    }
+  </div>
+}

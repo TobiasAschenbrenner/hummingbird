@@ -8,6 +8,13 @@
       <h1>Loading article…</h1>
       <p role="status">Please wait while we load the article.</p>
     }
+    @case ('deleted') {
+      <h1>Article deleted</h1>
+      <p role="status">
+        The article, its comments and tag links have been permanently removed. Return to the article
+        list using the link above.
+      </p>
+    }
     @case ('not-found') {
       <h1>Article not found</h1>
       <p>This article does not exist or has been removed.</p>
@@ -27,6 +34,11 @@
           >
         </p>
       }
+      <app-article-delete
+        [article]="current.article"
+        (removed)="articleRemoved($event)"
+        (reload)="reloadArticle()"
+      />
       <article>
         <header>
           <p class="category">{{ current.article.category.name }}</p>

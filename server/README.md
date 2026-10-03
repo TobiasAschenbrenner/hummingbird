@@ -1,8 +1,8 @@
 # Hummingbird API 🐦
 
 Express, TypeScript and Prisma API for the rewrite. Accounts, article browsing,
-publishing and editing are available; comments come later.
-The [Angular client](../client/README.md) uses all four flows.
+publishing, editing and deletion are available; comments come later.
+The [Angular client](../client/README.md) supports these flows.
 
 ## 🚀 Getting started
 

@@ -107,3 +107,41 @@ export function readArticleUpdateError(error: unknown): {
     missing: error.status === 404,
   };
 }
+
+export function readArticleDeletionError(error: unknown): {
+  message: string;
+  sessionExpired: boolean;
+  needsReview: boolean;
+  forbidden: boolean;
+  missing: boolean;
+} {
+  const unknownOutcome = {
+    message: 'We couldn’t confirm deletion. Reload the article before trying again.',
+    sessionExpired: false,
+    needsReview: true,
+    forbidden: false,
+    missing: false,
+  };
+  if (
+    !(error instanceof HttpErrorResponse) ||
+    ![400, 401, 403, 404, 409, 413, 415, 429].includes(error.status)
+  )
+    return unknownOutcome;
+  const messages: Record<number, string> = {
+    400: 'Deletion was rejected. Reload the article before trying again.',
+    401: 'Your session expired. Sign in again, then reload the article before deleting.',
+    403: 'You cannot delete this article. Check your account and reload it.',
+    404: 'This article no longer exists.',
+    409: 'This article changed. Reload and review it before confirming deletion again.',
+    413: 'Deletion was rejected. Reload the article before trying again.',
+    415: 'The request format was rejected. Reload Hummingbird before deleting.',
+    429: 'Too many article changes. Wait a minute before trying again.',
+  };
+  return {
+    message: messages[error.status],
+    sessionExpired: error.status === 401,
+    needsReview: error.status !== 429,
+    forbidden: error.status === 403,
+    missing: error.status === 404,
+  };
+}
