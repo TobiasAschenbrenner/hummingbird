@@ -1,6 +1,6 @@
-import { ValidatorFn } from '@angular/forms';
+import { FormBuilder, ValidatorFn } from '@angular/forms';
 
-import { CatalogEntry } from '../models/catalog.model';
+import { ArticleOptions, CatalogEntry } from '../models/catalog.model';
 import { isArticleSlug } from './article.validator';
 
 export const articleSlug: ValidatorFn = (control) =>
@@ -42,3 +42,18 @@ export function selectedTags(entries: () => CatalogEntry[]): ValidatorFn {
       : { tags: true };
   };
 }
+
+export function createArticleForm(builder: FormBuilder, options: () => ArticleOptions) {
+  return builder.nonNullable.group({
+    title: ['', articleTitle],
+    slug: ['', articleSlug],
+    description: ['', articleDescription],
+    body: ['', articleBody],
+    categoryId: [0, selectedCategory(() => options().categories)],
+    tagIds: builder.nonNullable.control<number[]>(
+      [],
+      selectedTags(() => options().tags),
+    ),
+  });
+}
+export type ArticleForm = ReturnType<typeof createArticleForm>;

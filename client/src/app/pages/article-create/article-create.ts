@@ -13,25 +13,19 @@ import { FormBuilder, ReactiveFormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { finalize } from 'rxjs';
 
-import { ArticleDetail, ArticleField, ArticleFieldErrors } from '../../models/article.model';
+import { ArticleDetail, ArticleFieldErrors } from '../../models/article.model';
 import { ArticleOptions } from '../../models/catalog.model';
 import { ArticlesApi } from '../../services/articles/articles';
 import { readPublicationError } from '../../services/articles/article-error';
 import { Auth } from '../../services/auth/auth';
 import { CatalogsApi } from '../../services/catalogs/catalogs';
-import {
-  articleBody,
-  articleDescription,
-  articleSlug,
-  articleTitle,
-  selectedCategory,
-  selectedTags,
-} from '../../validators/article-form.validator';
+import { createArticleForm } from '../../validators/article-form.validator';
+import { ArticleFields } from '../../components/article-fields/article-fields';
 import { slugFromTitle } from '../../validators/article.validator';
 
 @Component({
   selector: 'app-article-create',
-  imports: [ReactiveFormsModule, RouterLink],
+  imports: [ReactiveFormsModule, RouterLink, ArticleFields],
   templateUrl: './article-create.html',
   styleUrl: './article-create.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -49,21 +43,11 @@ export class ArticleCreate {
   protected readonly message = signal('');
   protected readonly checkArticle = signal<string | null>(null);
   protected readonly published = signal<ArticleDetail | null>(null);
-  private readonly serverFields = signal<ArticleFieldErrors>({});
+  protected readonly serverFields = signal<ArticleFieldErrors>({});
   protected readonly editorDisabled = computed(
     () => this.pending() || this.auth.pending() || this.auth.status() !== 'authenticated',
   );
-  protected readonly form = inject(FormBuilder).nonNullable.group({
-    title: ['', articleTitle],
-    slug: ['', articleSlug],
-    description: ['', articleDescription],
-    body: ['', articleBody],
-    categoryId: [0, selectedCategory(() => this.options().categories)],
-    tagIds: inject(FormBuilder).nonNullable.control<number[]>(
-      [],
-      selectedTags(() => this.options().tags),
-    ),
-  });
+  protected readonly form = createArticleForm(inject(FormBuilder), () => this.options());
 
   constructor() {
     effect(() => {
@@ -104,55 +88,6 @@ export class ArticleCreate {
   protected retrySession(): void {
     if (this.pending() || this.auth.pending() || this.auth.status() === 'checking') return;
     this.auth.restoreSession().pipe(takeUntilDestroyed(this.destroyRef)).subscribe();
-  }
-
-  protected toggleTag(id: number, event: Event): void {
-    if (
-      this.editorDisabled() ||
-      this.optionStatus() !== 'ready' ||
-      !(event.target instanceof HTMLInputElement)
-    )
-      return;
-    const control = this.form.controls.tagIds;
-    const selected = control.value.filter((value) => value !== id);
-    if (event.target.checked && selected.length < 10) selected.push(id);
-    control.setValue(selected);
-    control.markAsDirty();
-    control.markAsTouched();
-  }
-
-  protected hasUnavailableTags(): boolean {
-    return (
-      this.optionStatus() === 'ready' &&
-      this.form.controls.tagIds.value.some(
-        (id) => !this.options().tags.some((tag) => tag.id === id),
-      )
-    );
-  }
-
-  protected removeUnavailableTags(): void {
-    if (this.editorDisabled() || this.optionStatus() !== 'ready') return;
-    const control = this.form.controls.tagIds;
-    control.setValue(
-      control.value.filter((id) => this.options().tags.some((tag) => tag.id === id)),
-    );
-    control.markAsDirty();
-    control.markAsTouched();
-  }
-
-  protected fieldError(field: ArticleField): string {
-    const control = this.form.controls[field];
-    const messages: Record<ArticleField, string> = {
-      title: 'Use 1–55 characters without control characters.',
-      slug: 'Use 1–80 lowercase letters, digits and single hyphens.',
-      description: 'Use 1–250 characters without control characters.',
-      body: 'Use 1–20,000 characters. Tabs and line breaks are allowed.',
-      categoryId: 'Select an existing category.',
-      tagIds: 'Select up to 10 distinct existing tags.',
-    };
-    return (
-      this.serverFields()[field] ?? (control.touched && control.invalid ? messages[field] : '')
-    );
   }
 
   protected submit(): void {

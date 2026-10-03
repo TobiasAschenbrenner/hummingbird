@@ -2,7 +2,7 @@
 
 Express, TypeScript and Prisma API for the rewrite. Accounts, article browsing,
 publishing and editing are available; comments come later.
-The [Angular client](../client/README.md) uses accounts, reads and publishing; its editor comes next.
+The [Angular client](../client/README.md) uses all four flows.
 
 ## 🚀 Getting started
 

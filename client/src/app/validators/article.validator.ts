@@ -25,3 +25,11 @@ export function slugFromTitle(title: string): string {
     .slice(0, 80)
     .replace(/-$/, '');
 }
+
+export function isArticleVersion(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    /^[1-9][0-9]{0,18}$/.test(value) &&
+    BigInt(value) <= 9_223_372_036_854_775_807n
+  );
+}

@@ -5,6 +5,7 @@ import { Title } from '@angular/platform-browser';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
 import { BehaviorSubject } from 'rxjs';
 
+import { Auth } from '../../services/auth/auth';
 import { articleFixture } from '../../../testing/article-fixtures';
 import { ArticleDetail } from './article-detail';
 
@@ -152,5 +153,26 @@ describe('ArticleDetail', () => {
     const request = http.expectOne('/api/articles/article-1');
     fixture.destroy();
     expect(request.cancelled).toBe(true);
+  });
+
+  it('shows the edit link only for the signed-in author and preserves the list page', async () => {
+    http.expectOne('/api/articles/article-1').flush({ article: articleFixture() });
+    await fixture.whenStable();
+    expect(element.querySelector('a[href*="/edit"]')).toBeNull();
+    const auth = TestBed.inject(Auth);
+    auth.restoreSession().subscribe();
+    http
+      .expectOne('/api/auth/me')
+      .flush({ user: { id: 1, username: 'Author', email: 'author@example.test' } });
+    await fixture.whenStable();
+    expect(element.querySelector('a[href*="/edit"]')?.getAttribute('href')).toBe(
+      '/articles/article-1/edit?page=2',
+    );
+    auth.restoreSession().subscribe();
+    http
+      .expectOne('/api/auth/me')
+      .flush({ user: { id: 2, username: 'Other', email: 'other@example.test' } });
+    await fixture.whenStable();
+    expect(element.querySelector('a[href*="/edit"]')).toBeNull();
   });
 });

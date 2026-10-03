@@ -7,9 +7,10 @@ import {
   MAX_ARTICLE_PAGE,
   ArticleDetail,
   ArticleCreationInput,
+  ArticleUpdateInput,
   ArticlePage,
 } from '../../models/article.model';
-import { isArticleSlug } from '../../validators/article.validator';
+import { isArticleSlug, isArticleVersion } from '../../validators/article.validator';
 import { readArticleDetailResponse, readArticlePageResponse } from './article-response';
 
 @Injectable({ providedIn: 'root' })
@@ -35,6 +36,35 @@ export class ArticlesApi {
         .pipe(
           timeout(10_000),
           map((response) => readArticleDetailResponse(response, body.slug)),
+        );
+    });
+  }
+
+  update(slug: string, input: ArticleUpdateInput): Observable<ArticleDetail> {
+    return defer(() => {
+      if (!isArticleSlug(slug)) throw new Error('Invalid article slug.');
+      if (!isArticleVersion(input.version)) throw new Error('Invalid article version.');
+      const body: ArticleUpdateInput = {
+        title: input.title.trim(),
+        description: input.description.trim(),
+        body: input.body,
+        categoryId: input.categoryId,
+        tagIds: [...input.tagIds],
+        version: input.version,
+      };
+      return this.http
+        .put<unknown>(`/api/articles/${slug}`, body, {
+          withCredentials: true,
+          headers: { 'X-Hummingbird-Request': '1' },
+        })
+        .pipe(
+          timeout(10_000),
+          map((response) => {
+            const article = readArticleDetailResponse(response, slug);
+            if (article.version !== (BigInt(body.version) + 1n).toString())
+              throw new Error('Unexpected saved article version.');
+            return article;
+          }),
         );
     });
   }

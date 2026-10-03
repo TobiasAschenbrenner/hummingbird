@@ -18,6 +18,15 @@
       <button type="button" class="button" (click)="tryAgain()">Try again</button>
     }
     @case ('ready') {
+      @if (auth.status() === 'authenticated' && auth.user()?.id === current.article.author.id) {
+        <p>
+          <a
+            [routerLink]="['/articles', current.article.slug, 'edit']"
+            [queryParams]="listPage() > 1 ? { page: listPage() } : {}"
+            >Edit article</a
+          >
+        </p>
+      }
       <article>
         <header>
           <p class="category">{{ current.article.category.name }}</p>

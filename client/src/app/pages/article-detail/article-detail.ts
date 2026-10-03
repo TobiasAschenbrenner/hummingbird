@@ -14,6 +14,7 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { catchError, combineLatest, map, of, startWith, Subject, switchMap } from 'rxjs';
 
 import { ArticleDetail as Article } from '../../models/article.model';
+import { Auth } from '../../services/auth/auth';
 import { ArticlesApi } from '../../services/articles/articles';
 import { isArticleSlug, readArticlePage } from '../../validators/article.validator';
 
@@ -31,6 +32,7 @@ type ArticleState =
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ArticleDetail implements OnInit {
+  protected readonly auth = inject(Auth);
   private readonly api = inject(ArticlesApi);
   private readonly route = inject(ActivatedRoute);
   private readonly destroyRef = inject(DestroyRef);

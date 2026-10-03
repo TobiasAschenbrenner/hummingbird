@@ -238,4 +238,97 @@ describe('ArticlesApi', () => {
     expect(request.cancelled).toBe(true);
     http.expectNone('/api/articles');
   });
+
+  it('updates a snapshot of allowed fields with cookie credentials and an exact bigint version', async () => {
+    const input = {
+      title: '  Edited  ',
+      description: '  Summary  ',
+      body: '  Text 🐦\n\nParagraph.  ',
+      categoryId: 1,
+      tagIds: [1],
+      version: '9007199254740993',
+      slug: 'untrusted-slug',
+      authorId: 999,
+    };
+    const result = firstValueFrom(service.update('article-1', input));
+    const request = http.expectOne('/api/articles/article-1');
+    expect(request.request.method).toBe('PUT');
+    expect(request.request.withCredentials).toBe(true);
+    expect(request.request.headers.get('X-Hummingbird-Request')).toBe('1');
+    input.tagIds.push(2);
+    expect(request.request.body).toEqual({
+      title: 'Edited',
+      description: 'Summary',
+      body: input.body,
+      categoryId: 1,
+      tagIds: [1],
+      version: '9007199254740993',
+    });
+    const article = articleFixture({
+      title: 'Edited',
+      description: 'Summary',
+      body: input.body,
+      version: '9007199254740994',
+    });
+    request.flush({ article });
+    await expect(result).resolves.toEqual(article);
+  });
+  it('rejects unsafe update slugs and invalid version strings before sending a request', async () => {
+    const input = {
+      title: 'Title',
+      description: 'Summary',
+      body: 'Body',
+      categoryId: 1,
+      tagIds: [],
+      version: '1',
+    };
+    await expect(firstValueFrom(service.update('../auth/logout', input))).rejects.toThrow(
+      'Invalid article slug.',
+    );
+    for (const version of ['0', '01', '-1', '1.5', '1e3', '9223372036854775808', '9'.repeat(100)]) {
+      await expect(
+        firstValueFrom(service.update('article-1', { ...input, version })),
+      ).rejects.toThrow('Invalid article version.');
+    }
+    http.expectNone(() => true);
+  });
+  it('requires a validated update confirmation with an incremented version and preserves rejection status codes', async () => {
+    const input = {
+      title: 'Title',
+      description: 'Summary',
+      body: 'Body',
+      categoryId: 1,
+      tagIds: [],
+      version: '1',
+    };
+    const result = firstValueFrom(service.update('article-1', input));
+    const invalid = expect(result).rejects.toThrow('Unexpected saved article version.');
+    http.expectOne('/api/articles/article-1').flush({ article: articleFixture() });
+    await invalid;
+    for (const status of [401, 403, 404, 409, 429, 500]) {
+      const failed = firstValueFrom(service.update('article-1', input));
+      const assertion = expect(failed).rejects.toMatchObject({ status });
+      http.expectOne('/api/articles/article-1').flush(null, { status, statusText: 'Rejected' });
+      await assertion;
+    }
+  });
+  it('cancels a timed-out update without automatically repeating it', async () => {
+    vi.useFakeTimers();
+    const result = firstValueFrom(
+      service.update('article-1', {
+        title: 'Title',
+        description: 'Summary',
+        body: 'Body',
+        categoryId: 1,
+        tagIds: [],
+        version: '1',
+      }),
+    );
+    const rejected = expect(result).rejects.toMatchObject({ name: 'TimeoutError' });
+    const request = http.expectOne('/api/articles/article-1');
+    await vi.advanceTimersByTimeAsync(10_000);
+    await rejected;
+    expect(request.cancelled).toBe(true);
+    http.expectNone('/api/articles/article-1');
+  });
 });

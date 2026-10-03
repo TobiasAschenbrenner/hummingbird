@@ -1,6 +1,6 @@
 # Hummingbird client 🐦
 
-Angular frontend for the rewrite, with accounts, article browsing and publishing.
+Angular frontend for the rewrite, with accounts, article browsing, publishing and editing.
 Discussion comes later.
 
 ## 🚀 Run locally
@@ -46,6 +46,7 @@ The backend remains responsible for authentication and session expiry.
 - **Homepage:** newest articles first, 12 per page, with author, category, tags and comment counts.
 - **Details:** `/articles/:slug` shows the full article and a link back to the list.
 - **Write:** `/new-article` lets signed-in users publish with a category and up to 10 tags.
+- **Edit:** `/articles/:slug/edit` opens from your own article’s detail page. URLs stay unchanged.
 
 The list page stays in the URL (`/?page=2`) and is preserved when opening an
 article and returning. Direct links and refreshes work. Dates are shown in UTC;
@@ -60,7 +61,11 @@ session expires, log in in a new tab, then use **Check session** to keep writing
 After an uncertain publishing result, check the offered article URL before retrying;
 the app never automatically repeats a publishing request.
 
-Reading is public. Editing, deletion, search, filtering, comment bodies and cover
+The editor checks the article’s version when saving. A stale or uncertain save
+keeps your draft and asks you to compare the latest saved version. You can then
+use that version or keep your draft after reviewing it; neither choice saves automatically.
+
+Reading is public. Deletion, search, filtering, comment bodies and cover
 images are not implemented in the rewrite yet.
 
 ## 📁 Structure
@@ -77,8 +82,8 @@ Components keep their HTML, SCSS and tests together, as in Chirp.
 
 Requests use `/api`. During development, `proxy.conf.json` forwards them to
 `http://127.0.0.1:3000`. If you change the API port, update the proxy target and
-restart Angular. Account and publishing requests include cookies; login, logout
-and publishing send the required `X-Hummingbird-Request` header. Never put database credentials or
+restart Angular. Account and article write requests include cookies; login, logout, publishing
+and editing send the required `X-Hummingbird-Request` header. Never put database credentials or
 API secrets in frontend files.
 
 The development proxy is not part of a production build. Hosting will need to
@@ -92,7 +97,8 @@ npm run check
 
 This runs the Angular tests, checks formatting and builds the production bundle
 in `dist/hummingbird-client/browser/`. The build also checks TypeScript and templates.
-Tests cover accounts, article reads and publishing, validation, catalog changes,
+Tests cover accounts, article reads, publishing and editing, author permissions,
+conflict review, validation, catalog changes,
 pagination, navigation, safe text rendering, failures and request cancellation.
 They simulate HTTP responses and do not need a running API or database.
 

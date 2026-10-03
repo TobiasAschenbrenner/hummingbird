@@ -10,6 +10,7 @@ import { Register } from './pages/register/register';
 import { Home } from './pages/home/home';
 import { NotFound } from './pages/not-found/not-found';
 import { ArticleDetail } from './pages/article-detail/article-detail';
+import { ArticleEdit } from './pages/article-edit/article-edit';
 import { ArticleCreate } from './pages/article-create/article-create';
 import { Auth } from './services/auth/auth';
 import { articleFixture, articlePageFixture } from '../testing/article-fixtures';
@@ -110,5 +111,15 @@ describe('Application routes', () => {
     http.expectOne('/api/articles/new').flush({ article: articleFixture({ slug: 'new' }) });
     await harness.fixture.whenStable();
     expect(harness.routeNativeElement?.querySelector('.article-body')).not.toBeNull();
+  });
+
+  it('opens article editing at a direct URL without confusing it with article detail', async () => {
+    const harness = await RouterTestingHarness.create();
+    await harness.navigateByUrl('/articles/article-1/edit', ArticleEdit);
+    http.expectOne('/api/articles/article-1').flush({ article: articleFixture() });
+    await harness.fixture.whenStable();
+    expect(harness.routeNativeElement?.querySelector('h1')?.textContent).toBe('Edit article');
+    expect(document.title).toBe('Hummingbird | Edit article');
+    expect(harness.routeNativeElement?.querySelector('form')).toBeNull();
   });
 });

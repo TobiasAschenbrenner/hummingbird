@@ -22,6 +22,12 @@ export const routes: Routes = [
     title: 'Hummingbird | New article',
   },
   {
+    path: 'articles/:slug/edit',
+    loadComponent: () =>
+      import('./pages/article-edit/article-edit').then((module) => module.ArticleEdit),
+    title: 'Hummingbird | Edit article',
+  },
+  {
     path: 'articles/:slug',
     loadComponent: () =>
       import('./pages/article-detail/article-detail').then((module) => module.ArticleDetail),

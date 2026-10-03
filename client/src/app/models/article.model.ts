@@ -9,6 +9,8 @@ export interface ArticleCreationInput {
   tagIds: number[];
 }
 
+export type ArticleUpdateInput = Omit<ArticleCreationInput, 'slug'> & { version: string };
+
 export type ArticleField = keyof ArticleCreationInput;
 export type ArticleFieldErrors = Partial<Record<ArticleField, string>>;
 
