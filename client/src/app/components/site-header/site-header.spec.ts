@@ -84,4 +84,14 @@ describe('SiteHeader', () => {
     expect(element.textContent).toContain('Signed in as Author');
     expect(element.textContent).not.toContain('Session check unavailable');
   });
+
+  it('offers the editor only to signed-in users and removes it when the session expires', async () => {
+    expect(element.querySelector('a[href="/new-article"]')).toBeNull();
+    await signIn();
+    expect(element.querySelector('a[href="/new-article"]')?.textContent).toContain('New article');
+    auth.expireSession();
+    await fixture.whenStable();
+    expect(element.querySelector('a[href="/new-article"]')).toBeNull();
+    expect(element.querySelector('a[href="/login"]')).not.toBeNull();
+  });
 });

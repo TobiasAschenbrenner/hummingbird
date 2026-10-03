@@ -1,8 +1,8 @@
 # Hummingbird API 🐦
 
 Express, TypeScript and Prisma API for the rewrite. Accounts, article browsing
-and publishing are available. The Angular publishing form and comments come later.
-The [Angular client](../client/README.md) uses it for account flows and article browsing.
+and publishing are available; comments come later.
+The [Angular client](../client/README.md) uses all three flows.
 
 ## 🚀 Getting started
 
@@ -262,8 +262,8 @@ Missing/expired sessions return `401`, unsafe request headers `403`, and duplica
 slugs or concurrent relationship changes `409`. Bodies over 128 KiB return `413`;
 unsupported media types, charsets and compression return `415`. Publishing is
 limited to 20 attempts per IP per minute (`429`), independently of public reads.
-Unexpected failures return a safe `500`. Images, catalog management and the
-Angular creation form are separate steps.
+Unexpected failures return a safe `500`. The Angular creation form uses these
+routes; images and catalog management are separate steps.
 
 ## 🧪 Checks and Postman
 

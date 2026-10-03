@@ -163,4 +163,15 @@ describe('Auth', () => {
     expect(request.cancelled).toBe(true);
     expect(auth.pending()).toBe(false);
   });
+
+  it('clears an expired session and cancels an older restore without issuing another request', async () => {
+    await restoreSignedIn();
+    auth.restoreSession().subscribe();
+    const stale = http.expectOne('/api/auth/me');
+    auth.expireSession();
+    expect(stale.cancelled).toBe(true);
+    expect(auth.user()).toBeNull();
+    expect(auth.status()).toBe('anonymous');
+    http.expectNone('/api/auth/me');
+  });
 });

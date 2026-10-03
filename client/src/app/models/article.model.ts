@@ -1,3 +1,17 @@
+import { CatalogEntry } from './catalog.model';
+
+export interface ArticleCreationInput {
+  slug: string;
+  title: string;
+  description: string;
+  body: string;
+  categoryId: number;
+  tagIds: number[];
+}
+
+export type ArticleField = keyof ArticleCreationInput;
+export type ArticleFieldErrors = Partial<Record<ArticleField, string>>;
+
 export const ARTICLE_PAGE_SIZE = 12;
 export const MAX_ARTICLE_PAGE = 10_000;
 
@@ -9,8 +23,8 @@ export interface ArticleSummary {
   imageFilename: string | null;
   createdAt: string;
   author: { id: number; username: string };
-  category: { id: number; slug: string; name: string };
-  tags: { id: number; slug: string; name: string }[];
+  category: CatalogEntry;
+  tags: CatalogEntry[];
   commentCount: number;
 }
 

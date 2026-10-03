@@ -10,6 +10,8 @@ import { Register } from './pages/register/register';
 import { Home } from './pages/home/home';
 import { NotFound } from './pages/not-found/not-found';
 import { ArticleDetail } from './pages/article-detail/article-detail';
+import { ArticleCreate } from './pages/article-create/article-create';
+import { Auth } from './services/auth/auth';
 import { articleFixture, articlePageFixture } from '../testing/article-fixtures';
 
 describe('Application routes', () => {
@@ -89,5 +91,24 @@ describe('Application routes', () => {
     expect(harness.routeNativeElement?.querySelector('h1')?.textContent).toBe('Page not found');
     expect(harness.routeNativeElement?.querySelector('a')?.getAttribute('href')).toBe('/');
     expect(document.title).toBe('Hummingbird | Page not found');
+  });
+
+  it('opens the editor with a sign-in prompt at its own URL', async () => {
+    TestBed.inject(Auth).restoreSession().subscribe();
+    http.expectOne('/api/auth/me').flush(null, { status: 401, statusText: 'Unauthorized' });
+    const harness = await RouterTestingHarness.create();
+    await harness.navigateByUrl('/new-article', ArticleCreate);
+    expect(harness.routeNativeElement?.querySelector('h1')?.textContent).toBe('New article');
+    expect(document.title).toBe('Hummingbird | New article');
+    expect(harness.routeNativeElement?.querySelector('form')).toBeNull();
+    http.expectNone('/api/categories');
+  });
+
+  it('still reads an article whose slug is new rather than opening the editor', async () => {
+    const harness = await RouterTestingHarness.create();
+    await harness.navigateByUrl('/articles/new', ArticleDetail);
+    http.expectOne('/api/articles/new').flush({ article: articleFixture({ slug: 'new' }) });
+    await harness.fixture.whenStable();
+    expect(harness.routeNativeElement?.querySelector('.article-body')).not.toBeNull();
   });
 });

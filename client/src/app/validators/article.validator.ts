@@ -14,3 +14,14 @@ export function isArticleSlug(value: unknown): value is string {
     typeof value === 'string' && value.length <= 80 && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value)
   );
 }
+
+export function slugFromTitle(title: string): string {
+  return title
+    .normalize('NFKD')
+    .toLowerCase()
+    .replace(/\p{M}/gu, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 80)
+    .replace(/-$/, '');
+}

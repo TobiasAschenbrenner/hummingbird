@@ -72,6 +72,11 @@ export class Auth {
     });
   }
 
+  expireSession(): void {
+    this.cancelRestore.next();
+    this.setSession(null);
+  }
+
   register(input: RegistrationInput): Observable<User> {
     return this.runMutation(
       () =>

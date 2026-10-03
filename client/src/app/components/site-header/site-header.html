@@ -17,6 +17,9 @@
       @if (auth.status() === 'checking') {
         <span role="status">Checking session…</span>
       } @else if (auth.user(); as user) {
+        <a routerLink="/new-article" routerLinkActive="active" ariaCurrentWhenActive="page"
+          >New article</a
+        >
         <span class="username">Signed in as {{ user.username }}</span>
         <button
           type="button"

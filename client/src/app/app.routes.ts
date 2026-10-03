@@ -16,6 +16,12 @@ export const routes: Routes = [
     title: 'Hummingbird | Register',
   },
   {
+    path: 'new-article',
+    loadComponent: () =>
+      import('./pages/article-create/article-create').then((module) => module.ArticleCreate),
+    title: 'Hummingbird | New article',
+  },
+  {
     path: 'articles/:slug',
     loadComponent: () =>
       import('./pages/article-detail/article-detail').then((module) => module.ArticleDetail),

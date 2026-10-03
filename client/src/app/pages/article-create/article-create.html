@@ -1,0 +1,234 @@
+<section class="container create-page" aria-labelledby="create-heading">
+  <div class="create-card">
+    <h1 id="create-heading">New article</h1>
+    @if (published(); as article) {
+      <p class="notice" role="status">Your article was published.</p>
+      @if (message()) {
+        <p>{{ message() }}</p>
+      }
+      <a class="button" [routerLink]="['/articles', article.slug]">Read your article</a>
+    } @else {
+      <p class="intro">Share something worth reading.</p>
+      @if (auth.status() === 'checking') {
+        <p role="status">Checking your session…</p>
+      } @else if (auth.status() === 'unavailable') {
+        <p role="alert">
+          We couldn’t check your session. Your draft stays here while this page is open.
+        </p>
+        <button type="button" class="button" [disabled]="auth.pending()" (click)="retrySession()">
+          Check session
+        </button>
+      } @else if (auth.status() === 'anonymous') {
+        @if (editorOpened()) {
+          <div class="session-notice" role="alert">
+            <p>Sign in again to publish. Your draft stays here while this page is open.</p>
+            <a routerLink="/login" target="_blank" rel="noopener">Log in in a new tab</a>
+            <button
+              type="button"
+              class="button"
+              [disabled]="auth.pending()"
+              (click)="retrySession()"
+            >
+              Check session
+            </button>
+          </div>
+        } @else {
+          <p>Log in to write an article.</p>
+          <a routerLink="/login" class="button">Log in</a>
+          <p>New here? <a routerLink="/register">Create an account</a>.</p>
+        }
+      }
+      @if (editorOpened()) {
+        <p class="help">
+          Drafts are kept only on this page. Leaving or refreshing discards unpublished text.
+        </p>
+        <form [formGroup]="form" (ngSubmit)="submit()" [attr.aria-busy]="pending()">
+          <fieldset [disabled]="editorDisabled()">
+            <legend class="visually-hidden">Article details</legend>
+            <div class="field">
+              <label for="article-title">Title</label>
+              <input
+                id="article-title"
+                name="title"
+                formControlName="title"
+                maxlength="110"
+                required
+                [attr.aria-invalid]="fieldError('title') ? 'true' : null"
+                [attr.aria-describedby]="
+                  fieldError('title') ? 'title-help title-error' : 'title-help'
+                "
+              />
+              <p id="title-help" class="help">Up to 55 characters.</p>
+              @if (fieldError('title')) {
+                <p id="title-error" class="field-error">{{ fieldError('title') }}</p>
+              }
+            </div>
+            <div class="field">
+              <label for="article-slug">URL slug</label>
+              <input
+                id="article-slug"
+                name="slug"
+                formControlName="slug"
+                maxlength="80"
+                required
+                spellcheck="false"
+                [attr.aria-invalid]="fieldError('slug') ? 'true' : null"
+                [attr.aria-describedby]="fieldError('slug') ? 'slug-help slug-error' : 'slug-help'"
+              />
+              <p id="slug-help" class="help">
+                Suggested from the title until you edit it. URL: /articles/{{
+                  form.controls.slug.value
+                }}
+              </p>
+              @if (fieldError('slug')) {
+                <p id="slug-error" class="field-error">{{ fieldError('slug') }}</p>
+              }
+            </div>
+            <div class="field">
+              <label for="article-description">Description</label>
+              <textarea
+                id="article-description"
+                name="description"
+                formControlName="description"
+                rows="3"
+                maxlength="500"
+                required
+                [attr.aria-invalid]="fieldError('description') ? 'true' : null"
+                [attr.aria-describedby]="
+                  fieldError('description')
+                    ? 'description-help description-error'
+                    : 'description-help'
+                "
+              ></textarea>
+              <p id="description-help" class="help">A short summary, up to 250 characters.</p>
+              @if (fieldError('description')) {
+                <p id="description-error" class="field-error">{{ fieldError('description') }}</p>
+              }
+            </div>
+            <div class="field">
+              <label for="article-body">Article body</label>
+              <textarea
+                id="article-body"
+                name="body"
+                formControlName="body"
+                rows="12"
+                maxlength="40000"
+                required
+                [attr.aria-invalid]="fieldError('body') ? 'true' : null"
+                [attr.aria-describedby]="fieldError('body') ? 'body-help body-error' : 'body-help'"
+              ></textarea>
+              <p id="body-help" class="help">
+                Plain text, up to 20,000 characters. Paragraph breaks and tabs are preserved.
+              </p>
+              @if (fieldError('body')) {
+                <p id="body-error" class="field-error">{{ fieldError('body') }}</p>
+              }
+            </div>
+            @if (optionStatus() === 'loading') {
+              <p role="status">Loading categories and tags…</p>
+            } @else if (optionStatus() === 'error') {
+              <p role="alert">We couldn’t load categories and tags. Your text is kept here.</p>
+              <button type="button" class="button" (click)="loadOptions()">Retry options</button>
+            } @else if (optionStatus() === 'ready' && !options().categories.length) {
+              <p role="alert">
+                No categories are available. Add the default categories with the server’s seed
+                command before publishing.
+              </p>
+            }
+            <fieldset [disabled]="optionStatus() !== 'ready'">
+              <legend class="visually-hidden">Categories and tags</legend>
+              <div class="field">
+                <label for="article-category">Category</label>
+                <select
+                  id="article-category"
+                  name="categoryId"
+                  formControlName="categoryId"
+                  required
+                  [attr.aria-invalid]="fieldError('categoryId') ? 'true' : null"
+                  [attr.aria-describedby]="fieldError('categoryId') ? 'category-error' : null"
+                >
+                  <option [ngValue]="0">Select a category</option>
+                  @for (category of options().categories; track category.id) {
+                    <option [ngValue]="category.id">{{ category.name }}</option>
+                  }
+                </select>
+                @if (fieldError('categoryId')) {
+                  <p id="category-error" class="field-error">{{ fieldError('categoryId') }}</p>
+                }
+              </div>
+              <fieldset
+                class="tag-field"
+                [attr.aria-invalid]="fieldError('tagIds') ? 'true' : null"
+                [attr.aria-describedby]="
+                  fieldError('tagIds') ? 'tags-help tags-error' : 'tags-help'
+                "
+              >
+                <legend>Tags (optional)</legend>
+                <p id="tags-help" class="help">Choose up to 10 existing tags.</p>
+                <div class="tag-options">
+                  @for (tag of options().tags; track tag.id) {
+                    <label class="tag-option">
+                      <input
+                        type="checkbox"
+                        name="tagIds"
+                        [checked]="form.controls.tagIds.value.includes(tag.id)"
+                        [disabled]="
+                          form.controls.tagIds.value.length >= 10 &&
+                          !form.controls.tagIds.value.includes(tag.id)
+                        "
+                        (change)="toggleTag(tag.id, $event)"
+                      />
+                      {{ tag.name }}
+                    </label>
+                  } @empty {
+                    <p class="help">No tags available. You can publish without tags.</p>
+                  }
+                </div>
+                @if (hasUnavailableTags()) {
+                  <p class="help">Some selected tags are no longer available.</p>
+                  <button type="button" class="text-button" (click)="removeUnavailableTags()">
+                    Remove unavailable tags
+                  </button>
+                }
+                @if (fieldError('tagIds')) {
+                  <p id="tags-error" class="field-error">{{ fieldError('tagIds') }}</p>
+                }
+              </fieldset>
+            </fieldset>
+            <button
+              type="button"
+              class="text-button"
+              [disabled]="optionStatus() === 'loading'"
+              (click)="loadOptions()"
+            >
+              Refresh categories and tags
+            </button>
+            @if (message()) {
+              <p class="form-error" role="alert">{{ message() }}</p>
+            }
+            @if (checkArticle(); as slug) {
+              <p class="help">
+                Check the attempted URL without leaving this draft:
+                <a [routerLink]="['/articles', slug]" target="_blank" rel="noopener"
+                  >View article at this URL</a
+                >.
+              </p>
+            }
+            <div class="actions">
+              <button
+                type="submit"
+                class="button"
+                [disabled]="
+                  editorDisabled() || optionStatus() !== 'ready' || !options().categories.length
+                "
+              >
+                {{ pending() ? 'Publishing…' : 'Publish article' }}
+              </button>
+              <a routerLink="/">Back to articles</a>
+            </div>
+          </fieldset>
+        </form>
+      }
+    }
+  </div>
+</section>

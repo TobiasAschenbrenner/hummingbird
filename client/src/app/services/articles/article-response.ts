@@ -5,6 +5,7 @@ import {
   ArticleSummary,
 } from '../../models/article.model';
 import { isArticleSlug } from '../../validators/article.validator';
+import { readCatalogEntry } from '../catalogs/catalog-response';
 
 type RecordValue = Record<string, unknown>;
 
@@ -33,11 +34,6 @@ function slug(value: unknown): string {
   return value;
 }
 
-function taxonomy(value: unknown): ArticleSummary['category'] {
-  const data = record(value);
-  return { id: integer(data['id']), slug: slug(data['slug']), name: text(data['name']) };
-}
-
 function summary(value: unknown): ArticleSummary {
   const data = record(value);
   const author = record(data['author']);
@@ -50,7 +46,7 @@ function summary(value: unknown): ArticleSummary {
   const imageFilename = data['imageFilename'];
   if (imageFilename !== null && typeof imageFilename !== 'string') invalidResponse();
   if (!Array.isArray(data['tags'])) invalidResponse();
-  const tags = data['tags'].map(taxonomy);
+  const tags = data['tags'].map(readCatalogEntry);
   if (new Set(tags.map((tag) => tag.id)).size !== tags.length) invalidResponse();
   return {
     id: integer(data['id']),
@@ -60,7 +56,7 @@ function summary(value: unknown): ArticleSummary {
     imageFilename,
     createdAt,
     author: { id: integer(author['id']), username: text(author['username']) },
-    category: taxonomy(data['category']),
+    category: readCatalogEntry(data['category']),
     tags,
     commentCount: integer(data['commentCount'], 0),
   };

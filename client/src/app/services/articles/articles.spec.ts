@@ -145,4 +145,97 @@ describe('ArticlesApi', () => {
     await Promise.all(assertions);
     expect(requests.every((request) => request.cancelled)).toBe(true);
   });
+
+  it('publishes a snapshot of allowed fields with cookie credentials and the required header', async () => {
+    const input = {
+      slug: 'my-article',
+      title: '  My article  ',
+      description: '  A summary.  ',
+      body: '  Unicode 🐦\n\nSecond paragraph.  ',
+      categoryId: 1,
+      tagIds: [1],
+      authorId: 999,
+      version: '999',
+    };
+    const result = firstValueFrom(service.publish(input));
+    const request = http.expectOne('/api/articles');
+    expect(request.request.method).toBe('POST');
+    expect(request.request.withCredentials).toBe(true);
+    expect(request.request.headers.get('X-Hummingbird-Request')).toBe('1');
+    input.tagIds.push(2);
+    expect(request.request.body).toEqual({
+      slug: input.slug,
+      title: 'My article',
+      description: 'A summary.',
+      body: input.body,
+      categoryId: 1,
+      tagIds: [1],
+    });
+    const article = articleFixture({
+      slug: input.slug,
+      title: 'My article',
+      description: 'A summary.',
+      body: input.body,
+      commentCount: 0,
+    });
+    request.flush({ article });
+    await expect(result).resolves.toEqual(article);
+  });
+
+  it('rejects unsafe publication slugs before issuing any HTTP request', async () => {
+    await expect(
+      firstValueFrom(
+        service.publish({
+          slug: '../auth/logout',
+          title: 'Title',
+          description: 'Description',
+          body: 'Body',
+          categoryId: 1,
+          tagIds: [],
+        }),
+      ),
+    ).rejects.toThrow('Invalid article slug.');
+    http.expectNone('/api/articles');
+  });
+
+  it('rejects malformed publication confirmations and preserves API rejection status codes', async () => {
+    const input = {
+      slug: 'my-article',
+      title: 'Title',
+      description: 'Description',
+      body: 'Body',
+      categoryId: 1,
+      tagIds: [],
+    };
+    const invalid = firstValueFrom(service.publish(input));
+    const rejected = expect(invalid).rejects.toThrow('Unexpected article API response.');
+    http.expectOne('/api/articles').flush({ article: articleFixture({ slug: 'wrong-article' }) });
+    await rejected;
+    for (const status of [400, 401, 409, 413, 429, 500]) {
+      const result = firstValueFrom(service.publish(input));
+      const failure = expect(result).rejects.toMatchObject({ status });
+      http.expectOne('/api/articles').flush(null, { status, statusText: 'Rejected' });
+      await failure;
+    }
+  });
+
+  it('bounds publication time without automatically retrying a write', async () => {
+    vi.useFakeTimers();
+    const result = firstValueFrom(
+      service.publish({
+        slug: 'my-article',
+        title: 'Title',
+        description: 'Description',
+        body: 'Body',
+        categoryId: 1,
+        tagIds: [],
+      }),
+    );
+    const rejected = expect(result).rejects.toMatchObject({ name: 'TimeoutError' });
+    const request = http.expectOne('/api/articles');
+    await vi.advanceTimersByTimeAsync(10_000);
+    await rejected;
+    expect(request.cancelled).toBe(true);
+    http.expectNone('/api/articles');
+  });
 });

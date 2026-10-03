@@ -6,6 +6,7 @@ import {
   ARTICLE_PAGE_SIZE,
   MAX_ARTICLE_PAGE,
   ArticleDetail,
+  ArticleCreationInput,
   ArticlePage,
 } from '../../models/article.model';
 import { isArticleSlug } from '../../validators/article.validator';
@@ -14,6 +15,29 @@ import { readArticleDetailResponse, readArticlePageResponse } from './article-re
 @Injectable({ providedIn: 'root' })
 export class ArticlesApi {
   private readonly http = inject(HttpClient);
+
+  publish(input: ArticleCreationInput): Observable<ArticleDetail> {
+    return defer(() => {
+      if (!isArticleSlug(input.slug)) throw new Error('Invalid article slug.');
+      const body: ArticleCreationInput = {
+        slug: input.slug,
+        title: input.title.trim(),
+        description: input.description.trim(),
+        body: input.body,
+        categoryId: input.categoryId,
+        tagIds: [...input.tagIds],
+      };
+      return this.http
+        .post<unknown>('/api/articles', body, {
+          withCredentials: true,
+          headers: { 'X-Hummingbird-Request': '1' },
+        })
+        .pipe(
+          timeout(10_000),
+          map((response) => readArticleDetailResponse(response, body.slug)),
+        );
+    });
+  }
 
   list(page: number): Observable<ArticlePage> {
     return defer(() => {

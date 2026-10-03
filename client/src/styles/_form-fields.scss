@@ -1,0 +1,62 @@
+.help {
+  color: var(--text-muted);
+}
+fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.field {
+  margin-block: 1.25rem;
+  label {
+    display: block;
+    margin-bottom: 0.35rem;
+    font-weight: 600;
+  }
+  input,
+  select,
+  textarea {
+    width: 100%;
+    padding: 0.65rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--background);
+    color: var(--text);
+    font: inherit;
+    font-weight: 400;
+    cursor: auto;
+  }
+  [aria-invalid='true'] {
+    border-color: #a32323;
+  }
+  p {
+    margin-block: 0.35rem 0;
+    font-size: 0.875rem;
+  }
+}
+.field-error,
+.form-error {
+  color: #a32323;
+}
+.form-error {
+  padding: 0.75rem;
+  background: #fff3f3;
+  border-radius: 4px;
+  overflow-wrap: anywhere;
+}
+.notice {
+  padding: 0.75rem;
+  border-radius: 4px;
+  color: #17603e;
+  background: #edf8f1;
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
