@@ -5,10 +5,11 @@ import { fileURLToPath } from 'node:url';
 import { once } from 'node:events';
 import type { Server } from 'node:http';
 import { verify } from 'argon2';
-import { after, before, beforeEach, test } from 'node:test';
+import { after, afterEach, before, beforeEach, test } from 'node:test';
 
 import { createApp } from '../../src/app.ts';
 import { createArticleQueries } from '../../src/queries/article.queries.ts';
+import { createCatalogQueries } from '../../src/queries/catalog.queries.ts';
 import { createSessionQueries } from '../../src/queries/session.queries.ts';
 import { createAuthenticationService } from '../../src/services/authentication.service.ts';
 import { createUserQueries } from '../../src/queries/user.queries.ts';
@@ -51,8 +52,12 @@ before(async () => {
   >`SELECT current_database() AS name`;
   assert.equal(connection?.name, decodeURIComponent(new URL(connectionString).pathname.slice(1)));
   databaseVerified = true;
+});
+
+async function startServer() {
   server = createApp({
     articles: createArticleQueries(database),
+    catalogs: createCatalogQueries(database),
     registerUser: createRegistrationService(createUserQueries(database)),
     authentication: createAuthenticationService(
       createUserQueries(database),
@@ -63,7 +68,7 @@ before(async () => {
   const address = server.address();
   assert.ok(address && typeof address !== 'string');
   baseUrl = `http://127.0.0.1:${address.port}`;
-});
+}
 
 async function clearDatabase() {
   assert.ok(databaseVerified, 'Refusing to clear an unverified database.');
@@ -71,13 +76,18 @@ async function clearDatabase() {
     public.articles, public.tags, public.categories, public.users RESTART IDENTITY CASCADE`;
 }
 
-beforeEach(clearDatabase);
-after(async () => {
+beforeEach(async () => {
+  await clearDatabase();
+  await startServer();
+});
+afterEach(async () => {
   if (server?.listening) {
     await new Promise<void>((resolve, reject) => {
       server!.close((error) => (error ? reject(error) : resolve()));
     });
   }
+});
+after(async () => {
   if (database) {
     try {
       if (databaseVerified) {
@@ -986,4 +996,258 @@ test('article reads reflect edited relations, comment deletion and article delet
   const listing = await fetch(`${baseUrl}/api/articles`);
   assert.equal(listing.status, 200);
   assert.equal((await listing.json()).pagination.total, 0);
+});
+
+async function publicationContext() {
+  const user = await registerForLogin();
+  await seedDatabase(database, { demo: false });
+  const category = await database.category.findUniqueOrThrow({ where: { slug: 'tech' } });
+  const tags = [];
+  for (const [slug, name] of [
+    ['zulu', 'Zulu'],
+    ['alpha', 'Alpha'],
+  ] as const) {
+    tags.push(await database.tag.create({ data: { slug, name } }));
+  }
+  const login = await signIn();
+  assert.equal(login.status, 200);
+  await login.arrayBuffer();
+  const { cookie } = responseSession(login);
+  const input = {
+    slug: 'published-article',
+    title: 'Published article',
+    description: 'A useful introduction.',
+    body: 'First paragraph.\n\nSecond paragraph.',
+    categoryId: category.id,
+    tagIds: tags.map((tag) => tag.id),
+  };
+  return { user, category, tags, cookie, input };
+}
+function publishArticle(cookie: string, body: unknown) {
+  return fetch(`${baseUrl}/api/articles`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Hummingbird-Request': '1', Cookie: cookie },
+    body: JSON.stringify(body),
+  });
+}
+
+test('catalog routes read empty lists and stable alphabetical category and tag options without writes', async () => {
+  for (const key of ['categories', 'tags']) {
+    const empty = await fetch(`${baseUrl}/api/${key}`);
+    assert.equal(empty.status, 200);
+    assert.deepEqual(await empty.json(), { [key]: [] });
+  }
+  await seedDatabase(database, { demo: true });
+  const duplicateName = await database.tag.create({
+    data: { slug: 'another-databases', name: 'Databases' },
+  });
+  const before = await readSeedSnapshot();
+  const categories = await fetch(`${baseUrl}/api/categories`);
+  assert.deepEqual(
+    (await categories.json()).categories.map((item: { name: string }) => item.name),
+    ['Design', 'Mobile', 'Tech'],
+  );
+  const tags = await fetch(`${baseUrl}/api/tags`);
+  const result = (await tags.json()).tags;
+  const firstDatabases = await database.tag.findUniqueOrThrow({ where: { slug: 'databases' } });
+  assert.deepEqual(result.map((item: { id: number }) => item.id).slice(0, 2), [
+    firstDatabases.id,
+    duplicateName.id,
+  ]);
+  assert.deepEqual(
+    result.map((item: { name: string }) => item.name),
+    ['Databases', 'Databases', 'User Experience', 'Web Development'],
+  );
+  assert.deepEqual(await readSeedSnapshot(), before);
+});
+
+test('publishing persists the signed-in author, category and shared tags and returns readable detail', async () => {
+  const { user, category, tags, cookie, input } = await publicationContext();
+  const before = Date.now();
+  const response = await publishArticle(cookie, input);
+  assert.equal(response.status, 201);
+  assert.equal(response.headers.get('location'), '/api/articles/published-article');
+  const article = (await response.json()).article;
+  assert.deepEqual(article.author, { id: user.id, username: user.username });
+  assert.deepEqual(article.category, category);
+  assert.deepEqual(article.tags, [tags[1], tags[0]]);
+  assert.equal(article.body, input.body);
+  assert.equal(article.imageFilename, null);
+  assert.equal(article.version, '1');
+  assert.equal(article.commentCount, 0);
+  assert.ok(
+    Date.parse(article.createdAt) >= before - 1 && Date.parse(article.createdAt) <= Date.now(),
+  );
+  const stored = await database.article.findUniqueOrThrow({
+    where: { slug: input.slug },
+    include: { tags: true },
+  });
+  assert.equal(stored.authorId, user.id);
+  assert.equal(stored.categoryId, category.id);
+  assert.equal(stored.tags.length, 2);
+  assert.equal(await database.tag.count(), 2);
+  const detail = await fetch(`${baseUrl}${response.headers.get('location')}`);
+  assert.deepEqual(await detail.json(), { article });
+  const list = await fetch(`${baseUrl}/api/articles`);
+  const { body: _body, version: _version, ...summary } = article;
+  assert.deepEqual((await list.json()).articles, [summary]);
+});
+
+test('publishing preserves Unicode boundary lengths and whitespace and permits articles without tags', async () => {
+  const { cookie, input } = await publicationContext();
+  const { tagIds: _tags, ...withoutTags } = input;
+  const body = '  🐦\n\n' + 'x'.repeat(19_993) + '\t ';
+  assert.equal([...body].length, 20_000);
+  const response = await publishArticle(cookie, {
+    ...withoutTags,
+    slug: 'a'.repeat(80),
+    title: '  ' + '🐦'.repeat(55) + '  ',
+    description: '  ' + '🐦'.repeat(250) + '  ',
+    body,
+  });
+  assert.equal(response.status, 201);
+  const article = (await response.json()).article;
+  assert.equal([...article.title].length, 55);
+  assert.equal([...article.description].length, 250);
+  assert.equal(article.body, body);
+  assert.deepEqual(article.tags, []);
+  assert.equal(await database.articleTag.count(), 0);
+});
+
+test('nonexistent categories and tags return field errors without inserting articles or catalog entries', async () => {
+  const { cookie, input } = await publicationContext();
+  for (const [fields, expected] of [
+    [{ categoryId: 99999 }, ['categoryId']],
+    [{ tagIds: [input.tagIds[0], 99999] }, ['tagIds']],
+    [{ categoryId: 99999, tagIds: [99999] }, ['categoryId', 'tagIds']],
+  ] as const) {
+    const response = await publishArticle(cookie, { ...input, ...fields });
+    assert.equal(response.status, 400);
+    assert.deepEqual(Object.keys((await response.json()).error.fields).sort(), [...expected]);
+  }
+  assert.equal(await database.article.count(), 0);
+  assert.equal(await database.articleTag.count(), 0);
+  assert.equal(await database.category.count(), 3);
+  assert.equal(await database.tag.count(), 2);
+});
+
+test('expired, forged, duplicate and revoked sessions cannot publish or create tag links', async () => {
+  const { user, cookie, input } = await publicationContext();
+  const token = 'e'.repeat(43);
+  await database.session.create({
+    data: {
+      tokenHash: createHash('sha256').update(token).digest('hex'),
+      userId: user.id,
+      createdAt: new Date(Date.now() - 2000),
+      expiresAt: new Date(Date.now() - 1000),
+    },
+  });
+  const logout = await fetch(`${baseUrl}/api/auth/logout`, {
+    method: 'POST',
+    headers: { 'X-Hummingbird-Request': '1', Cookie: cookie },
+  });
+  assert.equal(logout.status, 204);
+  for (const invalid of [
+    '',
+    cookie,
+    `hummingbird_session=${token}`,
+    `hummingbird_session=${'f'.repeat(43)}`,
+    `${cookie}; ${cookie}`,
+  ]) {
+    const response = await publishArticle(invalid, input);
+    assert.equal(response.status, 401);
+    await response.arrayBuffer();
+  }
+  assert.equal(await database.article.count(), 0);
+  assert.equal(await database.articleTag.count(), 0);
+});
+
+test('client-provided author IDs are rejected instead of transferring ownership to another user', async () => {
+  const { cookie, input } = await publicationContext();
+  const other = await database.user.create({
+    data: {
+      username: 'Other author',
+      email: 'other@example.test',
+      passwordHash: 'disabled-test-account',
+    },
+  });
+  const response = await publishArticle(cookie, { ...input, authorId: other.id });
+  assert.equal(response.status, 400);
+  await response.arrayBuffer();
+  assert.equal(await database.article.count(), 0);
+});
+
+test('duplicate slugs preserve the original article and links, including concurrent publication', async () => {
+  const { cookie, input } = await publicationContext();
+  const responses = await Promise.all([
+    publishArticle(cookie, input),
+    publishArticle(cookie, { ...input, title: 'Conflicting title' }),
+  ]);
+  assert.deepEqual(responses.map((response) => response.status).sort(), [201, 409]);
+  const created = await responses.find((response) => response.status === 201)!.json();
+  const conflict = await responses.find((response) => response.status === 409)!.json();
+  assert.ok(conflict.error.fields.slug);
+  const duplicate = await publishArticle(cookie, { ...input, body: 'Changed body.', tagIds: [] });
+  assert.equal(duplicate.status, 409);
+  await duplicate.arrayBuffer();
+  assert.equal(await database.article.count(), 1);
+  assert.equal(await database.articleTag.count(), 2);
+  const stored = await database.article.findUniqueOrThrow({ where: { slug: input.slug } });
+  assert.equal(stored.title, created.article.title);
+  assert.equal(stored.body, input.body);
+});
+
+test('a tag-link insert failure rolls back the article insert and all links, allowing a later retry', async () => {
+  const { cookie, input } = await publicationContext();
+  await database.$executeRaw`ALTER TABLE article_tags ADD CONSTRAINT publishing_test_reject_tag CHECK (false) NOT VALID`;
+  try {
+    const failed = await publishArticle(cookie, input);
+    assert.equal(failed.status, 500);
+    assert.deepEqual(await failed.json(), {
+      error: { message: 'Unable to process the request. Try again later.' },
+    });
+    assert.equal(await database.article.count(), 0);
+    assert.equal(await database.articleTag.count(), 0);
+    assert.equal(await database.tag.count(), 2);
+    assert.equal(await database.user.count(), 1);
+  } finally {
+    await database.$executeRaw`ALTER TABLE article_tags DROP CONSTRAINT publishing_test_reject_tag`;
+  }
+  const retried = await publishArticle(cookie, input);
+  assert.equal(retried.status, 201);
+  await retried.arrayBuffer();
+  assert.equal(await database.article.count(), 1);
+  assert.equal(await database.articleTag.count(), 2);
+});
+
+test('foreign-key failures return a safe relationship conflict without a partial article', async () => {
+  const { input } = await publicationContext();
+  await assert.rejects(
+    createArticleQueries(database).createArticle({ ...input, authorId: 99999 }),
+    {
+      status: 409,
+      message: 'Selected article relationships changed. Reload the options and try again.',
+    },
+  );
+  assert.equal(await database.article.count(), 0);
+  assert.equal(await database.articleTag.count(), 0);
+});
+
+test('unrelated uniqueness failures are not mislabeled as duplicate article slugs', async () => {
+  const { cookie, input } = await publicationContext();
+  const first = await publishArticle(cookie, input);
+  assert.equal(first.status, 201);
+  await first.arrayBuffer();
+  await database.$executeRaw`ALTER TABLE articles ADD CONSTRAINT publishing_test_unique_title UNIQUE (title)`;
+  try {
+    const response = await publishArticle(cookie, { ...input, slug: 'another-slug' });
+    assert.equal(response.status, 500);
+    assert.deepEqual(await response.json(), {
+      error: { message: 'Unable to process the request. Try again later.' },
+    });
+    assert.equal(await database.article.count(), 1);
+    assert.equal(await database.articleTag.count(), 2);
+  } finally {
+    await database.$executeRaw`ALTER TABLE articles DROP CONSTRAINT publishing_test_unique_title`;
+  }
 });

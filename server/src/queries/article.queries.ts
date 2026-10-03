@@ -1,5 +1,6 @@
 import { Prisma, type PrismaClient } from '../generated/prisma/client.ts';
-import type { ArticleQueries, ArticleSummary } from '../models/article.model.ts';
+import { HttpError } from '../errors/http-error.ts';
+import type { ArticleDetail, ArticleQueries, ArticleSummary } from '../models/article.model.ts';
 
 const summarySelect = {
   id: true,
@@ -16,6 +17,27 @@ const summarySelect = {
   },
   _count: { select: { comments: true } },
 } satisfies Prisma.ArticleSelect;
+
+const detailSelect = { ...summarySelect, body: true, version: true } satisfies Prisma.ArticleSelect;
+
+type DetailRecord = Prisma.ArticleGetPayload<{ select: typeof detailSelect }>;
+
+function toDetail(article: DetailRecord): ArticleDetail {
+  return { ...toSummary(article), body: article.body, version: article.version.toString() };
+}
+
+function isSlugConstraint(error: Prisma.PrismaClientKnownRequestError): boolean {
+  const adapterError = error.meta?.driverAdapterError;
+  const cause = adapterError instanceof Error ? adapterError.cause : undefined;
+  if (!cause || typeof cause !== 'object' || !('constraint' in cause)) return false;
+  const constraint = cause.constraint;
+  return (
+    !!constraint &&
+    typeof constraint === 'object' &&
+    'index' in constraint &&
+    constraint.index === 'articles_slug_key'
+  );
+}
 
 type SummaryRecord = Prisma.ArticleGetPayload<{ select: typeof summarySelect }>;
 
@@ -36,6 +58,48 @@ function toSummary(article: SummaryRecord): ArticleSummary {
 
 export function createArticleQueries(database: PrismaClient): ArticleQueries {
   return {
+    async createArticle({ tagIds, ...input }) {
+      try {
+        return await database.$transaction(async (transaction) => {
+          const category = await transaction.category.findUnique({
+            where: { id: input.categoryId },
+            select: { id: true },
+          });
+          const tagCount = await transaction.tag.count({ where: { id: { in: tagIds } } });
+          const fields: Record<string, string> = {};
+          if (!category) fields.categoryId = 'Select an existing category.';
+          if (tagCount !== tagIds.length) fields.tagIds = 'Select existing tags.';
+          if (Object.keys(fields).length)
+            throw new HttpError(400, 'Please check your article details.', fields);
+          const article = await transaction.article.create({ data: input, select: { id: true } });
+          if (tagIds.length) {
+            await transaction.articleTag.createMany({
+              data: tagIds.map((tagId) => ({ articleId: article.id, tagId })),
+            });
+          }
+          const saved = await transaction.article.findUniqueOrThrow({
+            where: { id: article.id },
+            select: detailSelect,
+          });
+          return toDetail(saved);
+        });
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError) {
+          if (error.code === 'P2002' && isSlugConstraint(error)) {
+            throw new HttpError(409, 'An article with this slug already exists.', {
+              slug: 'Choose another article slug.',
+            });
+          }
+          if (error.code === 'P2003') {
+            throw new HttpError(
+              409,
+              'Selected article relationships changed. Reload the options and try again.',
+            );
+          }
+        }
+        throw error;
+      }
+    },
     async listArticles({ page, pageSize }) {
       // Keep the page and its total on the same snapshot while other users publish.
       const { articles, total } = await database.$transaction(
@@ -59,10 +123,10 @@ export function createArticleQueries(database: PrismaClient): ArticleQueries {
     async findArticleBySlug(slug) {
       const article = await database.article.findUnique({
         where: { slug },
-        select: { ...summarySelect, body: true, version: true },
+        select: detailSelect,
       });
       if (!article) return null;
-      return { ...toSummary(article), body: article.body, version: article.version.toString() };
+      return toDetail(article);
     },
   };
 }

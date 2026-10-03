@@ -5,7 +5,7 @@ import { HttpError } from '../errors/http-error.ts';
 
 const bodyErrors: Record<string, { status: number; message: string }> = {
   'entity.parse.failed': { status: 400, message: 'Send a valid JSON object.' },
-  'entity.too.large': { status: 413, message: 'Request body exceeds the 16 KiB limit.' },
+  'entity.too.large': { status: 413, message: 'Request body exceeds the allowed size.' },
   'encoding.unsupported': { status: 415, message: 'Compressed request bodies are not supported.' },
   'charset.unsupported': { status: 415, message: 'Use UTF-8 JSON.' },
   'request.aborted': { status: 400, message: 'Request was interrupted.' },

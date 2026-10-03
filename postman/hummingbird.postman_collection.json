@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Hummingbird API",
-    "description": "Local requests for the Angular/Express rewrite: accounts and public article reads. Run account requests in order with the cookie jar enabled. Account requests write to the configured rewrite database; article requests are read-only.",
+    "description": "Local requests for the Angular/Express rewrite: accounts, public article reads and authenticated publishing. Seed categories first and run in order with the cookie jar enabled. Registration and publishing write to the configured rewrite database; the collection does not remove created accounts or articles.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -27,6 +27,26 @@
     },
     {
       "key": "articleSlug",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "registeredUserId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "articleCategoryId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "articleTagIds",
+      "value": "[]",
+      "type": "string"
+    },
+    {
+      "key": "newArticleSlug",
       "value": "",
       "type": "string"
     }
@@ -100,7 +120,8 @@
               "  pm.expect(user.id).to.be.a('number');",
               "  pm.expect(user.email).to.eql(pm.collectionVariables.get('registrationEmail'));",
               "  pm.expect(user.username).to.eql(pm.variables.get('registrationUsername'));",
-              "});"
+              "});",
+              "if (pm.response.code === 201) pm.collectionVariables.set('registeredUserId', pm.response.json().user.id);"
             ]
           }
         }
@@ -285,6 +306,202 @@
       ]
     },
     {
+      "name": "Category options",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/categories",
+        "description": "Public read. Saves the first category ID for publishing; run npm run db:seed if the catalog is empty."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Category options contain only public catalog fields', function () {",
+              "  pm.response.to.have.status(200);",
+              "  pm.expect(pm.response.json().categories).to.be.an('array');",
+              "  pm.response.json().categories.forEach(function (item) { pm.expect(Object.keys(item).sort()).to.eql(['id', 'name', 'slug']); });",
+              "});",
+              "const first = pm.response.json().categories[0];",
+              "pm.collectionVariables.set('articleCategoryId', first ? first.id : '');"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Tag options",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/tags",
+        "description": "Public read. Selects at most two existing tags; an empty tag catalog is valid."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Tag options contain only public catalog fields', function () {",
+              "  pm.response.to.have.status(200);",
+              "  pm.expect(pm.response.json().tags).to.be.an('array');",
+              "  pm.response.json().tags.forEach(function (item) { pm.expect(Object.keys(item).sort()).to.eql(['id', 'name', 'slug']); });",
+              "});",
+              "pm.collectionVariables.set('articleTagIds', JSON.stringify(pm.response.json().tags.slice(0, 2).map(function (tag) { return tag.id; })));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Create article",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Hummingbird-Request",
+            "value": "1"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/articles",
+        "description": "Writes a real article and tag links owned by the signed-in account. Run Login and catalog options first. Generates a new slug on each run.",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"slug\": \"{{newArticleSlug}}\",\n  \"title\": \"Publishing from Postman\",\n  \"description\": \"An article created through the authenticated API.\",\n  \"body\": \"First paragraph.\\n\\nSecond paragraph.\",\n  \"categoryId\": {{articleCategoryId}},\n  \"tagIds\": {{articleTagIds}}\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "if (!Number(pm.collectionVariables.get('articleCategoryId'))) throw new Error('Seed categories and run Category options first.');",
+              "pm.collectionVariables.set('newArticleSlug', 'postman-' + pm.variables.replaceIn('{{$guid}}'));"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Published article belongs to the signed-in account', function () {",
+              "  pm.response.to.have.status(201);",
+              "  const article = pm.response.json().article;",
+              "  pm.expect(article.slug).to.eql(pm.collectionVariables.get('newArticleSlug'));",
+              "  pm.expect(article.author.id).to.eql(Number(pm.collectionVariables.get('registeredUserId')));",
+              "  pm.expect(Object.keys(article.author).sort()).to.eql(['id', 'username']);",
+              "  pm.expect(article.category.id).to.eql(Number(pm.collectionVariables.get('articleCategoryId')));",
+              "  pm.expect(article.tags.map(function (tag) { return tag.id; }).sort()).to.eql(JSON.parse(pm.collectionVariables.get('articleTagIds')).sort());",
+              "  pm.expect(article.version).to.eql('1');",
+              "  pm.expect(article.commentCount).to.eql(0);",
+              "  pm.expect(article.imageFilename).to.eql(null);",
+              "  pm.expect(pm.response.headers.get('Location')).to.eql('/api/articles/' + article.slug);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Duplicate article slug",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Hummingbird-Request",
+            "value": "1"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/articles",
+        "description": "Run Create article first. Must reject the same slug without changing the stored article.",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"slug\": \"{{newArticleSlug}}\",\n  \"title\": \"Publishing from Postman\",\n  \"description\": \"An article created through the authenticated API.\",\n  \"body\": \"This must not replace the existing article.\",\n  \"categoryId\": {{articleCategoryId}},\n  \"tagIds\": {{articleTagIds}}\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "if (!pm.collectionVariables.get('newArticleSlug')) throw new Error('Run Create article first.');"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Duplicate slug rejected without replacing the article', function () {",
+              "  pm.response.to.have.status(409);",
+              "  pm.expect(pm.response.json().error.fields.slug).to.be.a('string');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Created article detail",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/articles/{{newArticleSlug}}",
+        "description": "Public read of the newly published article. Confirms the duplicate request did not alter it."
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "if (!pm.collectionVariables.get('newArticleSlug')) throw new Error('Run Create article first.');"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Published article is readable and unchanged', function () {",
+              "  pm.response.to.have.status(200);",
+              "  const article = pm.response.json().article;",
+              "  pm.expect(article.slug).to.eql(pm.collectionVariables.get('newArticleSlug'));",
+              "  pm.expect(article.body).to.eql('First paragraph.\\n\\nSecond paragraph.');",
+              "  pm.expect(article.version).to.eql('1');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
       "name": "Logout",
       "request": {
         "method": "POST",
@@ -326,6 +543,47 @@
             "type": "text/javascript",
             "exec": [
               "pm.test('Logged-out request cannot authenticate', function () {",
+              "  pm.response.to.have.status(401);",
+              "  pm.expect(pm.response.json()).to.eql({ error: { message: 'Please sign in.' } });",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Publishing after logout",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Hummingbird-Request",
+            "value": "1"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/articles",
+        "description": "Run Logout first. A revoked session must not be able to publish, even if the input is valid.",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"slug\": \"{{newArticleSlug}}\",\n  \"title\": \"Publishing from Postman\",\n  \"description\": \"An article created through the authenticated API.\",\n  \"body\": \"First paragraph.\\n\\nSecond paragraph.\",\n  \"categoryId\": {{articleCategoryId}},\n  \"tagIds\": {{articleTagIds}}\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Publishing requires a current session', function () {",
               "  pm.response.to.have.status(401);",
               "  pm.expect(pm.response.json()).to.eql({ error: { message: 'Please sign in.' } });",
               "});"

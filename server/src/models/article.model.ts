@@ -1,3 +1,18 @@
+import type { CatalogEntry } from './catalog.model.ts';
+
+export interface ArticleCreationInput {
+  slug: string;
+  title: string;
+  description: string;
+  body: string;
+  categoryId: number;
+  tagIds: number[];
+}
+
+export interface CreateArticleInput extends ArticleCreationInput {
+  authorId: number;
+}
+
 export interface ArticlePageInput {
   page: number;
   pageSize: number;
@@ -11,8 +26,8 @@ export interface ArticleSummary {
   imageFilename: string | null;
   createdAt: string;
   author: { id: number; username: string };
-  category: { id: number; slug: string; name: string };
-  tags: { id: number; slug: string; name: string }[];
+  category: CatalogEntry;
+  tags: CatalogEntry[];
   commentCount: number;
 }
 
@@ -27,6 +42,7 @@ export interface ArticlePage {
 }
 
 export interface ArticleQueries {
+  createArticle(input: CreateArticleInput): Promise<ArticleDetail>;
   listArticles(input: ArticlePageInput): Promise<ArticlePage>;
   findArticleBySlug(slug: string): Promise<ArticleDetail | null>;
 }

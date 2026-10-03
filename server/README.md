@@ -1,7 +1,7 @@
 # Hummingbird API 🐦
 
-Express, TypeScript and Prisma API for the rewrite. Accounts, article listing
-and article details are available; publishing and comments come later.
+Express, TypeScript and Prisma API for the rewrite. Accounts, article browsing
+and publishing are available. The Angular publishing form and comments come later.
 The [Angular client](../client/README.md) uses it for account flows and article browsing.
 
 ## 🚀 Getting started
@@ -222,8 +222,48 @@ article bodies as text, not as trusted HTML.
 Slugs use 1–80 lowercase letters/digits separated by single hyphens. A valid
 missing slug returns `404`; invalid slugs or pagination return `400`. Database
 failures return the same safe `500` error as other API routes. Responses are not
-cached. Search, category/tag filters, publishing and comment routes are not yet
-implemented; unsupported list query parameters return `400`.
+cached. Search, category/tag filters, editing, deletion and comment routes are not
+yet implemented; unsupported list query parameters return `400`.
+
+## ✍️ Publish articles
+
+`GET /api/categories` and `GET /api/tags` return public `{ "categories": [...] }`
+and `{ "tags": [...] }` options with ID, slug and name, sorted by name then ID.
+Empty catalogs return empty arrays. Run `npm run db:seed` for categories;
+optional demo seeding also adds tags. These routes do not create catalog entries.
+
+`POST /api/articles` requires a valid session cookie, `X-Hummingbird-Request: 1`
+and UTF-8 `application/json` (at most 128 KiB). Use IDs from the catalog routes:
+
+```json
+{
+  "slug": "learning-relational-databases",
+  "title": "Learning relational databases",
+  "description": "Tables, keys and shared tags in a blog.",
+  "body": "First paragraph.\n\nSecond paragraph.",
+  "categoryId": 1,
+  "tagIds": [1, 2]
+}
+```
+
+Titles use 1–55 characters, descriptions 1–250 and bodies 1–20,000, counting
+Unicode characters. Title and description are trimmed; body whitespace is preserved.
+Blank text, malformed Unicode and control characters are rejected; bodies allow
+line breaks and tabs. Slugs follow the read-route rules. One existing category
+is required; `tagIds` may be omitted or contain up to ten distinct existing IDs.
+
+The author comes from the session. Article IDs, versions, timestamps and image
+filenames cannot be supplied by the client. The article and its tag links commit in one
+transaction; any failure rolls them all back. `201` returns `{ "article": { ... } }`
+in the detail format and a `Location` header pointing to its API URL.
+
+Invalid fields or missing catalog entries return `400` with `error.fields`.
+Missing/expired sessions return `401`, unsafe request headers `403`, and duplicate
+slugs or concurrent relationship changes `409`. Bodies over 128 KiB return `413`;
+unsupported media types, charsets and compression return `415`. Publishing is
+limited to 20 attempts per IP per minute (`429`), independently of public reads.
+Unexpected failures return a safe `500`. Images, catalog management and the
+Angular creation form are separate steps.
 
 ## 🧪 Checks and Postman
 
@@ -247,25 +287,30 @@ Registration tests cover stored password hashes, duplicates and concurrent reque
 Authentication tests cover expiry, session rotation, persistence, logout, SQL
 constraints and rollback when creating a replacement session fails.
 Article tests cover public reads, relation selection, stable pagination, counts,
-changed data and exact bigint serialization.
+changed data and exact bigint serialization. Publishing tests cover session ownership,
+Unicode limits, missing catalog entries, concurrent duplicate slugs and rollback
+when inserting tag links fails. Each database test gets a fresh API instance
+so rate-limit counters do not leak between tests.
 The test database is emptied before each test and when the suite finishes.
 
 Import [the Postman collection](../postman/hummingbird.postman_collection.json).
 Its `baseUrl` defaults to `http://127.0.0.1:3000`; change it if you use another port.
-Run the requests in order: **Register account**, **Duplicate email**, **Login**,
-**Current user**, **Wrong password**, **Session still active**, **Logout**, then
-**Session revoked**. Keep Postman's cookie jar enabled; the collection includes
-the required request header and checks each response.
+Run `npm run db:seed` first, then run the collection in order with Postman's
+cookie jar enabled. It registers and signs in, loads catalog options, publishes
+an article, checks duplicate-slug rejection and reads the stored result. Logout
+then checks that the revoked session cannot publish. Required headers and response
+checks are included.
 
-The article requests are read-only and work without a session. **List articles**
+The list/detail requests are public reads and work without a session. **List articles**
 works with an empty database; when articles exist it saves a slug for **Article
 detail**. If the catalog is empty, run `npm run db:seed:demo` in development or set
 `articleSlug` to an existing slug before running the detail request. **Invalid
 article page** checks validation. These reads do not create or change database rows.
 
-Registration generates a new test address each time. These requests create real
-accounts and sessions in the configured rewrite database. The collection's password
-is a test example, not a credential for a real account.
+Registration generates a new test address and publishing a new slug on each run.
+The collection creates real accounts, sessions, articles and tag links in the
+configured rewrite database; it does not remove them. Its password is a test
+example, not a credential for a real account.
 
 To run the compiled application, stop the development server first:
 

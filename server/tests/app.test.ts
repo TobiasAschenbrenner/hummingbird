@@ -11,6 +11,7 @@ import { HttpError } from '../src/errors/http-error.ts';
 import type { AuthOptions } from '../src/routes/auth.routes.ts';
 import type {
   ArticleDetail,
+  CreateArticleInput,
   ArticlePageInput,
   ArticleQueries,
 } from '../src/models/article.model.ts';
@@ -63,10 +64,36 @@ const exampleArticle: ArticleDetail = {
   body: 'First paragraph.\n\nSecond paragraph.',
   version: '9007199254740993',
 };
+const catalogs = {
+  async listCategories() {
+    if (articleError) throw articleError;
+    return [exampleArticle.category];
+  },
+  async listTags() {
+    if (articleError) throw articleError;
+    return exampleArticle.tags;
+  },
+};
+let articleCreations: CreateArticleInput[] = [];
 let articlePageInputs: ArticlePageInput[] = [];
 let articleSlugs: string[] = [];
 let articleError: Error | undefined;
 const articles: ArticleQueries = {
+  async createArticle(input) {
+    articleCreations.push(input);
+    if (articleError) throw articleError;
+    return {
+      ...exampleArticle,
+      slug: input.slug,
+      title: input.title,
+      description: input.description,
+      body: input.body,
+      version: '1',
+      commentCount: 0,
+      author: { id: input.authorId, username: 'Author' },
+      tags: exampleArticle.tags.filter((tag) => input.tagIds.includes(tag.id)),
+    };
+  },
   async listArticles({ page, pageSize }) {
     articlePageInputs.push({ page, pageSize });
     if (articleError) throw articleError;
@@ -92,6 +119,7 @@ const validInput = {
 beforeEach(async () => {
   server = createApp({
     articles,
+    catalogs,
     authentication,
     registerUser: async (input) => {
       receivedInputs.push(input);
@@ -114,6 +142,7 @@ beforeEach(() => {
   logoutTokens = [];
   signedInUser = publicUser;
   articlePageInputs = [];
+  articleCreations = [];
   articleSlugs = [];
   articleError = undefined;
 });
@@ -294,6 +323,7 @@ test('registration limits attempts before invoking the service and leaves health
   let calls = 0;
   const limitedServer = createApp({
     articles,
+    catalogs,
     authentication,
     registerUser: async ({ username, email }) => {
       calls++;
@@ -549,7 +579,7 @@ test('authentication failures return safe errors without issuing or clearing an 
 });
 
 async function withApp(options: AuthOptions, check: (url: string) => Promise<void>) {
-  const temporaryServer = createApp({ ...options, articles }).listen(0, '127.0.0.1');
+  const temporaryServer = createApp({ ...options, articles, catalogs }).listen(0, '127.0.0.1');
   try {
     await once(temporaryServer, 'listening');
     const address = temporaryServer.address();
@@ -758,9 +788,8 @@ test('article query failures produce safe JSON errors without leaking database d
   }
 });
 
-test('article read routes do not implement create, update or delete', async () => {
+test('article update and delete routes are not implemented', async () => {
   for (const [method, route] of [
-    ['POST', '/api/articles'],
     ['PUT', '/api/articles/first-article'],
     ['PATCH', '/api/articles/first-article'],
     ['DELETE', '/api/articles/first-article'],
@@ -771,4 +800,315 @@ test('article read routes do not implement create, update or delete', async () =
   }
   assert.deepEqual(articlePageInputs, []);
   assert.deepEqual(articleSlugs, []);
+});
+
+const validArticle = {
+  slug: 'new-article',
+  title: 'New article',
+  description: 'An introduction.',
+  body: 'First paragraph.\n\nSecond paragraph.',
+  categoryId: 3,
+  tagIds: [2],
+};
+function publish(body: unknown = validArticle, headers: Record<string, string> = {}) {
+  return fetch(`${baseUrl}/api/articles`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Hummingbird-Request': '1',
+      Cookie: `hummingbird_session=${sessionToken}`,
+      ...headers,
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+test('category and tag options are public, uncached and contain only catalog fields', async () => {
+  for (const [route, key, entries] of [
+    ['categories', 'categories', [exampleArticle.category]],
+    ['tags', 'tags', exampleArticle.tags],
+  ] as const) {
+    const response = await fetch(`${baseUrl}/api/${route}`);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.equal(response.headers.get('set-cookie'), null);
+    assert.deepEqual(await response.json(), { [key]: entries });
+  }
+  assert.deepEqual(userTokens, []);
+});
+
+test('catalog failures return safe errors without disclosing database details', async () => {
+  articleError = new Error('SELECT users password_hash; secret');
+  for (const route of ['categories', 'tags']) {
+    const response = await fetch(`${baseUrl}/api/${route}`);
+    assert.equal(response.status, 500);
+    assert.deepEqual(await response.json(), {
+      error: { message: 'Unable to process the request. Try again later.' },
+    });
+  }
+});
+
+test('publishing uses the cookie session author, normalizes labels and preserves plain body text', async () => {
+  const body = '  Unicode 🐦 <script>plain text</script>\n\n\tSecond paragraph.  ';
+  const response = await publish({
+    ...validArticle,
+    title: '  New article  ',
+    description: '  An introduction.  ',
+    body,
+  });
+  assert.equal(response.status, 201);
+  assert.equal(response.headers.get('location'), '/api/articles/new-article');
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  assert.equal(response.headers.get('set-cookie'), null);
+  const article = (await response.json()).article;
+  assert.equal(article.author.id, publicUser.id);
+  assert.equal(article.title, 'New article');
+  assert.equal(article.body, body);
+  assert.equal(article.version, '1');
+  assert.deepEqual(Object.keys(article.author).sort(), ['id', 'username']);
+  assert.deepEqual(articleCreations, [{ ...validArticle, body, authorId: publicUser.id }]);
+  assert.deepEqual(userTokens, [sessionToken]);
+});
+
+test('publishing refuses missing or ambiguous sessions and clears stale cookies before reading the body', async () => {
+  signedInUser = null;
+  for (const cookie of [
+    '',
+    `hummingbird_session=${sessionToken}`,
+    'hummingbird_session=one; hummingbird_session=two',
+  ]) {
+    const response = await fetch(`${baseUrl}/api/articles`, {
+      method: 'POST',
+      headers: { 'X-Hummingbird-Request': '1', Cookie: cookie },
+      body: 'not JSON',
+    });
+    assert.equal(response.status, 401);
+    assert.deepEqual(await response.json(), { error: { message: 'Please sign in.' } });
+    assert.match(response.headers.get('set-cookie')!, /^hummingbird_session=;/);
+  }
+  assert.deepEqual(articleCreations, []);
+  assert.deepEqual(userTokens, [undefined, sessionToken, undefined]);
+});
+
+test('publishing rejects missing or cross-site request headers before authenticating or parsing', async () => {
+  const headerCases: Record<string, string>[] = [
+    {},
+    { 'X-Hummingbird-Request': '0' },
+    { 'X-Hummingbird-Request': '1', 'Sec-Fetch-Site': 'cross-site' },
+  ];
+  for (const headers of headerCases) {
+    const response = await fetch(`${baseUrl}/api/articles`, {
+      method: 'POST',
+      headers,
+      body: 'not JSON',
+    });
+    assert.equal(response.status, 403);
+    await response.arrayBuffer();
+  }
+  const preflight = await fetch(`${baseUrl}/api/articles`, {
+    method: 'OPTIONS',
+    headers: {
+      Origin: 'https://untrusted.example',
+      'Access-Control-Request-Headers': 'X-Hummingbird-Request',
+    },
+  });
+  assert.equal(preflight.headers.get('access-control-allow-origin'), null);
+  await preflight.arrayBuffer();
+  assert.deepEqual(userTokens, []);
+  assert.deepEqual(articleCreations, []);
+});
+
+test('publishing rejects nonobjects and client-supplied ownership or server-managed fields', async () => {
+  for (const body of [
+    null,
+    [],
+    'text',
+    {},
+    ...[
+      'authorId',
+      'author',
+      'id',
+      'version',
+      'createdAt',
+      'imageFilename',
+      'tags',
+      '__proto__',
+    ].map((field) => ({ ...validArticle, [field]: 'untrusted' })),
+  ]) {
+    const response = await publish(body);
+    assert.equal(response.status, 400);
+    await response.arrayBuffer();
+  }
+  assert.deepEqual(articleCreations, []);
+});
+
+test('publishing validates slug and label types, Unicode lengths and control characters', async () => {
+  for (const [field, value] of [
+    ['slug', 'Uppercase'],
+    ['slug', ' a-slug '],
+    ['slug', 'double--hyphen'],
+    ['slug', 'a'.repeat(81)],
+    ['title', 42],
+    ['title', '   '],
+    ['title', '🐦'.repeat(56)],
+    ['title', 'bad\u0000title'],
+    ['title', '\ud800'],
+    ['description', null],
+    ['description', '\t '],
+    ['description', '🐦'.repeat(251)],
+    ['description', 'bad\nlabel'],
+  ] as const) {
+    const response = await publish({ ...validArticle, [field]: value });
+    assert.equal(response.status, 400, field);
+    assert.ok((await response.json()).error.fields[field]);
+  }
+  assert.deepEqual(articleCreations, []);
+});
+
+test('publishing validates body content and accepts boundary lengths without changing text', async () => {
+  for (const body of [
+    null,
+    42,
+    ' \t\n ',
+    'x'.repeat(20_001),
+    '\ud800',
+    'bad\u0000body',
+    'bad\u000bbody',
+  ]) {
+    const response = await publish({ ...validArticle, body });
+    assert.equal(response.status, 400);
+    assert.ok((await response.json()).error.fields.body);
+  }
+  const boundary = {
+    ...validArticle,
+    slug: 'a'.repeat(80),
+    title: '🐦'.repeat(55),
+    description: '🐦'.repeat(250),
+    body: '🐦'.repeat(20_000),
+    tagIds: Array.from({ length: 10 }, (_, i) => i + 1),
+  };
+  const response = await publish(boundary);
+  assert.equal(response.status, 201);
+  await response.arrayBuffer();
+  assert.deepEqual(articleCreations, [{ ...boundary, authorId: publicUser.id }]);
+  const { tagIds: _tagIds, ...withoutTags } = validArticle;
+  const noTags = await publish(withoutTags);
+  assert.equal(noTags.status, 201);
+  assert.deepEqual((await noTags.json()).article.tags, []);
+});
+
+test('publishing rejects invalid category IDs and invalid, excessive or duplicate tag selections', async () => {
+  for (const categoryId of [undefined, '3', 0, -1, 1.5, 2_147_483_648]) {
+    const response = await publish({ ...validArticle, categoryId });
+    assert.equal(response.status, 400);
+    assert.ok((await response.json()).error.fields.categoryId);
+  }
+  for (const tagIds of [
+    null,
+    '2',
+    [0],
+    ['2'],
+    [1.5],
+    [2_147_483_648],
+    [2, 2],
+    Array.from({ length: 11 }, (_, i) => i + 1),
+  ]) {
+    const response = await publish({ ...validArticle, tagIds });
+    assert.equal(response.status, 400);
+    assert.ok((await response.json()).error.fields.tagIds);
+  }
+  assert.deepEqual(articleCreations, []);
+});
+
+test('publishing rejects malformed, oversized and unsupported JSON with safe errors', async () => {
+  const cases: { body: string; status: number; headers?: Record<string, string> }[] = [
+    { body: '{"body":"secret"', status: 400 },
+    { body: JSON.stringify({ ...validArticle, body: 'x'.repeat(131_072) }), status: 413 },
+    { body: '{}', status: 415, headers: { 'Content-Type': 'text/plain' } },
+    { body: '{}', status: 415, headers: { 'Content-Type': 'application/json; charset=utf-16le' } },
+    { body: '{}', status: 415, headers: { 'Content-Encoding': 'gzip' } },
+  ];
+  for (const item of cases) {
+    const response = await fetch(`${baseUrl}/api/articles`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Hummingbird-Request': '1',
+        Cookie: `hummingbird_session=${sessionToken}`,
+        ...item.headers,
+      },
+      body: item.body,
+    });
+    assert.equal(response.status, item.status);
+    assert.ok(!JSON.stringify(await response.json()).includes('secret'));
+  }
+  assert.deepEqual(articleCreations, []);
+});
+
+test('publishing preserves expected conflicts and hides unexpected persistence or authentication failures', async () => {
+  articleError = new HttpError(409, 'An article with this slug already exists.', {
+    slug: 'Choose another article slug.',
+  });
+  const conflict = await publish();
+  assert.equal(conflict.status, 409);
+  assert.ok((await conflict.json()).error.fields.slug);
+  articleError = new Error('private SQL and password secret');
+  const failure = await publish();
+  assert.equal(failure.status, 500);
+  assert.deepEqual(await failure.json(), {
+    error: { message: 'Unable to process the request. Try again later.' },
+  });
+  authenticationError = new Error('private session token');
+  const unavailableSession = await publish();
+  assert.equal(unavailableSession.status, 500);
+  assert.equal(unavailableSession.headers.get('set-cookie'), null);
+  await unavailableSession.arrayBuffer();
+  assert.equal(articleCreations.length, 2);
+});
+
+test('publishing uses the production cookie name and ignores the development cookie', async () => {
+  await withApp(
+    { registerUser: async () => publicUser, authentication, secureCookies: true },
+    async (url) => {
+      const response = await fetch(`${url}/api/articles`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Hummingbird-Request': '1',
+          Cookie: `__Host-hummingbird_session=${sessionToken}; hummingbird_session=ignored`,
+        },
+        body: JSON.stringify(validArticle),
+      });
+      assert.equal(response.status, 201);
+      await response.arrayBuffer();
+      assert.deepEqual(userTokens, [sessionToken]);
+      signedInUser = null;
+      const blocked = await fetch(`${url}/api/articles`, {
+        method: 'POST',
+        headers: { 'X-Hummingbird-Request': '1', Cookie: `hummingbird_session=${sessionToken}` },
+      });
+      assert.equal(blocked.status, 401);
+      assert.match(blocked.headers.get('set-cookie')!, /^__Host-hummingbird_session=;.*Secure/);
+      await blocked.arrayBuffer();
+      assert.deepEqual(userTokens, [sessionToken, undefined]);
+    },
+  );
+});
+
+test('publishing limits writes before session access while keeping public reads available', async () => {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const response = await publish();
+    assert.equal(response.status, 201);
+    await response.arrayBuffer();
+  }
+  const blocked = await publish();
+  assert.equal(blocked.status, 429);
+  assert.equal(blocked.headers.get('cache-control'), 'no-store');
+  assert.ok(blocked.headers.get('retry-after'));
+  await blocked.arrayBuffer();
+  assert.equal(articleCreations.length, 20);
+  assert.equal(userTokens.length, 20);
+  const list = await fetch(`${baseUrl}/api/articles`);
+  assert.equal(list.status, 200);
+  await list.arrayBuffer();
 });
