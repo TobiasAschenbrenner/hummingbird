@@ -1,0 +1,39 @@
+<section class="comments" aria-labelledby="comments-heading" [attr.aria-busy]="pending()">
+  <h2 id="comments-heading">Comments</h2>
+  <app-comment-form
+    [slug]="slug()"
+    [articleId]="articleId()"
+    [available]="formAvailable()"
+    (posted)="commentPosted($event)"
+  />
+  @if (pending()) {
+    <p role="status">Loading comments…</p>
+  }
+  @if (message()) {
+    <p role="alert">{{ message() }}</p>
+  }
+  <button type="button" class="button" [disabled]="pending()" (click)="load()">
+    {{ message() ? 'Try again' : 'Refresh comments' }}
+  </button>
+  @if (loaded() && !comments().length) {
+    <p>No comments yet. Start the discussion.</p>
+  }
+  <ol class="comment-list" aria-label="Article comments">
+    @for (comment of comments(); track comment.id) {
+      <li [id]="'comment-' + comment.id">
+        <p class="metadata">
+          {{ comment.author.username }} ·
+          <time [dateTime]="comment.createdAt">{{
+            comment.createdAt | date: 'medium' : 'UTC'
+          }}</time>
+        </p>
+        <p class="comment-body">{{ comment.body }}</p>
+      </li>
+    }
+  </ol>
+  @if (nextCursor() !== null) {
+    <button type="button" class="button" [disabled]="pending()" (click)="load(true)">
+      Load older comments
+    </button>
+  }
+</section>

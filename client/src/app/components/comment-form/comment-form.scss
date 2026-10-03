@@ -1,0 +1,12 @@
+@use '../../../styles/form-fields';
+:host {
+  display: block;
+  margin-bottom: 2rem;
+}
+textarea {
+  resize: vertical;
+  min-height: 7rem;
+}
+textarea[readonly] {
+  background: #f5f7f6;
+}

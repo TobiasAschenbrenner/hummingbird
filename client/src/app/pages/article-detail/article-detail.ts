@@ -13,6 +13,7 @@ import { Title } from '@angular/platform-browser';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { catchError, combineLatest, map, of, startWith, Subject, switchMap } from 'rxjs';
 
+import { ArticleComments } from '../../components/article-comments/article-comments';
 import { ArticleDelete } from '../../components/article-delete/article-delete';
 import { ArticleDetail as Article } from '../../models/article.model';
 import { Auth } from '../../services/auth/auth';
@@ -28,7 +29,7 @@ type ArticleState =
 
 @Component({
   selector: 'app-article-detail',
-  imports: [DatePipe, RouterLink, ArticleDelete],
+  imports: [DatePipe, RouterLink, ArticleDelete, ArticleComments],
   templateUrl: './article-detail.html',
   styleUrl: './article-detail.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -78,6 +79,12 @@ export class ArticleDetail implements OnInit {
               : 'Hummingbird | Article',
         );
       });
+  }
+
+  protected updateCommentCount(total: number): void {
+    const current = this.state();
+    if (current.status === 'ready' && current.article.commentCount !== total)
+      this.state.set({ status: 'ready', article: { ...current.article, commentCount: total } });
   }
 
   protected reloadArticle(): void {

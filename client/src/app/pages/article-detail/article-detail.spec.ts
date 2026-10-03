@@ -3,7 +3,9 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Title } from '@angular/platform-browser';
 import { ActivatedRoute, convertToParamMap, provideRouter, Router } from '@angular/router';
-import { BehaviorSubject } from 'rxjs';
+import { CommentsApi } from '../../services/comments/comments';
+import { commentPageFixture } from '../../../testing/comment-fixtures';
+import { BehaviorSubject, of, Subject } from 'rxjs';
 
 import { Auth } from '../../services/auth/auth';
 import { articleFixture } from '../../../testing/article-fixtures';
@@ -23,6 +25,12 @@ describe('ArticleDetail', () => {
       imports: [ArticleDetail],
       providers: [
         provideRouter([]),
+        {
+          provide: CommentsApi,
+          useValue: {
+            list: (_slug: string, articleId: number) => of(commentPageFixture(articleId)),
+          },
+        },
         provideHttpClient(),
         provideHttpClientTesting(),
         {
@@ -53,6 +61,29 @@ describe('ArticleDetail', () => {
     expect(element.textContent).toContain('1 comment');
     expect(TestBed.inject(Title).getTitle()).toBe('Hummingbird | Article 1');
     expect(element.querySelector('[aria-busy]')?.getAttribute('aria-busy')).toBe('false');
+  });
+
+  it('updates the authoritative comment count without reloading the discussion or losing a draft', async () => {
+    const pages = new Subject<ReturnType<typeof commentPageFixture>>();
+    const list = vi.spyOn(TestBed.inject(CommentsApi), 'list').mockReturnValue(pages);
+    http.expectOne('/api/articles/article-1').flush({ article: articleFixture() });
+    await fixture.whenStable();
+    pages.next(commentPageFixture());
+    TestBed.inject(Auth).restoreSession().subscribe();
+    http
+      .expectOne('/api/auth/me')
+      .flush({ user: { id: 1, username: 'Author', email: 'author@example.test' } });
+    await fixture.whenStable();
+    const field = element.querySelector<HTMLTextAreaElement>('textarea')!;
+    field.value = 'Keep this draft during count updates.';
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+    await fixture.whenStable();
+    pages.next({ ...commentPageFixture(), total: 4 });
+    await fixture.whenStable();
+    expect(element.querySelector('article .metadata')?.textContent).toContain('4 comments');
+    expect(field.value).toBe('Keep this draft during count updates.');
+    expect(list).toHaveBeenCalledTimes(1);
+    pages.complete();
   });
 
   it('preserves the originating list page and updates the back link without refetching', async () => {

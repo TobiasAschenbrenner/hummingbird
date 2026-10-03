@@ -1,0 +1,23 @@
+.comments {
+  margin-top: 2.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+}
+.comment-list {
+  list-style: none;
+  padding: 0;
+  margin-block: 1.5rem;
+}
+li {
+  padding-block: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+.metadata {
+  margin-top: 0;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+.comment-body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

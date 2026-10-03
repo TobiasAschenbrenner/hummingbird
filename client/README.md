@@ -1,7 +1,7 @@
 # Hummingbird client 🐦
 
 Angular frontend for the rewrite, with accounts, article browsing, publishing, editing and deletion.
-Discussion comes later.
+Public comment reading and signed-in commenting are also available.
 
 ## 🚀 Run locally
 
@@ -71,8 +71,19 @@ tags remain. Changed articles or uncertain outcomes require a reload and another
 confirmation. Requests are never retried automatically. Success returns to your
 original list page.
 
-Reading is public. Search, filtering, comment bodies and cover
-images are not implemented in the rewrite yet.
+## 💬 Comments
+
+Article pages show plain-text comments, newest first, 20 at a time. Use **Load older
+comments** for another page or **Refresh comments** to see recent posts.
+Sign in to post 1–2,000 characters; line breaks and whitespace are preserved.
+
+Drafts stay on the open page. Session expiry keeps your text; log in in a new tab,
+then use **Check session**. An uncertain result keeps the original request ID and
+text for **Retry same comment**, preventing duplicate posts. Nothing retries
+itself. Confirmed posts appear immediately, then refresh the list and count.
+
+Reading is public. Search, filtering, comment editing/deletion and cover images
+are not implemented in the rewrite yet.
 
 ## 📁 Structure
 
@@ -89,7 +100,7 @@ Components keep their HTML, SCSS and tests together, as in Chirp.
 Requests use `/api`. During development, `proxy.conf.json` forwards them to
 `http://127.0.0.1:3000`. If you change the API port, update the proxy target and
 restart Angular. Account and article write requests include cookies; login, logout,
-publishing, editing and deletion send the required `X-Hummingbird-Request` header.
+publishing, editing, deletion and commenting send the required `X-Hummingbird-Request` header.
 Never put database credentials or API secrets in frontend files.
 
 The development proxy is not part of a production build. Hosting will need to
@@ -104,7 +115,7 @@ npm run check
 This runs the Angular tests, checks formatting and builds the production bundle
 in `dist/hummingbird-client/browser/`. The build also checks TypeScript and templates.
 Tests cover accounts, article reads, publishing, editing and deletion, author
-permissions, confirmations, conflict review, validation, catalog changes,
+permissions, confirmations, conflict review, comments, safe retries, validation, catalog changes,
 pagination, navigation, safe text rendering, failures and request cancellation.
 They simulate HTTP responses and do not need a running API or database.
 

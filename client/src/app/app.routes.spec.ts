@@ -4,6 +4,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 
+import { commentPageFixture } from '../testing/comment-fixtures';
 import { routes } from './app.routes';
 import { Login } from './pages/login/login';
 import { Register } from './pages/register/register';
@@ -60,6 +61,8 @@ describe('Application routes', () => {
     await harness.navigateByUrl('/articles/article-1', ArticleDetail);
     http.expectOne('/api/articles/article-1').flush({ article: articleFixture() });
     await harness.fixture.whenStable();
+    http.expectOne('/api/articles/article-1/comments').flush(commentPageFixture(1));
+    await harness.fixture.whenStable();
     expect(harness.routeNativeElement?.querySelector('h1')?.textContent).toBe('Article 1');
     expect(document.title).toBe('Hummingbird | Article 1');
   });
@@ -75,6 +78,8 @@ describe('Application routes', () => {
     http
       .expectOne('/api/articles/article-13')
       .flush({ article: articleFixture({ id: 13, slug: 'article-13', title: 'Article 13' }) });
+    await harness.fixture.whenStable();
+    http.expectOne('/api/articles/article-13/comments').flush(commentPageFixture(13));
     await harness.fixture.whenStable();
     const backLink = harness.routeNativeElement?.querySelector('.back-link')?.getAttribute('href');
     expect(backLink).toBe('/?page=2');
@@ -109,6 +114,8 @@ describe('Application routes', () => {
     const harness = await RouterTestingHarness.create();
     await harness.navigateByUrl('/articles/new', ArticleDetail);
     http.expectOne('/api/articles/new').flush({ article: articleFixture({ slug: 'new' }) });
+    await harness.fixture.whenStable();
+    http.expectOne('/api/articles/new/comments').flush(commentPageFixture(1));
     await harness.fixture.whenStable();
     expect(harness.routeNativeElement?.querySelector('.article-body')).not.toBeNull();
   });
