@@ -1,6 +1,7 @@
 import { createApp } from './app.ts';
 import { readConfig } from './config/environment.ts';
 import { createDatabaseClient } from './database/client.ts';
+import { createCommentQueries } from './queries/comment.queries.ts';
 import { createArticleQueries } from './queries/article.queries.ts';
 import { createCatalogQueries } from './queries/catalog.queries.ts';
 import { createSessionQueries } from './queries/session.queries.ts';
@@ -15,6 +16,7 @@ const registerUser = createRegistrationService(users);
 const authentication = createAuthenticationService(users, createSessionQueries(database));
 const server = createApp({
   articles: createArticleQueries(database),
+  comments: createCommentQueries(database),
   catalogs: createCatalogQueries(database),
   registerUser,
   authentication,

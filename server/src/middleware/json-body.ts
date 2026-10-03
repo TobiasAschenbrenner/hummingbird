@@ -14,4 +14,5 @@ const requireJson: RequestHandler = (request, _response, next) => {
 };
 
 export const accountJsonBody = [requireJson, json({ limit: '16kb', inflate: false })];
+export const commentJsonBody = [requireJson, json({ limit: '16kb', inflate: false })];
 export const articleJsonBody = [requireJson, json({ limit: '128kb', inflate: false })];

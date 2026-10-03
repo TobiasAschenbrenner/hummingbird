@@ -1,7 +1,7 @@
 # Hummingbird API 🐦
 
 Express, TypeScript and Prisma API for the rewrite. Accounts, article browsing,
-publishing, editing and deletion are available; comments come later.
+publishing, editing, deletion and comments are available.
 The [Angular client](../client/README.md) supports these flows.
 
 ## 🚀 Getting started
@@ -222,7 +222,7 @@ article bodies as text, not as trusted HTML.
 Slugs use 1–80 lowercase letters/digits separated by single hyphens. A valid
 missing slug returns `404`; invalid slugs or pagination return `400`. Database
 failures return the same safe `500` error as other API routes. Responses are not
-cached. Search, category/tag filters and comment routes are not
+cached. Search, category/tag filters and comment editing/deletion are not
 yet implemented; unsupported list query parameters return `400`.
 
 ## ✍️ Publish articles
@@ -315,6 +315,51 @@ categories, tags, accounts and other articles stay intact. This is permanent,
 without undo. Repeating the request returns `404`; deletion is never retried
 automatically. The rewrite does not yet upload or manage image files.
 
+## 💬 Comments
+
+| Request                             | Result                         |
+| ----------------------------------- | ------------------------------ |
+| `GET /api/articles/:slug/comments`  | Public comments, 20 at a time  |
+| `POST /api/articles/:slug/comments` | Post a comment while signed in |
+
+Reads return `{ "articleId": 1, "comments": [...], "total": 21, "nextCursor": 2 }`.
+Comments use decreasing IDs, newest first. Use `?before=2` for the next page;
+`nextCursor: null` means there are no older comments. The existing article/ID index
+supports cursor reads. Comments and their total use one repeatable-read snapshot.
+Empty articles return an empty page; missing articles return `404`.
+
+Posting requires a session cookie, `X-Hummingbird-Request: 1` and UTF-8 JSON,
+without compression, up to 16 KiB:
+
+```json
+{
+  "articleId": 1,
+  "body": "Thank you!\n\nA useful explanation.",
+  "requestId": "11111111-2222-4333-8444-555555555555"
+}
+```
+
+Use the current article ID and a new UUID v4 request ID for each comment.
+Bodies use 1–2,000 Unicode characters, preserving whitespace and line breaks;
+blank text, malformed Unicode and unsafe control characters are rejected.
+The author comes from the session. Anyone signed in can comment on any article.
+Responses include only ID, article ID, body, UTC creation time and public author.
+
+Creation returns `201` and `{ "comment": { ... } }`. Retrying the same request ID,
+article, author and exact body returns the original comment with `200`, including
+when requests arrive concurrently. Changed content or ownership with that key
+returns `409`. Keep the same key after a timeout; never silently create a new one.
+The unique UUID index is stored with the comment, not in server memory. Existing
+comments have a nullable key and remain readable after the additive migration.
+
+Invalid fields/cursors return `400`, unavailable sessions `401`, unsafe headers
+`403`, missing articles `404`, and changed article identities `409`. Oversized or
+unsupported requests return `413`/`415`; unexpected failures return a safe `500`.
+Posting is limited to 20 attempts per IP per minute (`429`), separate from article
+writes and public reads. Posting does not change the article content version.
+Deleting an article also removes its comments and their request IDs. Comment
+editing and deletion are separate steps.
+
 ## 🧪 Checks and Postman
 
 ```bash
@@ -344,6 +389,8 @@ concurrent saves, exact version increments and rollback of replaced tag links.
 Deletion tests cover ownership, expired sessions, stale confirmations, URL reuse,
 concurrent writes, cascades and rollback. Each database test gets a fresh API instance
 so rate-limit counters do not leak between tests.
+Comment tests cover cursor reads, public fields, session authorship, Unicode
+limits, safe retries, concurrent request IDs, rollback and article cascades.
 The test database is emptied before each test and when the suite finishes.
 
 Import [the Postman collection](../postman/hummingbird.postman_collection.json).
@@ -365,6 +412,10 @@ article page** checks validation. These reads do not create or change database r
 a save, a rejected stale save and the stored result. **Editing after logout** checks
 that revoked sessions cannot save. Editing keeps the slug fixed and clears the
 created article’s tag links in this collection.
+
+**Create comment**, **Retry comment** and **Article comments** check creation,
+deduplication and public reads. Invalid input, reads after article deletion and
+posting after logout are also checked.
 
 Registration generates a new test address and publishing a new slug on each run.
 The collection creates real accounts, sessions, articles and tag links in the

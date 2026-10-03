@@ -3,6 +3,11 @@ import { once } from 'node:events';
 import type { Server } from 'node:http';
 import { afterEach, beforeEach, test } from 'node:test';
 
+import type {
+  CommentQueries,
+  CreateCommentInput,
+  CommentPageInput,
+} from '../src/models/comment.model.ts';
 import { createApp } from '../src/app.ts';
 import { EmailAlreadyExistsError } from '../src/errors/email-already-exists.error.ts';
 import type { RegistrationInput, PublicUser } from '../src/models/user.model.ts';
@@ -130,6 +135,42 @@ const articles: ArticleQueries = {
   },
 };
 
+let commentCreations: CreateCommentInput[] = [];
+let commentPages: CommentPageInput[] = [];
+let commentError: Error | undefined;
+let commentCreated = true;
+const exampleComment = {
+  id: 21,
+  articleId: exampleArticle.id,
+  body: 'A useful article.',
+  createdAt: exampleArticle.createdAt,
+  author: { id: publicUser.id, username: publicUser.username },
+};
+const comments: CommentQueries = {
+  async createComment(input) {
+    commentCreations.push(input);
+    if (commentError) throw commentError;
+    return {
+      created: commentCreated,
+      comment: {
+        ...exampleComment,
+        body: input.body,
+        author: { id: input.authorId, username: 'Author' },
+      },
+    };
+  },
+  async listComments(input) {
+    commentPages.push(input);
+    if (commentError) throw commentError;
+    return {
+      articleId: exampleArticle.id,
+      comments: input.before ? [] : [exampleComment],
+      total: 1,
+      nextCursor: null,
+    };
+  },
+};
+
 const validInput = {
   username: 'Author',
   email: 'author@example.test',
@@ -139,6 +180,7 @@ const validInput = {
 beforeEach(async () => {
   server = createApp({
     articles,
+    comments,
     catalogs,
     authentication,
     registerUser: async (input) => {
@@ -167,6 +209,10 @@ beforeEach(() => {
   articleDeletions = [];
   articleSlugs = [];
   articleError = undefined;
+  commentCreations = [];
+  commentPages = [];
+  commentError = undefined;
+  commentCreated = true;
 });
 
 afterEach(async () => {
@@ -345,6 +391,7 @@ test('registration limits attempts before invoking the service and leaves health
   let calls = 0;
   const limitedServer = createApp({
     articles,
+    comments,
     catalogs,
     authentication,
     registerUser: async ({ username, email }) => {
@@ -601,7 +648,10 @@ test('authentication failures return safe errors without issuing or clearing an 
 });
 
 async function withApp(options: AuthOptions, check: (url: string) => Promise<void>) {
-  const temporaryServer = createApp({ ...options, articles, catalogs }).listen(0, '127.0.0.1');
+  const temporaryServer = createApp({ ...options, articles, catalogs, comments }).listen(
+    0,
+    '127.0.0.1',
+  );
   try {
     await once(temporaryServer, 'listening');
     const address = temporaryServer.address();
@@ -1499,4 +1549,233 @@ test('deletion preserves missing, forbidden and conflict errors while hiding une
   assert.deepEqual(await failed.json(), {
     error: { message: 'Unable to process the request. Try again later.' },
   });
+});
+
+const validComment = {
+  articleId: exampleArticle.id,
+  body: '  A useful article.\n\nThank you 🐦!  ',
+  requestId: 'a1111111-b222-4333-8444-c55555555555',
+};
+function postComment(
+  body: unknown = validComment,
+  headers: Record<string, string> = {},
+  slug = exampleArticle.slug,
+) {
+  return fetch(`${baseUrl}/api/articles/${slug}/comments`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Hummingbird-Request': '1',
+      Cookie: `hummingbird_session=${sessionToken}`,
+      ...headers,
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+test('comment pages are public, uncached and accept an optional bounded ID cursor', async () => {
+  for (const suffix of ['', '?before=21']) {
+    const response = await fetch(`${baseUrl}/api/articles/first-article/comments${suffix}`);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    const page = await response.json();
+    assert.equal(page.articleId, exampleArticle.id);
+    assert.equal(page.total, 1);
+    assert.equal(page.nextCursor, null);
+    assert.ok(!JSON.stringify(page).includes('passwordHash'));
+  }
+  assert.deepEqual(commentPages, [
+    { slug: exampleArticle.slug, before: undefined },
+    { slug: exampleArticle.slug, before: 21 },
+  ]);
+  assert.deepEqual(userTokens, []);
+});
+
+test('comment reads reject malformed cursors, repeated parameters, unknown queries and unsafe slugs', async () => {
+  for (const suffix of [
+    '?before=0',
+    '?before=-1',
+    '?before=01',
+    '?before=1.5',
+    '?before=2147483648',
+    '?before=1&before=2',
+    '?page=1',
+    '?before=',
+  ]) {
+    const response = await fetch(`${baseUrl}/api/articles/first-article/comments${suffix}`);
+    assert.equal(response.status, 400);
+    await response.arrayBuffer();
+  }
+  for (const slug of ['Uppercase', 'a'.repeat(81)]) {
+    const response = await fetch(`${baseUrl}/api/articles/${slug}/comments`);
+    assert.equal(response.status, 400);
+    await response.arrayBuffer();
+  }
+  assert.deepEqual(commentPages, []);
+});
+
+test('comment creation uses the session author, preserves text and normalizes request IDs for retries', async () => {
+  const response = await postComment({
+    ...validComment,
+    requestId: validComment.requestId.toUpperCase(),
+  });
+  assert.equal(response.status, 201);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  const { comment } = await response.json();
+  assert.equal(comment.body, validComment.body);
+  assert.equal(comment.author.id, publicUser.id);
+  assert.equal(comment.requestId, undefined);
+  assert.deepEqual(commentCreations, [
+    { ...validComment, slug: exampleArticle.slug, authorId: publicUser.id },
+  ]);
+  commentCreated = false;
+  const replay = await postComment();
+  assert.equal(replay.status, 200);
+  assert.deepEqual(await replay.json(), { comment });
+});
+
+test('comments validate Unicode character lengths, whitespace and control characters before persistence', async () => {
+  for (const body of [
+    undefined,
+    null,
+    2,
+    '',
+    ' \t\n ',
+    '\ud800',
+    'bad\u0000text',
+    'bad\u007ftext',
+    '🐦'.repeat(2001),
+  ]) {
+    const response = await postComment({ ...validComment, body });
+    assert.equal(response.status, 400);
+    assert.ok((await response.json()).error.fields.body);
+  }
+  assert.deepEqual(commentCreations, []);
+  for (const body of [
+    '🐦'.repeat(2000),
+    '  <script>plain text</script>\n\tPreserve whitespace.  ',
+  ]) {
+    const response = await postComment({ ...validComment, body });
+    assert.equal(response.status, 201);
+    assert.equal((await response.json()).comment.body, body);
+  }
+});
+
+test('comments require an integer article ID and UUID v4 and reject ownership or server-managed fields', async () => {
+  for (const articleId of [undefined, '11', 0, -1, 1.5, 2147483648]) {
+    const response = await postComment({ ...validComment, articleId });
+    assert.equal(response.status, 400);
+    assert.ok((await response.json()).error.fields.articleId);
+  }
+  for (const requestId of [
+    undefined,
+    '',
+    1,
+    'not-a-uuid',
+    '11111111-2222-1333-8444-555555555555',
+  ]) {
+    const response = await postComment({ ...validComment, requestId });
+    assert.equal(response.status, 400);
+    assert.ok((await response.json()).error.fields.requestId);
+  }
+  for (const body of [
+    null,
+    [],
+    { ...validComment, authorId: 99 },
+    { ...validComment, createdAt: 'now' },
+    { ...validComment, id: 99 },
+  ]) {
+    const response = await postComment(body);
+    assert.equal(response.status, 400);
+    await response.arrayBuffer();
+  }
+  assert.deepEqual(commentCreations, []);
+});
+
+test('comments reject unsafe request headers and unavailable sessions before reading the body', async () => {
+  const unsafe: Record<string, string>[] = [
+    { 'X-Hummingbird-Request': '' },
+    { 'X-Hummingbird-Request': '0' },
+    { 'Sec-Fetch-Site': 'cross-site' },
+  ];
+  for (const headers of unsafe) {
+    const response = await postComment(null, headers);
+    assert.equal(response.status, 403);
+    await response.arrayBuffer();
+  }
+  assert.deepEqual(userTokens, []);
+  signedInUser = null;
+  for (const Cookie of [
+    '',
+    `hummingbird_session=${sessionToken}`,
+    'hummingbird_session=one; hummingbird_session=two',
+  ]) {
+    const response = await postComment(null, { Cookie });
+    assert.equal(response.status, 401);
+    assert.match(response.headers.get('set-cookie')!, /^hummingbird_session=;/);
+    await response.arrayBuffer();
+  }
+  assert.deepEqual(commentCreations, []);
+});
+
+test('comment JSON rejects malformed, oversized, non-UTF8 and compressed requests without writing', async () => {
+  for (const [body, headers, status] of [
+    ['{"private":', {}, 400],
+    [JSON.stringify({ body: 'x'.repeat(16384) }), {}, 413],
+    ['{}', { 'Content-Type': 'text/plain' }, 415],
+    ['{}', { 'Content-Type': 'application/json; charset=utf-16le' }, 415],
+    ['{}', { 'Content-Encoding': 'gzip' }, 415],
+  ] as const) {
+    const response = await fetch(`${baseUrl}/api/articles/first-article/comments`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Hummingbird-Request': '1',
+        Cookie: `hummingbird_session=${sessionToken}`,
+        ...headers,
+      },
+      body,
+    });
+    assert.equal(response.status, status);
+    assert.ok(!JSON.stringify(await response.json()).includes('private'));
+  }
+  assert.deepEqual(commentCreations, []);
+});
+
+test('comment routes preserve expected missing/conflict errors and hide database or authentication details', async () => {
+  for (const status of [404, 409]) {
+    commentError = new HttpError(status, 'Safe rejection.');
+    const response = await postComment();
+    assert.equal(response.status, status);
+    await response.arrayBuffer();
+  }
+  commentError = new Error('private SQL and credentials');
+  for (const response of [
+    await postComment(),
+    await fetch(`${baseUrl}/api/articles/first-article/comments`),
+  ]) {
+    assert.equal(response.status, 500);
+    assert.deepEqual(await response.json(), {
+      error: { message: 'Unable to process the request. Try again later.' },
+    });
+  }
+});
+
+test('comment write limits are separate from public reads and article writes', async () => {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const response = await postComment();
+    assert.equal(response.status, 201);
+    await response.arrayBuffer();
+  }
+  const blocked = await postComment();
+  assert.equal(blocked.status, 429);
+  assert.ok(blocked.headers.get('retry-after'));
+  await blocked.arrayBuffer();
+  assert.equal(commentCreations.length, 20);
+  const read = await fetch(`${baseUrl}/api/articles/first-article/comments`);
+  assert.equal(read.status, 200);
+  await read.arrayBuffer();
+  const article = await publish();
+  assert.equal(article.status, 201);
+  await article.arrayBuffer();
 });

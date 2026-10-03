@@ -72,6 +72,7 @@ model ArticleTag {
 }
 
 model Comment {
+  requestId String?  @unique(map: "comments_request_id_key") @map("request_id") @db.Uuid
   id        Int      @id @default(autoincrement())
   body      String   @db.Text
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)

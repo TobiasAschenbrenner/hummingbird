@@ -64,6 +64,16 @@
       "key": "newArticleId",
       "value": "",
       "type": "string"
+    },
+    {
+      "key": "commentRequestId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "commentId",
+      "value": "",
+      "type": "string"
     }
   ],
   "item": [
@@ -728,6 +738,167 @@
       ]
     },
     {
+      "name": "Create comment",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Hummingbird-Request",
+            "value": "1"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/articles/{{newArticleSlug}}/comments",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"articleId\": {{newArticleId}},\n  \"body\": \"Thank you!\\n\\nA useful explanation.\",\n  \"requestId\": \"{{commentRequestId}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.collectionVariables.set('commentRequestId', pm.variables.replaceIn('{{$guid}}'));"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Create comment', function () {",
+              "  pm.response.to.have.status(201);",
+              "  const comment = pm.response.json().comment;",
+              "  pm.expect(comment.author.id).to.eql(Number(pm.collectionVariables.get('registeredUserId')));",
+              "  pm.expect(comment.articleId).to.eql(Number(pm.collectionVariables.get('newArticleId')));",
+              "  pm.expect(comment.body).to.eql('Thank you!\\n\\nA useful explanation.');",
+              "  pm.expect(comment).not.to.have.property('requestId');",
+              "  pm.expect(Object.keys(comment.author).sort()).to.eql(['id', 'username']);",
+              "  pm.collectionVariables.set('commentId', comment.id);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Retry comment",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Hummingbird-Request",
+            "value": "1"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/articles/{{newArticleSlug}}/comments",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"articleId\": {{newArticleId}},\n  \"body\": \"Thank you!\\n\\nA useful explanation.\",\n  \"requestId\": \"{{commentRequestId}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Retry comment', function () {",
+              "  pm.response.to.have.status(200);",
+              "  pm.expect(pm.response.json().comment.id).to.eql(Number(pm.collectionVariables.get('commentId')));",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Article comments",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/articles/{{newArticleSlug}}/comments"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Article comments', function () {",
+              "  pm.response.to.have.status(200);",
+              "  const page = pm.response.json();",
+              "  pm.expect(page.total).to.eql(1);",
+              "  pm.expect(page.comments.length).to.eql(1);",
+              "  pm.expect(page.comments[0].id).to.eql(Number(pm.collectionVariables.get('commentId')));",
+              "  pm.expect(page.nextCursor).to.eql(null);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Invalid comment",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Hummingbird-Request",
+            "value": "1"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/articles/{{newArticleSlug}}/comments",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"articleId\": {{newArticleId}},\n  \"body\": \"   \",\n  \"requestId\": \"{{commentRequestId}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Invalid comment', function () {",
+              "  pm.response.to.have.status(400);",
+              "  pm.expect(pm.response.json().error.fields.body).to.be.a('string');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
       "name": "Stale article deletion",
       "request": {
         "method": "DELETE",
@@ -860,6 +1031,27 @@
             "type": "text/javascript",
             "exec": [
               "pm.test('Deleted article detail', function () {",
+              "  pm.response.to.have.status(404);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Comments of deleted article",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/articles/{{newArticleSlug}}/comments"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Comments of deleted article', function () {",
               "  pm.response.to.have.status(404);",
               "});"
             ]
@@ -1039,6 +1231,45 @@
             "type": "text/javascript",
             "exec": [
               "pm.test('Deletion after logout', function () {",
+              "  pm.response.to.have.status(401);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Commenting after logout",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Hummingbird-Request",
+            "value": "1"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/articles/{{newArticleSlug}}/comments",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"articleId\": {{newArticleId}},\n  \"body\": \"Thank you!\\n\\nA useful explanation.\",\n  \"requestId\": \"{{commentRequestId}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Commenting after logout', function () {",
               "  pm.response.to.have.status(401);",
               "});"
             ]

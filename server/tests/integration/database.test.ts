@@ -8,6 +8,8 @@ import { verify } from 'argon2';
 import { after, afterEach, before, beforeEach, test } from 'node:test';
 
 import { createApp } from '../../src/app.ts';
+import { createCommentQueries } from '../../src/queries/comment.queries.ts';
+import { randomUUID } from 'node:crypto';
 import { createArticleQueries } from '../../src/queries/article.queries.ts';
 import { createCatalogQueries } from '../../src/queries/catalog.queries.ts';
 import { createSessionQueries } from '../../src/queries/session.queries.ts';
@@ -57,6 +59,7 @@ before(async () => {
 async function startServer() {
   server = createApp({
     articles: createArticleQueries(database),
+    comments: createCommentQueries(database),
     catalogs: createCatalogQueries(database),
     registerUser: createRegistrationService(createUserQueries(database)),
     authentication: createAuthenticationService(
@@ -1673,4 +1676,264 @@ test('deletion checks bigint versions exactly and allows deleting an article at 
   assert.equal(deleted.status, 204);
   await deleted.arrayBuffer();
   assert.equal(await database.article.count(), 0);
+});
+
+function postArticleComment(cookie: string, slug: string, input: unknown) {
+  return fetch(`${baseUrl}/api/articles/${slug}/comments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Hummingbird-Request': '1', Cookie: cookie },
+    body: JSON.stringify(input),
+  });
+}
+
+test('comment reads return an empty page for an article and a 404 for a missing article', async () => {
+  const { article } = await editingContext();
+  const response = await fetch(`${baseUrl}/api/articles/${article.slug}/comments`);
+  assert.deepEqual(await response.json(), {
+    articleId: article.id,
+    comments: [],
+    total: 0,
+    nextCursor: null,
+  });
+  const missing = await fetch(`${baseUrl}/api/articles/missing/comments`);
+  assert.equal(missing.status, 404);
+  await missing.arrayBuffer();
+});
+
+test('a reader can post to another author article, storing its identity and updating public counts without changing article content', async () => {
+  const { article } = await editingContext();
+  const registered = await registerAccount('reader@example.test');
+  const { user } = await registered.json();
+  const login = await signIn('reader@example.test');
+  await login.arrayBuffer();
+  const input = {
+    articleId: article.id,
+    body: '  Thank you 🐦!\n\n<script>Plain text.</script>  ',
+    requestId: randomUUID(),
+  };
+  const before = await database.article.findUniqueOrThrow({ where: { id: article.id } });
+  const response = await postArticleComment(responseSession(login).cookie, article.slug, input);
+  assert.equal(response.status, 201);
+  const { comment } = await response.json();
+  assert.equal(comment.body, input.body);
+  assert.equal(comment.articleId, article.id);
+  assert.deepEqual(comment.author, { id: user.id, username: user.username });
+  assert.ok(Number.isFinite(Date.parse(comment.createdAt)));
+  assert.deepEqual(Object.keys(comment).sort(), ['articleId', 'author', 'body', 'createdAt', 'id']);
+  const stored = await database.comment.findUniqueOrThrow({ where: { id: comment.id } });
+  assert.equal(stored.requestId, input.requestId);
+  assert.equal(stored.authorId, user.id);
+  assert.deepEqual(await database.article.findUniqueOrThrow({ where: { id: article.id } }), before);
+  const detail = await fetch(`${baseUrl}/api/articles/${article.slug}`);
+  assert.equal((await detail.json()).article.commentCount, 1);
+  const list = await fetch(`${baseUrl}/api/articles/${article.slug}/comments`);
+  assert.deepEqual(await list.json(), {
+    articleId: article.id,
+    comments: [comment],
+    total: 1,
+    nextCursor: null,
+  });
+});
+
+test('comment retries return the original row, while changed bodies with that request ID are rejected', async () => {
+  const { cookie, article } = await editingContext();
+  const input = { articleId: article.id, body: 'Keep exactly this text.', requestId: randomUUID() };
+  const created = await postArticleComment(cookie, article.slug, input);
+  const original = await created.json();
+  const retried = await postArticleComment(cookie, article.slug, input);
+  assert.equal(retried.status, 200);
+  assert.deepEqual(await retried.json(), original);
+  const conflict = await postArticleComment(cookie, article.slug, {
+    ...input,
+    body: 'A changed comment.',
+  });
+  assert.equal(conflict.status, 409);
+  await conflict.arrayBuffer();
+  assert.equal(await database.comment.count(), 1);
+  assert.equal((await database.comment.findFirstOrThrow()).body, input.body);
+});
+
+test('concurrent identical comment requests create exactly one row and return its same public identity', async () => {
+  const { cookie, article } = await editingContext();
+  const input = { articleId: article.id, body: 'One comment only.', requestId: randomUUID() };
+  const responses = await Promise.all(
+    [1, 2].map(() => postArticleComment(cookie, article.slug, input)),
+  );
+  assert.deepEqual(responses.map((response) => response.status).sort(), [200, 201]);
+  assert.deepEqual(await responses[0]!.json(), await responses[1]!.json());
+  assert.equal(await database.comment.count(), 1);
+});
+
+test('concurrent different comments with one request ID have one winner, and another account cannot replay it', async () => {
+  const { cookie, article } = await editingContext();
+  const input = { articleId: article.id, body: 'First candidate.', requestId: randomUUID() };
+  const responses = await Promise.all([
+    postArticleComment(cookie, article.slug, input),
+    postArticleComment(cookie, article.slug, { ...input, body: 'Second candidate.' }),
+  ]);
+  assert.deepEqual(responses.map((response) => response.status).sort(), [201, 409]);
+  for (const response of responses) await response.arrayBuffer();
+  const original = await database.comment.findFirstOrThrow();
+  const account = await registerAccount('other@example.test');
+  await account.arrayBuffer();
+  const login = await signIn('other@example.test');
+  await login.arrayBuffer();
+  const denied = await postArticleComment(responseSession(login).cookie, article.slug, {
+    ...input,
+    body: original.body,
+  });
+  assert.equal(denied.status, 409);
+  await denied.arrayBuffer();
+  assert.equal(await database.comment.count(), 1);
+  assert.deepEqual(await database.comment.findFirstOrThrow(), original);
+});
+
+test('comment pagination uses decreasing IDs without duplicates when newer comments arrive between pages', async () => {
+  const { user, article } = await editingContext();
+  await database.comment.createMany({
+    data: Array.from({ length: 46 }, (_, index) => ({
+      body: `Comment ${index + 1}.`,
+      articleId: article.id,
+      authorId: user.id,
+      createdAt: new Date('2026-10-01T09:00:00Z'),
+    })),
+  });
+  const first = await fetch(`${baseUrl}/api/articles/${article.slug}/comments`);
+  const page = await first.json();
+  assert.equal(page.comments.length, 20);
+  assert.equal(page.total, 46);
+  assert.equal(page.nextCursor, 27);
+  assert.deepEqual(
+    page.comments.map((comment: { id: number }) => comment.id),
+    Array.from({ length: 20 }, (_, i) => 46 - i),
+  );
+  await database.comment.create({
+    data: { body: 'A newer comment.', articleId: article.id, authorId: user.id },
+  });
+  const older = await fetch(
+    `${baseUrl}/api/articles/${article.slug}/comments?before=${page.nextCursor}`,
+  );
+  const second = await older.json();
+  assert.equal(second.total, 47);
+  assert.equal(second.nextCursor, 7);
+  const last = await fetch(
+    `${baseUrl}/api/articles/${article.slug}/comments?before=${second.nextCursor}`,
+  );
+  const third = await last.json();
+  assert.equal(third.comments.length, 6);
+  assert.equal(third.nextCursor, null);
+  assert.equal(
+    new Set([...page.comments, ...second.comments, ...third.comments].map((comment) => comment.id))
+      .size,
+    46,
+  );
+});
+
+test('invalid or oversized comments insert nothing, while Unicode boundaries preserve all text', async () => {
+  const { cookie, article } = await editingContext();
+  const input = { articleId: article.id, body: 'Valid.', requestId: randomUUID() };
+  for (const fields of [
+    { body: ' \t\n ' },
+    { body: '🐦'.repeat(2001) },
+    { body: '\ud800' },
+    { authorId: 999 },
+  ]) {
+    const response = await postArticleComment(cookie, article.slug, { ...input, ...fields });
+    assert.equal(response.status, 400);
+    await response.arrayBuffer();
+  }
+  assert.equal(await database.comment.count(), 0);
+  const boundary = await postArticleComment(cookie, article.slug, {
+    ...input,
+    body: '🐦'.repeat(2000),
+  });
+  assert.equal(boundary.status, 201);
+  assert.equal((await boundary.json()).comment.body, '🐦'.repeat(2000));
+});
+
+test('missing articles and replaced URLs cannot receive comments intended for an old article', async () => {
+  const { cookie, article, input } = await editingContext();
+  const comment = {
+    articleId: article.id,
+    body: 'Keep the target identity.',
+    requestId: randomUUID(),
+  };
+  const missing = await postArticleComment(cookie, 'missing', comment);
+  assert.equal(missing.status, 404);
+  await missing.arrayBuffer();
+  const deleted = await deleteArticle(cookie, article.slug, article.id, article.version);
+  assert.equal(deleted.status, 204);
+  await deleted.arrayBuffer();
+  const replacement = await publishArticle(cookie, input);
+  assert.equal(replacement.status, 201);
+  await replacement.arrayBuffer();
+  const stale = await postArticleComment(cookie, article.slug, comment);
+  assert.equal(stale.status, 409);
+  await stale.arrayBuffer();
+  assert.equal(await database.comment.count(), 0);
+});
+
+test('expired and revoked sessions cannot post or replay comments', async () => {
+  const { cookie, article } = await editingContext();
+  const input = { articleId: article.id, body: 'An existing comment.', requestId: randomUUID() };
+  const created = await postArticleComment(cookie, article.slug, input);
+  await created.arrayBuffer();
+  await database.session.updateMany({
+    data: {
+      createdAt: new Date(Date.now() - 172800000),
+      expiresAt: new Date(Date.now() - 86400000),
+    },
+  });
+  const expired = await postArticleComment(cookie, article.slug, input);
+  assert.equal(expired.status, 401);
+  await expired.arrayBuffer();
+  await database.session.deleteMany();
+  const revoked = await postArticleComment(cookie, article.slug, {
+    ...input,
+    requestId: randomUUID(),
+  });
+  assert.equal(revoked.status, 401);
+  await revoked.arrayBuffer();
+  assert.equal(await database.comment.count(), 1);
+});
+
+test('a failed comment insert rolls back without reserving the request ID and can be retried after repair', async () => {
+  const { cookie, article } = await editingContext();
+  const input = { articleId: article.id, body: 'Retry after repair.', requestId: randomUUID() };
+  const before = await readSeedSnapshot();
+  await database.$executeRaw`ALTER TABLE comments ADD CONSTRAINT comment_test_reject_insert CHECK (false) NOT VALID`;
+  try {
+    const failed = await postArticleComment(cookie, article.slug, input);
+    assert.equal(failed.status, 500);
+    assert.deepEqual(await failed.json(), {
+      error: { message: 'Unable to process the request. Try again later.' },
+    });
+    assert.deepEqual(await readSeedSnapshot(), before);
+    assert.equal(await database.comment.count({ where: { requestId: input.requestId } }), 0);
+  } finally {
+    await database.$executeRaw`ALTER TABLE comments DROP CONSTRAINT comment_test_reject_insert`;
+  }
+  const retry = await postArticleComment(cookie, article.slug, input);
+  assert.equal(retry.status, 201);
+  await retry.arrayBuffer();
+});
+
+test('article deletion cascades posted comments and request IDs, so a later retry cannot recreate them', async () => {
+  const { cookie, article } = await editingContext();
+  const input = {
+    articleId: article.id,
+    body: 'Remove with the article.',
+    requestId: randomUUID(),
+  };
+  const created = await postArticleComment(cookie, article.slug, input);
+  assert.equal(created.status, 201);
+  await created.arrayBuffer();
+  const removed = await deleteArticle(cookie, article.slug, article.id, article.version);
+  assert.equal(removed.status, 204);
+  await removed.arrayBuffer();
+  assert.equal(await database.comment.count(), 0);
+  const retried = await postArticleComment(cookie, article.slug, input);
+  assert.equal(retried.status, 404);
+  await retried.arrayBuffer();
+  assert.equal(await database.comment.count(), 0);
 });
