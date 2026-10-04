@@ -144,4 +144,48 @@ describe('CommentsApi', () => {
       http.expectNone('/api/articles/article-1/comments');
     }
   });
+  it('deletes only the selected comment with the current article ID, session and required header', async () => {
+    const untrustedInput = { articleId: 1, authorId: 99, body: 'not sent' };
+    const result = firstValueFrom(api.remove('article-1', 2, untrustedInput));
+    const request = http.expectOne('/api/articles/article-1/comments/2');
+    expect(request.request.method).toBe('DELETE');
+    expect(request.request.body).toEqual({ articleId: 1 });
+    expect(request.request.withCredentials).toBe(true);
+    expect(request.request.headers.get('X-Hummingbird-Request')).toBe('1');
+    request.flush(null, { status: 204, statusText: 'No Content' });
+    await expect(result).resolves.toBeUndefined();
+  });
+  it('rejects invalid deletion routes and IDs before HTTP access', async () => {
+    for (const id of [0, -1, 1.5, 2147483648]) {
+      await expect(firstValueFrom(api.remove('article-1', id, { articleId: 1 }))).rejects.toThrow(
+        'Invalid comment deletion target.',
+      );
+      await expect(firstValueFrom(api.remove('article-1', 1, { articleId: id }))).rejects.toThrow();
+    }
+    await expect(
+      firstValueFrom(api.remove('../auth/logout', 1, { articleId: 1 })),
+    ).rejects.toThrow();
+    http.expectNone((request) => request.method === 'DELETE');
+  });
+  it('accepts only a 204 deletion confirmation and never retries failed or ambiguous deletions', async () => {
+    for (const status of [200, 202, 401, 403, 404, 409, 429, 500]) {
+      const result = firstValueFrom(api.remove('article-1', 1, { articleId: 1 }));
+      const rejected = expect(result).rejects.toThrow();
+      http
+        .expectOne('/api/articles/article-1/comments/1')
+        .flush({}, { status, statusText: 'Response' });
+      await rejected;
+      http.expectNone((request) => request.method === 'DELETE');
+    }
+  });
+  it('cancels a timed-out deletion without sending another request', async () => {
+    vi.useFakeTimers();
+    const result = firstValueFrom(api.remove('article-1', 1, { articleId: 1 }));
+    const rejected = expect(result).rejects.toMatchObject({ name: 'TimeoutError' });
+    const request = http.expectOne('/api/articles/article-1/comments/1');
+    await vi.advanceTimersByTimeAsync(10000);
+    await rejected;
+    expect(request.cancelled).toBe(true);
+    http.expectNone((request) => request.method === 'DELETE');
+  });
 });

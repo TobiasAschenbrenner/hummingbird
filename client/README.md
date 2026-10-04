@@ -1,7 +1,7 @@
 # Hummingbird client 🐦
 
 Angular frontend for the rewrite, with accounts, article browsing, publishing, editing and deletion.
-Public comment reading and signed-in commenting are also available.
+Public comment reading, signed-in commenting and deletion of your own comments are also available.
 
 ## 🚀 Run locally
 
@@ -82,7 +82,12 @@ then use **Check session**. An uncertain result keeps the original request ID an
 text for **Retry same comment**, preventing duplicate posts. Nothing retries
 itself. Confirmed posts appear immediately, then refresh the list and count.
 
-Reading is public. Search, filtering, comment editing/deletion and cover images
+Only your own comments show **Delete comment**. Confirmation removes the comment,
+then refreshes the count. Other comments and the article stay intact. Uncertain
+results require **Reload comments** and a new confirmation; no automatic retry.
+Deletion keeps only the creation request ID, so a retry cannot bring deleted text back.
+
+Reading is public. Search, filtering, comment editing and cover images
 are not implemented in the rewrite yet.
 
 ## 📁 Structure
@@ -115,7 +120,7 @@ npm run check
 This runs the Angular tests, checks formatting and builds the production bundle
 in `dist/hummingbird-client/browser/`. The build also checks TypeScript and templates.
 Tests cover accounts, article reads, publishing, editing and deletion, author
-permissions, confirmations, conflict review, comments, safe retries, validation, catalog changes,
+permissions, confirmations, conflict review, comments, deletion confirmations, safe retries, validation, catalog changes,
 pagination, navigation, safe text rendering, failures and request cancellation.
 They simulate HTTP responses and do not need a running API or database.
 

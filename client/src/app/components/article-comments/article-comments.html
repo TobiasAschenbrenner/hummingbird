@@ -6,6 +6,9 @@
     [available]="formAvailable()"
     (posted)="commentPosted($event)"
   />
+  @if (mutationNotice()) {
+    <p #mutationStatus role="status" tabindex="-1">{{ mutationNotice() }}</p>
+  }
   @if (pending()) {
     <p role="status">Loading comments…</p>
   }
@@ -28,6 +31,13 @@
           }}</time>
         </p>
         <p class="comment-body">{{ comment.body }}</p>
+        <app-comment-delete
+          [slug]="slug()"
+          [comment]="comment"
+          [available]="formAvailable()"
+          (removed)="commentRemoved(comment.id, $event)"
+          (reload)="load()"
+        />
       </li>
     }
   </ol>

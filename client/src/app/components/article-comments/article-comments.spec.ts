@@ -204,4 +204,155 @@ describe('ArticleComments', () => {
     fixture.destroy();
     expect(next.cancelled).toBe(true);
   });
+  it('shows delete controls only for owned comments and cancellation leaves the list and draft intact', async () => {
+    read().flush({
+      articleId: 1,
+      comments: [commentFixture({ id: 2, author: { id: 2, username: 'Other' } }), commentFixture()],
+      total: 2,
+      nextCursor: null,
+    });
+    await fixture.whenStable();
+    expect(button('Delete comment')).toBeUndefined();
+    await session();
+    expect(element.querySelectorAll('app-comment-delete button')).toHaveLength(1);
+    await write('Keep this draft.');
+    button('Delete comment').click();
+    await fixture.whenStable();
+    button('Cancel').click();
+    await fixture.whenStable();
+    expect(items()).toHaveLength(2);
+    expect(element.querySelector<HTMLTextAreaElement>('textarea')?.value).toBe('Keep this draft.');
+    http.expectNone((request) => request.method === 'DELETE');
+  });
+  it('removes a confirmed comment immediately, preserves other rows and drafts, then refreshes the authoritative count', async () => {
+    const other = commentFixture({ id: 2, author: { id: 2, username: 'Other' } });
+    read().flush({ articleId: 1, comments: [other, commentFixture()], total: 2, nextCursor: null });
+    await fixture.whenStable();
+    await session();
+    await write('Do not lose my draft.');
+    button('Delete comment').click();
+    await fixture.whenStable();
+    button('Permanently delete comment').click();
+    const deletion = http.expectOne('/api/articles/article-1/comments/1');
+    expect(items()).toHaveLength(2);
+    deletion.flush(null, { status: 204, statusText: 'No Content' });
+    await fixture.whenStable();
+    expect(items().map((item) => item.id)).toEqual(['comment-2']);
+    expect(element.textContent).toContain('Comment deleted.');
+    expect(countChanged).toHaveBeenCalledTimes(1);
+    expect(element.querySelector<HTMLTextAreaElement>('textarea')?.value).toBe(
+      'Do not lose my draft.',
+    );
+    expect(document.activeElement?.textContent).toBe('Comment deleted.');
+    read().flush({ articleId: 1, comments: [other], total: 1, nextCursor: null });
+    await fixture.whenStable();
+    expect(countChanged).toHaveBeenLastCalledWith(1);
+    expect(items()).toHaveLength(1);
+  });
+  it('keeps a confirmed deletion removed when refreshing fails and distinguishes an already missing comment', async () => {
+    read().flush(commentPageFixture());
+    await fixture.whenStable();
+    await session();
+    button('Delete comment').click();
+    await fixture.whenStable();
+    button('Permanently delete comment').click();
+    http
+      .expectOne('/api/articles/article-1/comments/1')
+      .flush(null, { status: 404, statusText: 'Missing' });
+    await fixture.whenStable();
+    expect(items()).toHaveLength(0);
+    expect(element.textContent).toContain('This comment is no longer available');
+    expect(element.textContent).not.toContain('Comment deleted.');
+    read().flush(null, { status: 500, statusText: 'Failed' });
+    await fixture.whenStable();
+    expect(items()).toHaveLength(0);
+    expect(countChanged).toHaveBeenCalledTimes(1);
+    button('Try again').click();
+    read().flush({ articleId: 1, comments: [], total: 0, nextCursor: null });
+    await fixture.whenStable();
+    expect(countChanged).toHaveBeenLastCalledWith(0);
+  });
+  it('cancels a stale in-flight read on deletion so it cannot restore the deleted row', async () => {
+    read().flush(commentPageFixture());
+    await fixture.whenStable();
+    await session();
+    button('Delete comment').click();
+    await fixture.whenStable();
+    button('Permanently delete comment').click();
+    const deletion = http.expectOne('/api/articles/article-1/comments/1');
+    button('Refresh comments').click();
+    const stale = read();
+    deletion.flush(null, { status: 204, statusText: 'No Content' });
+    await fixture.whenStable();
+    expect(stale.cancelled).toBe(true);
+    expect(items()).toHaveLength(0);
+    read().flush({ articleId: 1, comments: [], total: 0, nextCursor: null });
+    await fixture.whenStable();
+  });
+  it('requires a successful refresh and another explicit confirmation after an uncertain deletion', async () => {
+    read().flush(commentPageFixture());
+    await fixture.whenStable();
+    await session();
+    button('Delete comment').click();
+    await fixture.whenStable();
+    button('Permanently delete comment').click();
+    http
+      .expectOne('/api/articles/article-1/comments/1')
+      .flush(null, { status: 500, statusText: 'Failed' });
+    await fixture.whenStable();
+    expect(items()).toHaveLength(1);
+    expect(button('Permanently delete comment').disabled).toBe(true);
+    button('Reload comments').click();
+    read().flush(null, { status: 500, statusText: 'Failed' });
+    await fixture.whenStable();
+    expect(button('Permanently delete comment').disabled).toBe(true);
+    button('Reload comments').click();
+    read().flush(commentPageFixture());
+    await fixture.whenStable();
+    expect(button('Permanently delete comment')).toBeUndefined();
+    http.expectNone((request) => request.method === 'DELETE');
+    button('Delete comment').click();
+    await fixture.whenStable();
+    button('Permanently delete comment').click();
+    http
+      .expectOne('/api/articles/article-1/comments/1')
+      .flush(null, { status: 204, statusText: 'No Content' });
+    await fixture.whenStable();
+    read().flush({ articleId: 1, comments: [], total: 0, nextCursor: null });
+    await fixture.whenStable();
+  });
+  it('does not resurrect a deleted row when an earlier creation replay returns late', async () => {
+    read().flush({ articleId: 1, comments: [], total: 0, nextCursor: null });
+    await fixture.whenStable();
+    await session();
+    await write(commentFixture().body);
+    element
+      .querySelector('form')!
+      .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    http
+      .expectOne((request) => request.method === 'POST')
+      .flush(null, { status: 500, statusText: 'Unknown' });
+    await fixture.whenStable();
+    button('Refresh comments').click();
+    read().flush(commentPageFixture());
+    await fixture.whenStable();
+    button('Retry same comment').click();
+    const replay = http.expectOne((request) => request.method === 'POST');
+    button('Delete comment').click();
+    await fixture.whenStable();
+    button('Permanently delete comment').click();
+    http
+      .expectOne('/api/articles/article-1/comments/1')
+      .flush(null, { status: 204, statusText: 'No Content' });
+    await fixture.whenStable();
+    const stale = read();
+    replay.flush({ comment: commentFixture() }, { status: 200, statusText: 'Replayed' });
+    await fixture.whenStable();
+    expect(stale.cancelled).toBe(true);
+    expect(items()).toHaveLength(0);
+    read().flush(null, { status: 500, statusText: 'Failed' });
+    await fixture.whenStable();
+    expect(items()).toHaveLength(0);
+    expect(element.textContent).toContain('already removed');
+  });
 });

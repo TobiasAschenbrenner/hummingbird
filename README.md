@@ -9,7 +9,7 @@ Readers can browse articles, while registered users can publish posts and join t
 > Registration, login and logout now work through Angular and the Express API.
 > Article browsing, publishing and editing now work through Angular and the API.
 > Delete your own articles from Angular with a confirmation and version check.
-> Read and post comments from Angular; comment deletion is available in the API.
+> Read, post and delete your own comments from Angular.
 > The Flask instructions below remain valid;
 > its baseline is tagged `flask-baseline`.
 

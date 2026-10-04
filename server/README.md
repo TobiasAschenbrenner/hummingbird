@@ -374,7 +374,8 @@ pairs return `404`, other authors `403`, and a reused article URL with a differe
 article ID `409`. Repeated deletion returns `404`. No article, tags, other comments
 or account is removed. Comments currently cannot be edited, so no content version
 is required. The conditional delete and request-link change are one transaction.
-Angular confirmation follows in the next commit.
+Angular shows deletion only to the author and requires an explicit confirmation.
+Uncertain outcomes require reloading comments and confirming again.
 
 ## 🧪 Checks and Postman
 

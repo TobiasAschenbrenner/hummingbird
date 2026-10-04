@@ -1,7 +1,12 @@
 import { HttpClient } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { defer, map, Observable, timeout } from 'rxjs';
-import { CommentCreationInput, CommentPage, PublicComment } from '../../models/comment.model';
+import {
+  CommentCreationInput,
+  CommentDeletionInput,
+  CommentPage,
+  PublicComment,
+} from '../../models/comment.model';
 import { isArticleSlug } from '../../validators/article.validator';
 import { isCommentBody, isCommentId, isCommentRequestId } from '../../validators/comment.validator';
 import { readCommentPage, readPostedComment } from './comment-response';
@@ -27,6 +32,26 @@ export class CommentsApi {
         );
     });
   }
+  remove(slug: string, commentId: number, input: CommentDeletionInput): Observable<void> {
+    return defer(() => {
+      if (!isArticleSlug(slug) || !isCommentId(commentId) || !isCommentId(input.articleId))
+        throw new Error('Invalid comment deletion target.');
+      return this.http
+        .delete<unknown>(`/api/articles/${slug}/comments/${commentId}`, {
+          body: { articleId: input.articleId },
+          withCredentials: true,
+          headers: { 'X-Hummingbird-Request': '1' },
+          observe: 'response',
+        })
+        .pipe(
+          timeout(10000),
+          map((response) => {
+            if (response.status !== 204) throw new Error('Unexpected comment deletion response.');
+          }),
+        );
+    });
+  }
+
   publish(slug: string, input: CommentCreationInput, authorId: number): Observable<PublicComment> {
     return defer(() => {
       if (

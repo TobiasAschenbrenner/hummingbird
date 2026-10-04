@@ -17,3 +17,6 @@ export interface CommentCreationInput {
   body: string;
   requestId: string;
 }
+export interface CommentDeletionInput {
+  articleId: number;
+}
