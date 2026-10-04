@@ -24,7 +24,7 @@ export function createCommentRouter({
     limit: 20,
     standardHeaders: 'draft-8',
     legacyHeaders: false,
-    message: { error: { message: 'Too many comments. Try again later.' } },
+    message: { error: { message: 'Too many comment changes. Try again later.' } },
   });
   router.use((_request, response, next) => {
     response.set('Cache-Control', 'no-store');
@@ -38,6 +38,14 @@ export function createCommentRouter({
     createRequireSession(authentication, secureCookies),
     commentJsonBody,
     controllers.create,
+  );
+  router.delete(
+    '/:commentId',
+    writeLimit,
+    requireApiRequest,
+    createRequireSession(authentication, secureCookies),
+    commentJsonBody,
+    controllers.delete,
   );
   return router;
 }

@@ -72,7 +72,7 @@ model ArticleTag {
 }
 
 model Comment {
-  requestId String?  @unique(map: "comments_request_id_key") @map("request_id") @db.Uuid
+  request   CommentRequest?
   id        Int      @id @default(autoincrement())
   body      String   @db.Text
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -84,6 +84,14 @@ model Comment {
   @@index([articleId, id], map: "ix_comments_article_id_id")
   @@index([authorId], map: "ix_comments_author_id")
   @@map("comments")
+}
+
+model CommentRequest {
+  requestId String   @id @map("request_id") @db.Uuid
+  commentId Int?     @unique(map: "comment_requests_comment_id_key") @map("comment_id")
+  comment   Comment? @relation(fields: [commentId], references: [id], onDelete: SetNull)
+
+  @@map("comment_requests")
 }
 
 model Session {

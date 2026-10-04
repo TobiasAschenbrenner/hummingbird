@@ -26,7 +26,12 @@ function toComment(comment: CommentRecord): PublicComment {
     author: comment.author,
   };
 }
-function replay(comment: ReplayRecord, input: CreateCommentInput) {
+function replay(comment: ReplayRecord | null, input: CreateCommentInput) {
+  if (!comment)
+    throw new HttpError(
+      409,
+      'This comment submission was deleted. Use a new request ID for a new comment.',
+    );
   if (
     comment.articleId !== input.articleId ||
     comment.authorId !== input.authorId ||
@@ -52,37 +57,64 @@ export function createCommentQueries(database: PrismaClient): CommentQueries {
               409,
               'The article at this URL changed. Reload it before commenting.',
             );
-          const existing = await transaction.comment.findUnique({
+          const existing = await transaction.commentRequest.findUnique({
             where: { requestId: input.requestId },
-            select: replaySelect,
+            select: { comment: { select: replaySelect } },
           });
-          if (existing) return replay(existing, input);
+          if (existing) return replay(existing.comment, input);
           const comment = await transaction.comment.create({
             data: {
               articleId: article.id,
               authorId: input.authorId,
               body: input.body,
-              requestId: input.requestId,
             },
             select: commentSelect,
+          });
+          await transaction.commentRequest.create({
+            data: { requestId: input.requestId, commentId: comment.id },
           });
           return { comment: toComment(comment), created: true };
         });
       } catch (error) {
         if (error instanceof Prisma.PrismaClientKnownRequestError) {
-          // A concurrent retry can reach the unique key before its winner is visible.
+          // A concurrent creation may consume the key after the initial lookup.
           if (error.code === 'P2002') {
-            const existing = await database.comment.findUnique({
+            const existing = await database.commentRequest.findUnique({
               where: { requestId: input.requestId },
-              select: replaySelect,
+              select: { comment: { select: replaySelect } },
             });
-            if (existing) return replay(existing, input);
+            if (existing) return replay(existing.comment, input);
           }
           if (error.code === 'P2003')
             throw new HttpError(409, 'The article or account changed. Reload before commenting.');
         }
         throw error;
       }
+    },
+    async deleteComment({ slug, articleId, commentId, authorId }) {
+      await database.$transaction(async (transaction) => {
+        const article = await transaction.article.findUnique({
+          where: { slug },
+          select: { id: true },
+        });
+        if (!article) throw new HttpError(404, 'Article not found.');
+        if (article.id !== articleId)
+          throw new HttpError(
+            409,
+            'The article at this URL changed. Reload before deleting a comment.',
+          );
+        const comment = await transaction.comment.findFirst({
+          where: { id: commentId, articleId },
+          select: { authorId: true },
+        });
+        if (!comment) throw new HttpError(404, 'Comment not found.');
+        if (comment.authorId !== authorId)
+          throw new HttpError(403, 'You can only delete your own comments.');
+        const deleted = await transaction.comment.deleteMany({
+          where: { id: commentId, articleId, authorId },
+        });
+        if (deleted.count !== 1) throw new HttpError(404, 'Comment not found.');
+      });
     },
     async listComments({ slug, before }) {
       return database.$transaction(

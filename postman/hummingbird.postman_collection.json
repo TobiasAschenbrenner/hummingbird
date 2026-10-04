@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Hummingbird API",
-    "description": "Local requests for the Angular/Express rewrite: accounts, public article reads and authenticated publishing. Seed categories first and run in order with the cookie jar enabled. Registration and publishing write to the configured rewrite database; the collection does not remove created accounts or articles.",
+    "description": "Local requests for the Angular/Express rewrite: accounts, article CRUD and comment reading, creation and deletion. Seed categories first and run in order with the cookie jar enabled. The collection deletes its own article and comment, but leaves its two test accounts and shared catalog entries.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -72,6 +72,11 @@
     },
     {
       "key": "commentId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "commentOtherEmail",
       "value": "",
       "type": "string"
     }
@@ -899,6 +904,339 @@
       ]
     },
     {
+      "name": "Register another commenter",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Hummingbird-Request",
+            "value": "1"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/auth/register",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"username\": \"Postman reader\",\n  \"email\": \"{{commentOtherEmail}}\",\n  \"password\": \"{{registrationPassword}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.collectionVariables.set('commentOtherEmail', 'comment-' + pm.variables.replaceIn('{{$guid}}') + '@example.test');"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Register another commenter', function () {",
+              "  pm.response.to.have.status(201);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Login as another commenter",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Hummingbird-Request",
+            "value": "1"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/auth/login",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{commentOtherEmail}}\",\n  \"password\": \"{{registrationPassword}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Login as another commenter', function () {",
+              "  pm.response.to.have.status(200);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Cannot delete another author comment",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "X-Hummingbird-Request",
+            "value": "1"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/articles/{{newArticleSlug}}/comments/{{commentId}}",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"articleId\": {{newArticleId}}\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Cannot delete another author comment', function () {",
+              "  pm.response.to.have.status(403);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Login as comment author",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Hummingbird-Request",
+            "value": "1"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/auth/login",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{registrationEmail}}\",\n  \"password\": \"{{registrationPassword}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Signed in with an HTTP-only session cookie', function () {",
+              "  pm.response.to.have.status(200);",
+              "  const user = pm.response.json().user;",
+              "  pm.expect(Object.keys(user).sort()).to.eql(['email', 'id', 'username']);",
+              "  pm.expect(user.email).to.eql(pm.collectionVariables.get('registrationEmail'));",
+              "  pm.expect(pm.response.headers.get('Set-Cookie')).to.include('HttpOnly');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Delete own comment",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "X-Hummingbird-Request",
+            "value": "1"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/articles/{{newArticleSlug}}/comments/{{commentId}}",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"articleId\": {{newArticleId}}\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Delete own comment', function () {",
+              "  pm.response.to.have.status(204);",
+              "  pm.expect(pm.response.text()).to.eql('');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Repeated comment deletion",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "X-Hummingbird-Request",
+            "value": "1"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/articles/{{newArticleSlug}}/comments/{{commentId}}",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"articleId\": {{newArticleId}}\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Repeated comment deletion', function () {",
+              "  pm.response.to.have.status(404);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Retry deleted comment",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Hummingbird-Request",
+            "value": "1"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/articles/{{newArticleSlug}}/comments",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"articleId\": {{newArticleId}},\n  \"body\": \"Thank you!\\n\\nA useful explanation.\",\n  \"requestId\": \"{{commentRequestId}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Deleted comment cannot be recreated', function () {",
+              "  pm.response.to.have.status(409);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Comments after deletion",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/articles/{{newArticleSlug}}/comments"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Comments after deletion', function () {",
+              "  pm.response.to.have.status(200);",
+              "  pm.expect(pm.response.json().total).to.eql(0);",
+              "  pm.expect(pm.response.json().comments).to.eql([]);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Article after comment deletion",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/articles/{{newArticleSlug}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Article after comment deletion', function () {",
+              "  pm.response.to.have.status(200);",
+              "  pm.expect(pm.response.json().article.commentCount).to.eql(0);",
+              "  pm.expect(pm.response.json().article.version).to.eql(pm.collectionVariables.get('articleVersion'));",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
       "name": "Stale article deletion",
       "request": {
         "method": "DELETE",
@@ -1270,6 +1608,45 @@
             "type": "text/javascript",
             "exec": [
               "pm.test('Commenting after logout', function () {",
+              "  pm.response.to.have.status(401);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Comment deletion after logout",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "X-Hummingbird-Request",
+            "value": "1"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/articles/{{newArticleSlug}}/comments/{{commentId}}",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"articleId\": {{newArticleId}}\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Comment deletion after logout', function () {",
               "  pm.response.to.have.status(401);",
               "});"
             ]

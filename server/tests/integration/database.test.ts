@@ -3,6 +3,8 @@ import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { once } from 'node:events';
+import { readFile } from 'node:fs/promises';
+import { Client } from 'pg';
 import type { Server } from 'node:http';
 import { verify } from 'argon2';
 import { after, afterEach, before, beforeEach, test } from 'node:test';
@@ -75,7 +77,7 @@ async function startServer() {
 
 async function clearDatabase() {
   assert.ok(databaseVerified, 'Refusing to clear an unverified database.');
-  await database.$executeRaw`TRUNCATE TABLE public.sessions, public.comments, public.article_tags,
+  await database.$executeRaw`TRUNCATE TABLE public.comment_requests, public.sessions, public.comments, public.article_tags,
     public.articles, public.tags, public.categories, public.users RESTART IDENTITY CASCADE`;
 }
 
@@ -1721,7 +1723,11 @@ test('a reader can post to another author article, storing its identity and upda
   assert.ok(Number.isFinite(Date.parse(comment.createdAt)));
   assert.deepEqual(Object.keys(comment).sort(), ['articleId', 'author', 'body', 'createdAt', 'id']);
   const stored = await database.comment.findUniqueOrThrow({ where: { id: comment.id } });
-  assert.equal(stored.requestId, input.requestId);
+  assert.equal(
+    (await database.commentRequest.findUniqueOrThrow({ where: { requestId: input.requestId } }))
+      .commentId,
+    comment.id,
+  );
   assert.equal(stored.authorId, user.id);
   assert.deepEqual(await database.article.findUniqueOrThrow({ where: { id: article.id } }), before);
   const detail = await fetch(`${baseUrl}/api/articles/${article.slug}`);
@@ -1909,7 +1915,7 @@ test('a failed comment insert rolls back without reserving the request ID and ca
       error: { message: 'Unable to process the request. Try again later.' },
     });
     assert.deepEqual(await readSeedSnapshot(), before);
-    assert.equal(await database.comment.count({ where: { requestId: input.requestId } }), 0);
+    assert.equal(await database.commentRequest.count({ where: { requestId: input.requestId } }), 0);
   } finally {
     await database.$executeRaw`ALTER TABLE comments DROP CONSTRAINT comment_test_reject_insert`;
   }
@@ -1918,7 +1924,7 @@ test('a failed comment insert rolls back without reserving the request ID and ca
   await retry.arrayBuffer();
 });
 
-test('article deletion cascades posted comments and request IDs, so a later retry cannot recreate them', async () => {
+test('article deletion removes posted comments and retains consumed request IDs, so a later retry cannot recreate them', async () => {
   const { cookie, article } = await editingContext();
   const input = {
     articleId: article.id,
@@ -1936,4 +1942,293 @@ test('article deletion cascades posted comments and request IDs, so a later retr
   assert.equal(retried.status, 404);
   await retried.arrayBuffer();
   assert.equal(await database.comment.count(), 0);
+});
+
+function deleteArticleComment(cookie: string, slug: string, commentId: number, articleId: number) {
+  return fetch(`${baseUrl}/api/articles/${slug}/comments/${commentId}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json', 'X-Hummingbird-Request': '1', Cookie: cookie },
+    body: JSON.stringify({ articleId }),
+  });
+}
+async function postedComment() {
+  const context = await editingContext();
+  const input = {
+    articleId: context.article.id,
+    body: 'A comment to remove.',
+    requestId: randomUUID(),
+  };
+  const response = await postArticleComment(context.cookie, context.article.slug, input);
+  assert.equal(response.status, 201);
+  const { comment } = await response.json();
+  return { ...context, comment, commentInput: input };
+}
+
+test('the request-history migration preserves old keys and comment text, skips legacy null keys and retains consumed keys after deletion', async () => {
+  const connection = new Client({ connectionString: readTestDatabaseUrl() });
+  await connection.connect();
+  let ownsSchema = false;
+  try {
+    await connection.query('CREATE SCHEMA comment_history_migration_test');
+    ownsSchema = true;
+    await connection.query('SET search_path TO comment_history_migration_test');
+    await connection.query(
+      'CREATE TABLE comments (id INTEGER PRIMARY KEY, body TEXT NOT NULL, request_id UUID UNIQUE)',
+    );
+    const key = randomUUID();
+    await connection.query(
+      'INSERT INTO comments (id, body, request_id) VALUES (1, $1, $2), (2, $3, NULL)',
+      ['Keep this text.', key, 'Legacy comment.'],
+    );
+    const sql = await readFile(
+      new URL(
+        '../../prisma/migrations/20261004010000_comment_request_history/migration.sql',
+        import.meta.url,
+      ),
+      'utf8',
+    );
+    await connection.query(sql);
+    assert.deepEqual((await connection.query('SELECT id, body FROM comments ORDER BY id')).rows, [
+      { id: 1, body: 'Keep this text.' },
+      { id: 2, body: 'Legacy comment.' },
+    ]);
+    assert.deepEqual((await connection.query('SELECT * FROM comment_requests')).rows, [
+      { request_id: key, comment_id: 1 },
+    ]);
+    await connection.query('DELETE FROM comments WHERE id=1');
+    assert.deepEqual((await connection.query('SELECT * FROM comment_requests')).rows, [
+      { request_id: key, comment_id: null },
+    ]);
+    await assert.rejects(
+      connection.query('INSERT INTO comment_requests (request_id) VALUES ($1)', [key]),
+      { code: '23505' },
+    );
+  } finally {
+    if (ownsSchema) await connection.query('DROP SCHEMA comment_history_migration_test CASCADE');
+    await connection.end();
+  }
+});
+test('a reader deletes only their own comment while article content, shared data and another comment remain intact', async () => {
+  const { article, user } = await editingContext();
+  const registration = await registerAccount('reader@example.test');
+  const { user: reader } = await registration.json();
+  const login = await signIn('reader@example.test');
+  await login.arrayBuffer();
+  const cookie = responseSession(login).cookie;
+  const body = {
+    articleId: article.id,
+    body: 'My comment on another author’s article.',
+    requestId: randomUUID(),
+  };
+  const response = await postArticleComment(cookie, article.slug, body);
+  const { comment } = await response.json();
+  const other = await database.comment.create({
+    data: { articleId: article.id, authorId: user.id, body: 'Keep the author’s comment.' },
+  });
+  const before = await database.article.findUniqueOrThrow({
+    where: { id: article.id },
+    include: { tags: true },
+  });
+  const removed = await deleteArticleComment(cookie, article.slug, comment.id, article.id);
+  assert.equal(removed.status, 204);
+  assert.equal(await removed.text(), '');
+  assert.equal(await database.comment.findUnique({ where: { id: comment.id } }), null);
+  assert.deepEqual(await database.comment.findUniqueOrThrow({ where: { id: other.id } }), other);
+  assert.deepEqual(
+    await database.article.findUniqueOrThrow({
+      where: { id: article.id },
+      include: { tags: true },
+    }),
+    before,
+  );
+  assert.equal(
+    (await database.commentRequest.findUniqueOrThrow({ where: { requestId: body.requestId } }))
+      .commentId,
+    null,
+  );
+  const detail = await fetch(`${baseUrl}/api/articles/${article.slug}`);
+  assert.equal((await detail.json()).article.commentCount, 1);
+  const page = await fetch(`${baseUrl}/api/articles/${article.slug}/comments`);
+  const data = await page.json();
+  assert.equal(data.total, 1);
+  assert.equal(data.comments[0].id, other.id);
+  assert.ok(await database.user.findUnique({ where: { id: reader.id } }));
+});
+test('an article author cannot moderate other readers’ comments, and wrong targets or expired sessions leave comments intact', async () => {
+  const { cookie: authorCookie, article } = await editingContext();
+  const registration = await registerAccount('reader@example.test');
+  await registration.arrayBuffer();
+  const login = await signIn('reader@example.test');
+  await login.arrayBuffer();
+  const cookie = responseSession(login).cookie;
+  const response = await postArticleComment(cookie, article.slug, {
+    articleId: article.id,
+    body: 'Reader’s comment.',
+    requestId: randomUUID(),
+  });
+  const { comment } = await response.json();
+  for (const [session, slug, id, articleId, status] of [
+    [authorCookie, article.slug, comment.id, article.id, 403],
+    [cookie, article.slug, comment.id, article.id + 1, 409],
+    [cookie, article.slug, comment.id + 1, article.id, 404],
+    [cookie, 'missing', comment.id, article.id, 404],
+    ['', article.slug, comment.id, article.id, 401],
+  ] as const) {
+    const rejected = await deleteArticleComment(session, slug, id, articleId);
+    assert.equal(rejected.status, status);
+    await rejected.arrayBuffer();
+  }
+  await database.session.updateMany({
+    data: {
+      createdAt: new Date(Date.now() - 172800000),
+      expiresAt: new Date(Date.now() - 86400000),
+    },
+  });
+  const expired = await deleteArticleComment(cookie, article.slug, comment.id, article.id);
+  assert.equal(expired.status, 401);
+  await expired.arrayBuffer();
+  await database.session.deleteMany();
+  const revoked = await deleteArticleComment(cookie, article.slug, comment.id, article.id);
+  assert.equal(revoked.status, 401);
+  await revoked.arrayBuffer();
+  assert.equal(await database.comment.count(), 1);
+  assert.equal(await database.commentRequest.count(), 1);
+});
+test('deletion keeps consumed creation keys, rejecting resurrection while allowing a genuinely new comment and legacy deletion', async () => {
+  const { cookie, user, article, comment, commentInput } = await postedComment();
+  const removed = await deleteArticleComment(cookie, article.slug, comment.id, article.id);
+  assert.equal(removed.status, 204);
+  await removed.arrayBuffer();
+  const repeated = await deleteArticleComment(cookie, article.slug, comment.id, article.id);
+  assert.equal(repeated.status, 404);
+  await repeated.arrayBuffer();
+  for (const input of [
+    commentInput,
+    { ...commentInput, body: 'Changed content with a consumed key.' },
+  ]) {
+    const replay = await postArticleComment(cookie, article.slug, input);
+    assert.equal(replay.status, 409);
+    await replay.arrayBuffer();
+  }
+  assert.equal(await database.comment.count(), 0);
+  const fresh = await postArticleComment(cookie, article.slug, {
+    ...commentInput,
+    requestId: randomUUID(),
+  });
+  assert.equal(fresh.status, 201);
+  await fresh.arrayBuffer();
+  const legacy = await database.comment.create({
+    data: {
+      articleId: article.id,
+      authorId: user.id,
+      body: 'A legacy comment without a request key.',
+    },
+  });
+  const legacyDelete = await deleteArticleComment(cookie, article.slug, legacy.id, article.id);
+  assert.equal(legacyDelete.status, 204);
+  await legacyDelete.arrayBuffer();
+  assert.equal(await database.comment.count(), 1);
+});
+test('concurrent deletion and creation replay cannot recreate a deleted comment, and competing deletes have one winner', async () => {
+  const { cookie, article, comment, commentInput } = await postedComment();
+  const responses = await Promise.all([
+    deleteArticleComment(cookie, article.slug, comment.id, article.id),
+    deleteArticleComment(cookie, article.slug, comment.id, article.id),
+    postArticleComment(cookie, article.slug, commentInput),
+  ]);
+  assert.deepEqual(
+    responses
+      .slice(0, 2)
+      .map((response) => response.status)
+      .sort(),
+    [204, 404],
+  );
+  assert.ok([200, 409].includes(responses[2]!.status));
+  for (const response of responses) await response.arrayBuffer();
+  assert.equal(await database.comment.count(), 0);
+  assert.equal(
+    (
+      await database.commentRequest.findUniqueOrThrow({
+        where: { requestId: commentInput.requestId },
+      })
+    ).commentId,
+    null,
+  );
+  const retry = await postArticleComment(cookie, article.slug, commentInput);
+  assert.equal(retry.status, 409);
+  await retry.arrayBuffer();
+});
+test('a failed deletion rolls back the removed comment and its request link before an explicit retry', async () => {
+  const { cookie, article, comment, commentInput } = await postedComment();
+  await database.$executeRaw`CREATE FUNCTION comment_delete_test_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'private test deletion failure'; END; $$`;
+  try {
+    await database.$executeRaw`CREATE TRIGGER comment_delete_test_failure AFTER DELETE ON comments FOR EACH ROW EXECUTE FUNCTION comment_delete_test_failure()`;
+    try {
+      const failed = await deleteArticleComment(cookie, article.slug, comment.id, article.id);
+      assert.equal(failed.status, 500);
+      assert.deepEqual(await failed.json(), {
+        error: { message: 'Unable to process the request. Try again later.' },
+      });
+      assert.equal(
+        (await database.comment.findUniqueOrThrow({ where: { id: comment.id } })).body,
+        comment.body,
+      );
+      assert.equal(
+        (
+          await database.commentRequest.findUniqueOrThrow({
+            where: { requestId: commentInput.requestId },
+          })
+        ).commentId,
+        comment.id,
+      );
+    } finally {
+      await database.$executeRaw`DROP TRIGGER comment_delete_test_failure ON comments`;
+    }
+  } finally {
+    await database.$executeRaw`DROP FUNCTION comment_delete_test_failure()`;
+  }
+  const retry = await deleteArticleComment(cookie, article.slug, comment.id, article.id);
+  assert.equal(retry.status, 204);
+  await retry.arrayBuffer();
+});
+test('failure to record a creation key rolls back the new comment without leaving an orphan', async () => {
+  const { cookie, article } = await editingContext();
+  const input = { articleId: article.id, body: 'No orphan comment.', requestId: randomUUID() };
+  await database.$executeRaw`ALTER TABLE comment_requests ADD CONSTRAINT request_test_failure CHECK (false) NOT VALID`;
+  try {
+    const failed = await postArticleComment(cookie, article.slug, input);
+    assert.equal(failed.status, 500);
+    await failed.arrayBuffer();
+    assert.equal(await database.comment.count(), 0);
+    assert.equal(await database.commentRequest.count(), 0);
+  } finally {
+    await database.$executeRaw`ALTER TABLE comment_requests DROP CONSTRAINT request_test_failure`;
+  }
+  const retry = await postArticleComment(cookie, article.slug, input);
+  assert.equal(retry.status, 201);
+  await retry.arrayBuffer();
+});
+test('a comment cannot be deleted through another article or an old confirmation for a reused URL', async () => {
+  const { cookie, article, input, comment } = await postedComment();
+  const published = await publishArticle(cookie, { ...input, slug: 'another-article' });
+  const { article: second } = await published.json();
+  const wrong = await deleteArticleComment(cookie, second.slug, comment.id, second.id);
+  assert.equal(wrong.status, 404);
+  await wrong.arrayBuffer();
+  assert.equal(await database.comment.count(), 1);
+  const removed = await deleteArticle(cookie, article.slug, article.id, article.version);
+  assert.equal(removed.status, 204);
+  await removed.arrayBuffer();
+  const replacement = await publishArticle(cookie, input);
+  const { article: current } = await replacement.json();
+  const newPost = await postArticleComment(cookie, current.slug, {
+    articleId: current.id,
+    body: 'Keep the replacement comment.',
+    requestId: randomUUID(),
+  });
+  const { comment: currentComment } = await newPost.json();
+  const stale = await deleteArticleComment(cookie, article.slug, currentComment.id, article.id);
+  assert.equal(stale.status, 409);
+  await stale.arrayBuffer();
+  assert.equal(await database.comment.count(), 1);
 });

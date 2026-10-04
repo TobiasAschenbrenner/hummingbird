@@ -9,6 +9,14 @@ export interface CreateCommentInput extends CommentCreationInput {
   slug: string;
   authorId: number;
 }
+export interface CommentDeletionInput {
+  articleId: number;
+}
+export interface DeleteCommentInput extends CommentDeletionInput {
+  slug: string;
+  commentId: number;
+  authorId: number;
+}
 export interface CommentPageInput {
   slug: string;
   before?: number;
@@ -29,4 +37,5 @@ export interface CommentPage {
 export interface CommentQueries {
   createComment(input: CreateCommentInput): Promise<{ comment: PublicComment; created: boolean }>;
   listComments(input: CommentPageInput): Promise<CommentPage>;
+  deleteComment(input: DeleteCommentInput): Promise<void>;
 }

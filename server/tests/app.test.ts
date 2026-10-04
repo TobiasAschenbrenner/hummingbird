@@ -5,6 +5,7 @@ import { afterEach, beforeEach, test } from 'node:test';
 
 import type {
   CommentQueries,
+  DeleteCommentInput,
   CreateCommentInput,
   CommentPageInput,
 } from '../src/models/comment.model.ts';
@@ -135,6 +136,7 @@ const articles: ArticleQueries = {
   },
 };
 
+let commentDeletions: DeleteCommentInput[] = [];
 let commentCreations: CreateCommentInput[] = [];
 let commentPages: CommentPageInput[] = [];
 let commentError: Error | undefined;
@@ -147,6 +149,10 @@ const exampleComment = {
   author: { id: publicUser.id, username: publicUser.username },
 };
 const comments: CommentQueries = {
+  async deleteComment(input) {
+    commentDeletions.push(input);
+    if (commentError) throw commentError;
+  },
   async createComment(input) {
     commentCreations.push(input);
     if (commentError) throw commentError;
@@ -210,6 +216,7 @@ beforeEach(() => {
   articleSlugs = [];
   articleError = undefined;
   commentCreations = [];
+  commentDeletions = [];
   commentPages = [];
   commentError = undefined;
   commentCreated = true;
@@ -1761,21 +1768,172 @@ test('comment routes preserve expected missing/conflict errors and hide database
   }
 });
 
-test('comment write limits are separate from public reads and article writes', async () => {
+test('comment creation and deletion share a limit separate from public reads and article writes', async () => {
   for (let attempt = 0; attempt < 20; attempt++) {
-    const response = await postComment();
-    assert.equal(response.status, 201);
+    const response = await (attempt % 2 === 0 ? postComment() : deleteComment());
+    assert.equal(response.status, attempt % 2 === 0 ? 201 : 204);
     await response.arrayBuffer();
   }
   const blocked = await postComment();
   assert.equal(blocked.status, 429);
   assert.ok(blocked.headers.get('retry-after'));
   await blocked.arrayBuffer();
-  assert.equal(commentCreations.length, 20);
+  assert.equal(commentCreations.length, 10);
+  assert.equal(commentDeletions.length, 10);
+  const blockedDeletion = await deleteComment();
+  assert.equal(blockedDeletion.status, 429);
+  await blockedDeletion.arrayBuffer();
+  assert.equal(userTokens.length, 20);
   const read = await fetch(`${baseUrl}/api/articles/first-article/comments`);
   assert.equal(read.status, 200);
   await read.arrayBuffer();
   const article = await publish();
   assert.equal(article.status, 201);
   await article.arrayBuffer();
+});
+
+const validCommentDeletion = { articleId: exampleArticle.id };
+function deleteComment(
+  body: unknown = validCommentDeletion,
+  id = '21',
+  headers: Record<string, string> = {},
+  slug = exampleArticle.slug,
+) {
+  return fetch(`${baseUrl}/api/articles/${slug}/comments/${id}`, {
+    method: 'DELETE',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Hummingbird-Request': '1',
+      Cookie: `hummingbird_session=${sessionToken}`,
+      ...headers,
+    },
+    body: JSON.stringify(body),
+  });
+}
+test('comment deletion passes the session author and exact target IDs, returning an empty uncached 204', async () => {
+  const response = await deleteComment();
+  assert.equal(response.status, 204);
+  assert.equal(await response.text(), '');
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  assert.deepEqual(commentDeletions, [
+    {
+      articleId: exampleArticle.id,
+      commentId: 21,
+      slug: exampleArticle.slug,
+      authorId: publicUser.id,
+    },
+  ]);
+});
+test('comment deletion rejects unsafe headers and missing or ambiguous sessions before parsing or deleting', async () => {
+  const headersToReject: Record<string, string>[] = [
+    { 'X-Hummingbird-Request': '' },
+    { 'Sec-Fetch-Site': 'cross-site' },
+  ];
+  for (const headers of headersToReject) {
+    const response = await deleteComment(null, '21', headers);
+    assert.equal(response.status, 403);
+    await response.arrayBuffer();
+  }
+  assert.deepEqual(userTokens, []);
+  signedInUser = null;
+  for (const Cookie of [
+    '',
+    `hummingbird_session=${sessionToken}`,
+    'hummingbird_session=one; hummingbird_session=two',
+  ]) {
+    const response = await deleteComment(null, '21', { Cookie });
+    assert.equal(response.status, 401);
+    assert.match(response.headers.get('set-cookie')!, /^hummingbird_session=;/);
+    await response.arrayBuffer();
+  }
+  assert.deepEqual(commentDeletions, []);
+});
+test('comment deletion rejects noncanonical route IDs and invalid slugs before persistence', async () => {
+  for (const id of ['0', '-1', '01', '1.5', '1e3', '2147483648', 'abc', '1%20', '999999999999']) {
+    const response = await deleteComment(validCommentDeletion, id);
+    assert.equal(response.status, 400);
+    await response.arrayBuffer();
+  }
+  for (const slug of ['Uppercase', 'double--hyphen', 'a'.repeat(81)]) {
+    const response = await deleteComment(validCommentDeletion, '21', {}, slug);
+    assert.equal(response.status, 400);
+    await response.arrayBuffer();
+  }
+  assert.deepEqual(commentDeletions, []);
+});
+test('comment deletion accepts only the integer article ID, never client ownership or mutable content', async () => {
+  for (const body of [
+    null,
+    [],
+    {},
+    { articleId: '11' },
+    { articleId: 0 },
+    { articleId: -1 },
+    { articleId: 1.5 },
+    { articleId: 2147483648 },
+    { ...validCommentDeletion, authorId: 99 },
+    { ...validCommentDeletion, body: 'changed' },
+    { ...validCommentDeletion, requestId: validComment.requestId },
+  ]) {
+    const response = await deleteComment(body);
+    assert.equal(response.status, 400);
+    await response.arrayBuffer();
+  }
+  assert.deepEqual(commentDeletions, []);
+});
+test('comment deletion rejects malformed, oversized and unsupported JSON without writing', async () => {
+  for (const [body, headers, status] of [
+    ['{"private":', {}, 400],
+    [JSON.stringify({ body: 'x'.repeat(16384) }), {}, 413],
+    ['{}', { 'Content-Type': 'text/plain' }, 415],
+    ['{}', { 'Content-Type': 'application/json; charset=utf-16le' }, 415],
+    ['{}', { 'Content-Encoding': 'gzip' }, 415],
+  ] as const) {
+    const response = await fetch(`${baseUrl}/api/articles/first-article/comments/21`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Hummingbird-Request': '1',
+        Cookie: `hummingbird_session=${sessionToken}`,
+        ...headers,
+      },
+      body,
+    });
+    assert.equal(response.status, status);
+    assert.ok(!JSON.stringify(await response.json()).includes('private'));
+  }
+  assert.deepEqual(commentDeletions, []);
+});
+test('comment deletion preserves missing, forbidden and conflict errors and hides unexpected failures', async () => {
+  for (const status of [403, 404, 409]) {
+    commentError = new HttpError(status, 'Safe rejection.');
+    const response = await deleteComment();
+    assert.equal(response.status, status);
+    await response.arrayBuffer();
+  }
+  commentError = new Error('private SQL and credentials');
+  const response = await deleteComment();
+  assert.equal(response.status, 500);
+  assert.deepEqual(await response.json(), {
+    error: { message: 'Unable to process the request. Try again later.' },
+  });
+});
+test('comment deletion uses the secure production cookie name', async () => {
+  await withApp(
+    { registerUser: async () => publicUser, authentication, secureCookies: true },
+    async (url) => {
+      const response = await fetch(`${url}/api/articles/first-article/comments/21`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Hummingbird-Request': '1',
+          Cookie: `__Host-hummingbird_session=${sessionToken}; hummingbird_session=ignored`,
+        },
+        body: JSON.stringify(validCommentDeletion),
+      });
+      assert.equal(response.status, 204);
+      await response.arrayBuffer();
+      assert.deepEqual(userTokens, [sessionToken]);
+    },
+  );
 });

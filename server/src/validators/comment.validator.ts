@@ -1,5 +1,5 @@
 import { HttpError } from '../errors/http-error.ts';
-import type { CommentCreationInput } from '../models/comment.model.ts';
+import type { CommentCreationInput, CommentDeletionInput } from '../models/comment.model.ts';
 import { isWellFormed } from './credentials.validator.ts';
 
 function isDatabaseId(value: unknown): value is number {
@@ -42,4 +42,19 @@ export function parseCommentCursor(query: Record<string, unknown>): number | und
   if (typeof value !== 'string' || !/^[1-9][0-9]{0,9}$/.test(value) || Number(value) > 2147483647)
     throw new HttpError(400, 'Use a positive integer comment ID for before.');
   return Number(value);
+}
+
+export function parseCommentId(value: unknown): number {
+  if (typeof value !== 'string' || !/^[1-9][0-9]{0,9}$/.test(value) || Number(value) > 2147483647)
+    throw new HttpError(400, 'Use a positive integer comment ID.');
+  return Number(value);
+}
+
+export function parseCommentDeletion(body: unknown): CommentDeletionInput {
+  if (!body || typeof body !== 'object' || Array.isArray(body))
+    throw new HttpError(400, 'Provide the current article ID in a JSON object.');
+  const input = body as Record<string, unknown>;
+  if (Object.keys(input).some((key) => key !== 'articleId') || !isDatabaseId(input.articleId))
+    throw new HttpError(400, 'Only the current integer articleId is accepted.');
+  return { articleId: input.articleId };
 }

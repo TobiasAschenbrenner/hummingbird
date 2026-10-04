@@ -222,7 +222,7 @@ article bodies as text, not as trusted HTML.
 Slugs use 1–80 lowercase letters/digits separated by single hyphens. A valid
 missing slug returns `404`; invalid slugs or pagination return `400`. Database
 failures return the same safe `500` error as other API routes. Responses are not
-cached. Search, category/tag filters and comment editing/deletion are not
+cached. Search, category/tag filters and comment editing are not
 yet implemented; unsupported list query parameters return `400`.
 
 ## ✍️ Publish articles
@@ -349,16 +349,32 @@ Creation returns `201` and `{ "comment": { ... } }`. Retrying the same request I
 article, author and exact body returns the original comment with `200`, including
 when requests arrive concurrently. Changed content or ownership with that key
 returns `409`. Keep the same key after a timeout; never silently create a new one.
-The unique UUID index is stored with the comment, not in server memory. Existing
-comments have a nullable key and remain readable after the additive migration.
+Creation keys live in `comment_requests`, linked to at most one comment. The
+migration moves existing keys without changing comment text; legacy comments
+without keys remain readable. Deletion removes the comment and sets its request
+link to null. Only the consumed UUID remains, so retries cannot recreate deleted
+text (`409`). Keys are retained for this guarantee, including after article deletion.
 
 Invalid fields/cursors return `400`, unavailable sessions `401`, unsafe headers
 `403`, missing articles `404`, and changed article identities `409`. Oversized or
 unsupported requests return `413`/`415`; unexpected failures return a safe `500`.
-Posting is limited to 20 attempts per IP per minute (`429`), separate from article
-writes and public reads. Posting does not change the article content version.
-Deleting an article also removes its comments and their request IDs. Comment
-editing and deletion are separate steps.
+Comment creation and deletion share 20 attempts per IP per minute (`429`), separate
+from article writes and public reads. Neither changes the article content version.
+Comment editing is not implemented.
+
+## 🗑️ Delete a comment
+
+`DELETE /api/articles/:slug/comments/:commentId` requires the same cookie, request
+header and UTF-8 JSON as posting. Send only `{ "articleId": 1 }` for the article
+being viewed. IDs must be positive integers; the route ID must be canonical.
+
+Only the comment's author may delete it; article ownership grants no moderation
+rights. Success returns an empty `204`. Missing comments or wrong article/comment
+pairs return `404`, other authors `403`, and a reused article URL with a different
+article ID `409`. Repeated deletion returns `404`. No article, tags, other comments
+or account is removed. Comments currently cannot be edited, so no content version
+is required. The conditional delete and request-link change are one transaction.
+Angular confirmation follows in the next commit.
 
 ## 🧪 Checks and Postman
 
@@ -390,7 +406,8 @@ Deletion tests cover ownership, expired sessions, stale confirmations, URL reuse
 concurrent writes, cascades and rollback. Each database test gets a fresh API instance
 so rate-limit counters do not leak between tests.
 Comment tests cover cursor reads, public fields, session authorship, Unicode
-limits, safe retries, concurrent request IDs, rollback and article cascades.
+limits, safe retries, deletion permissions, consumed keys, migration backfill,
+concurrent requests, rollback and article cascades.
 The test database is emptied before each test and when the suite finishes.
 
 Import [the Postman collection](../postman/hummingbird.postman_collection.json).
@@ -415,12 +432,13 @@ created article’s tag links in this collection.
 
 **Create comment**, **Retry comment** and **Article comments** check creation,
 deduplication and public reads. Invalid input, reads after article deletion and
-posting after logout are also checked.
+posting after logout are also checked. Comment deletion checks ownership,
+repeated deletion, consumed creation keys and deletion after logout.
 
 Registration generates a new test address and publishing a new slug on each run.
-The collection creates real accounts, sessions, articles and tag links in the
+The collection creates two test accounts, sessions, an article and tag links in the
 configured rewrite database. It deletes its own article during a successful full
-run, but leaves the test account and shared catalog entries in place. Its password
+run, but leaves the test accounts and shared catalog entries in place. Its password
 is a test example, not a credential for a real account.
 
 To run the compiled application, stop the development server first:
