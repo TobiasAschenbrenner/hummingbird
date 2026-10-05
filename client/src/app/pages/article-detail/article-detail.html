@@ -1,7 +1,5 @@
 <section class="container detail-page" [attr.aria-busy]="state().status === 'loading'">
-  <a class="back-link" routerLink="/" [queryParams]="listPage() > 1 ? { page: listPage() } : {}"
-    >← Back to articles</a
-  >
+  <a class="back-link" routerLink="/" [queryParams]="listQuery()">← Back to articles</a>
   @let current = state();
   @switch (current.status) {
     @case ('loading') {
@@ -27,9 +25,7 @@
     @case ('ready') {
       @if (auth.status() === 'authenticated' && auth.user()?.id === current.article.author.id) {
         <p>
-          <a
-            [routerLink]="['/articles', current.article.slug, 'edit']"
-            [queryParams]="listPage() > 1 ? { page: listPage() } : {}"
+          <a [routerLink]="['/articles', current.article.slug, 'edit']" [queryParams]="listQuery()"
             >Edit article</a
           >
         </p>

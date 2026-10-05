@@ -10,7 +10,9 @@ import {
   ArticleDeletionInput,
   ArticleUpdateInput,
   ArticlePage,
+  ArticleFilters,
 } from '../../models/article.model';
+import { readArticleFilters } from '../../validators/article-list.validator';
 import { isArticleSlug, isArticleVersion } from '../../validators/article.validator';
 import { readArticleDetailResponse, readArticlePageResponse } from './article-response';
 
@@ -94,12 +96,16 @@ export class ArticlesApi {
     });
   }
 
-  list(page: number): Observable<ArticlePage> {
+  list(page: number, filters: ArticleFilters = {}): Observable<ArticlePage> {
     return defer(() => {
       if (!Number.isInteger(page) || page < 1 || page > MAX_ARTICLE_PAGE)
         throw new Error('Invalid article page.');
+      const validated = readArticleFilters(filters);
+      if (!validated) throw new Error('Invalid article filters.');
       return this.http
-        .get<unknown>('/api/articles', { params: { page, pageSize: ARTICLE_PAGE_SIZE } })
+        .get<unknown>('/api/articles', {
+          params: { page, pageSize: ARTICLE_PAGE_SIZE, ...validated },
+        })
         .pipe(
           timeout(10_000),
           map((response) => readArticlePageResponse(response, page)),

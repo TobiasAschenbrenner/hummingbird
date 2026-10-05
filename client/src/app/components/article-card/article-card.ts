@@ -1,8 +1,9 @@
 import { DatePipe } from '@angular/common';
-import { ChangeDetectionStrategy, Component, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
-import { ArticleSummary } from '../../models/article.model';
+import { articleListParams } from '../../validators/article-list.validator';
+import { ArticleFilters, ArticleSummary } from '../../models/article.model';
 
 @Component({
   selector: 'app-article-card',
@@ -14,4 +15,8 @@ import { ArticleSummary } from '../../models/article.model';
 export class ArticleCard {
   readonly article = input.required<ArticleSummary>();
   readonly page = input(1);
+  readonly filters = input<ArticleFilters>({});
+  protected readonly listQuery = computed(() =>
+    articleListParams({ ...this.filters(), page: this.page() }),
+  );
 }

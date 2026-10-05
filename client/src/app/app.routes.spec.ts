@@ -25,10 +25,17 @@ describe('Application routes', () => {
     http = TestBed.inject(HttpTestingController);
   });
   afterEach(() => http.verify());
+  function filterOptions() {
+    http
+      .expectOne('/api/categories')
+      .flush({ categories: [{ id: 1, slug: 'tech', name: 'Tech' }] });
+    http.expectOne('/api/tags').flush({ tags: [{ id: 1, slug: 'databases', name: 'Databases' }] });
+  }
 
   it('opens the homepage at the root URL', async () => {
     const harness = await RouterTestingHarness.create();
     await harness.navigateByUrl('/', Home);
+    filterOptions();
     http.expectOne('/api/articles?page=1&pageSize=12').flush(articlePageFixture());
     await harness.fixture.whenStable();
 
@@ -67,13 +74,16 @@ describe('Application routes', () => {
     expect(document.title).toBe('Hummingbird | Article 1');
   });
 
-  it('preserves page two through an article visit and the back-to-articles link', async () => {
+  it('preserves page two and filters through an article visit and the back-to-articles link', async () => {
     const harness = await RouterTestingHarness.create();
-    await harness.navigateByUrl('/?page=2', Home);
-    http.expectOne('/api/articles?page=2&pageSize=12').flush(articlePageFixture(2, 13));
+    await harness.navigateByUrl('/?page=2&q=SQL&category=tech&tag=databases', Home);
+    filterOptions();
+    http
+      .expectOne('/api/articles?page=2&pageSize=12&q=SQL&category=tech&tag=databases')
+      .flush(articlePageFixture(2, 13));
     await harness.fixture.whenStable();
     const articleLink = harness.routeNativeElement?.querySelector('h3 a')?.getAttribute('href');
-    expect(articleLink).toBe('/articles/article-13?page=2');
+    expect(articleLink).toBe('/articles/article-13?page=2&q=SQL&category=tech&tag=databases');
     await harness.navigateByUrl(articleLink!, ArticleDetail);
     http
       .expectOne('/api/articles/article-13')
@@ -82,9 +92,12 @@ describe('Application routes', () => {
     http.expectOne('/api/articles/article-13/comments').flush(commentPageFixture(13));
     await harness.fixture.whenStable();
     const backLink = harness.routeNativeElement?.querySelector('.back-link')?.getAttribute('href');
-    expect(backLink).toBe('/?page=2');
+    expect(backLink).toBe('/?page=2&q=SQL&category=tech&tag=databases');
     await harness.navigateByUrl(backLink!, Home);
-    http.expectOne('/api/articles?page=2&pageSize=12').flush(articlePageFixture(2, 13));
+    filterOptions();
+    http
+      .expectOne('/api/articles?page=2&pageSize=12&q=SQL&category=tech&tag=databases')
+      .flush(articlePageFixture(2, 13));
     await harness.fixture.whenStable();
     expect(harness.routeNativeElement?.querySelector('h3')?.textContent).toContain('Article 13');
     expect(document.title).toBe('Hummingbird | Home');

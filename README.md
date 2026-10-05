@@ -7,7 +7,7 @@ Readers can browse articles, while registered users can publish posts and join t
 > `rewrite/angular-express`. See [client setup](client/README.md) and
 > [server setup](server/README.md) to run the Angular app and Express API.
 > Registration, login and logout now work through Angular and the Express API.
-> Article browsing, publishing and editing now work through Angular and the API.
+> Article browsing, search, category/tag filters, publishing and editing work through Angular and the API.
 > Delete your own articles from Angular with a confirmation and version check.
 > Read, post and delete your own comments from Angular.
 > The Flask instructions below remain valid;

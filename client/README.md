@@ -44,13 +44,17 @@ The backend remains responsible for authentication and session expiry.
 ## 📚 Articles
 
 - **Homepage:** newest articles first, 12 per page, with author, category, tags and comment counts.
+- **Search and filters:** search titles/descriptions and combine one category with one tag. Use **Apply filters** or **Clear filters**.
 - **Details:** `/articles/:slug` shows the full article and a link back to the list.
 - **Write:** `/new-article` lets signed-in users publish with a category and up to 10 tags.
 - **Edit:** `/articles/:slug/edit` opens from your own article’s detail page. URLs stay unchanged.
 - **Delete:** use your article’s detail page, then confirm permanent deletion.
 
-The list page stays in the URL (`/?page=2`) and is preserved when opening an
-article and returning. Direct links and refreshes work. Dates are shown in UTC;
+Search, filters and the page stay in the URL (for example,
+`/?q=database&category=tech&tag=web-development`). They survive refreshes, browser
+history, article visits, editing and returning after deletion. Applying new
+filters starts on page one. Search is case-insensitive and treats punctuation
+literally; use up to 100 characters. Direct links and refreshes work. Dates are shown in UTC;
 bodies are plain text with paragraph breaks, never trusted HTML.
 
 The editor suggests an editable URL slug from the title. Run `npm run db:seed`
@@ -87,8 +91,7 @@ then refreshes the count. Other comments and the article stay intact. Uncertain
 results require **Reload comments** and a new confirmation; no automatic retry.
 Deletion keeps only the creation request ID, so a retry cannot bring deleted text back.
 
-Reading is public. Search, filtering, comment editing and cover images
-are not implemented in the rewrite yet.
+Reading is public. Comment editing and cover images are not implemented in the rewrite yet.
 
 ## 📁 Structure
 
@@ -121,7 +124,7 @@ This runs the Angular tests, checks formatting and builds the production bundle
 in `dist/hummingbird-client/browser/`. The build also checks TypeScript and templates.
 Tests cover accounts, article reads, publishing, editing and deletion, author
 permissions, confirmations, conflict review, comments, deletion confirmations, safe retries, validation, catalog changes,
-pagination, navigation, safe text rendering, failures and request cancellation.
+search, combined filters, pagination, navigation, safe text rendering, failures and request cancellation.
 They simulate HTTP responses and do not need a running API or database.
 
 Use `npm run test:watch` while developing.

@@ -1,11 +1,9 @@
 <article>
   <p class="category">{{ article().category.name }}</p>
   <h3>
-    <a
-      [routerLink]="['/articles', article().slug]"
-      [queryParams]="page() > 1 ? { page: page() } : {}"
-      >{{ article().title }}</a
-    >
+    <a [routerLink]="['/articles', article().slug]" [queryParams]="listQuery()">{{
+      article().title
+    }}</a>
   </h3>
   <p class="description">{{ article().description }}</p>
   <p class="metadata">

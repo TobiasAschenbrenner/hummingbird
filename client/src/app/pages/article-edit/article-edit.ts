@@ -33,7 +33,8 @@ import { readArticleUpdateError } from '../../services/articles/article-error';
 import { Auth } from '../../services/auth/auth';
 import { CatalogsApi } from '../../services/catalogs/catalogs';
 import { createArticleForm } from '../../validators/article-form.validator';
-import { isArticleSlug, readArticlePage } from '../../validators/article.validator';
+import { articleListParams, readArticleListQuery } from '../../validators/article-list.validator';
+import { isArticleSlug } from '../../validators/article.validator';
 
 type EditState =
   { status: 'loading' | 'error' | 'not-found' } | { status: 'ready'; article: ArticleDetail };
@@ -90,13 +91,11 @@ export class ArticleEdit implements OnInit {
       this.removed() ||
       this.versionLimit(),
   );
-  private readonly listPage = toSignal(
-    this.route.queryParamMap.pipe(map((params) => readArticlePage(params.getAll('page')) ?? 1)),
-    { initialValue: 1 },
+  private readonly listContext = toSignal(
+    this.route.queryParamMap.pipe(map((params) => readArticleListQuery(params) ?? { page: 1 })),
+    { initialValue: { page: 1 } },
   );
-  protected readonly listQuery = computed(() =>
-    this.listPage() > 1 ? { page: this.listPage() } : {},
-  );
+  protected readonly listQuery = computed(() => articleListParams(this.listContext()));
 
   constructor() {
     effect(() => {

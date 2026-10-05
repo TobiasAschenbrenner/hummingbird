@@ -3,6 +3,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   DestroyRef,
   inject,
   OnInit,
@@ -18,7 +19,8 @@ import { ArticleDelete } from '../../components/article-delete/article-delete';
 import { ArticleDetail as Article } from '../../models/article.model';
 import { Auth } from '../../services/auth/auth';
 import { ArticlesApi } from '../../services/articles/articles';
-import { isArticleSlug, readArticlePage } from '../../validators/article.validator';
+import { articleListParams, readArticleListQuery } from '../../validators/article-list.validator';
+import { isArticleSlug } from '../../validators/article.validator';
 
 type ArticleState =
   | { status: 'loading' }
@@ -43,10 +45,12 @@ export class ArticleDetail implements OnInit {
   private readonly title = inject(Title);
   private readonly retry = new Subject<void>();
   protected readonly state = signal<ArticleState>({ status: 'loading' });
-  protected readonly listPage = toSignal(
-    this.route.queryParamMap.pipe(map((params) => readArticlePage(params.getAll('page')) ?? 1)),
-    { initialValue: 1 },
+  private readonly listContext = toSignal(
+    this.route.queryParamMap.pipe(map((params) => readArticleListQuery(params) ?? { page: 1 })),
+    { initialValue: { page: 1 } },
   );
+
+  protected readonly listQuery = computed(() => articleListParams(this.listContext()));
 
   ngOnInit(): void {
     combineLatest([this.route.paramMap, this.retry.pipe(startWith(undefined))])
@@ -98,9 +102,7 @@ export class ArticleDetail implements OnInit {
     );
     if (result === 'deleted') {
       // Keep the confirmation visible if navigation fails; the back link still works.
-      void this.router
-        .navigate(['/'], { queryParams: this.listPage() > 1 ? { page: this.listPage() } : {} })
-        .catch(() => undefined);
+      void this.router.navigate(['/'], { queryParams: this.listQuery() }).catch(() => undefined);
     }
   }
 

@@ -1,8 +1,9 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
-import { BehaviorSubject } from 'rxjs';
+import { ActivatedRoute, convertToParamMap, provideRouter, Router } from '@angular/router';
+import { CatalogsApi } from '../../services/catalogs/catalogs';
+import { BehaviorSubject, of } from 'rxjs';
 
 import { articlePageFixture } from '../../../testing/article-fixtures';
 import { Home } from './home';
@@ -23,6 +24,16 @@ describe('Home article list', () => {
         provideRouter([]),
         provideHttpClient(),
         provideHttpClientTesting(),
+        {
+          provide: CatalogsApi,
+          useValue: {
+            articleOptions: () =>
+              of({
+                categories: [{ id: 1, slug: 'tech', name: 'Tech' }],
+                tags: [{ id: 1, slug: 'databases', name: 'Databases' }],
+              }),
+          },
+        },
         { provide: ActivatedRoute, useValue: { queryParamMap: params.asObservable() } },
       ],
     }).compileComponents();
@@ -34,7 +45,7 @@ describe('Home article list', () => {
   afterEach(() => http.verify());
 
   it('shows loading before displaying cards, relations and UTC dates', async () => {
-    expect(element.querySelector('[role="status"]')?.textContent).toContain('Loading articles');
+    expect(element.textContent).toContain('Loading articles');
     expect(element.querySelector('[aria-busy]')?.getAttribute('aria-busy')).toBe('true');
     http.expectOne(listUrl()).flush(articlePageFixture());
     await fixture.whenStable();
@@ -113,7 +124,9 @@ describe('Home article list', () => {
     await fixture.whenStable();
     expect(element.querySelector('[role="alert"]')?.textContent).toContain('Please try again');
     expect(element.textContent).not.toContain('private SQL');
-    const retry = element.querySelector<HTMLButtonElement>('button')!;
+    const retry = Array.from(element.querySelectorAll<HTMLButtonElement>('button')).find(
+      (button) => button.textContent?.trim() === 'Try again',
+    )!;
     retry.click();
     retry.click();
     fixture.detectChanges();
@@ -141,5 +154,141 @@ describe('Home article list', () => {
     const second = http.expectOne(listUrl(2));
     fixture.destroy();
     expect(second.cancelled).toBe(true);
+  });
+
+  it('hydrates combined filters and keeps them on pagination and detail links', async () => {
+    const original = http.expectOne(listUrl());
+    params.next(convertToParamMap({ page: '2', q: ' SQL ', category: 'tech', tag: 'databases' }));
+    expect(original.cancelled).toBe(true);
+    const request = http.expectOne((request) => request.url === '/api/articles');
+    expect(request.request.params.get('q')).toBe('SQL');
+    expect(request.request.params.get('category')).toBe('tech');
+    expect(request.request.params.get('tag')).toBe('databases');
+    request.flush(articlePageFixture(2, 25));
+    await fixture.whenStable();
+    expect(element.querySelector<HTMLInputElement>('input')!.value).toBe('SQL');
+    expect(element.querySelector('h3 a')?.getAttribute('href')).toBe(
+      '/articles/article-13?page=2&q=SQL&category=tech&tag=databases',
+    );
+    expect(
+      element.querySelector('[aria-label="Previous article page"]')?.getAttribute('href'),
+    ).toBe('/?q=SQL&category=tech&tag=databases');
+    expect(element.querySelector('[aria-label="Next article page"]')?.getAttribute('href')).toBe(
+      '/?page=3&q=SQL&category=tech&tag=databases',
+    );
+    expect(element.textContent).toContain('25 articles matching your filters');
+  });
+
+  it('applies filters only on submit and resets pagination, then clears all filters', async () => {
+    http.expectOne(listUrl()).flush(articlePageFixture());
+    await fixture.whenStable();
+    params.next(convertToParamMap({ page: '2' }));
+    http.expectOne(listUrl(2)).flush(articlePageFixture(2, 13));
+    await fixture.whenStable();
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    const input = element.querySelector<HTMLInputElement>('input')!;
+    input.value = '  SQL  ';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    const category = element.querySelector<HTMLSelectElement>('#category-filter')!;
+    category.value = 'tech';
+    category.dispatchEvent(new Event('change', { bubbles: true }));
+    const tag = element.querySelector<HTMLSelectElement>('#tag-filter')!;
+    tag.value = 'databases';
+    tag.dispatchEvent(new Event('change', { bubbles: true }));
+    http.expectNone((request) => request.url === '/api/articles');
+    element
+      .querySelector('form')!
+      .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await fixture.whenStable();
+    expect(navigate).toHaveBeenCalledWith(['/'], {
+      queryParams: { q: 'SQL', category: 'tech', tag: 'databases' },
+    });
+    element.querySelector<HTMLButtonElement>('.clear')!.click();
+    await fixture.whenStable();
+    expect(navigate).toHaveBeenLastCalledWith(['/'], { queryParams: {} });
+  });
+
+  it('distinguishes no matching results from an empty unfiltered catalog', async () => {
+    const original = http.expectOne(listUrl());
+    params.next(convertToParamMap({ q: 'missing' }));
+    expect(original.cancelled).toBe(true);
+    http.expectOne((request) => request.url === '/api/articles').flush(articlePageFixture(1, 0));
+    await fixture.whenStable();
+    expect(element.textContent).toContain('No articles match these filters');
+    expect(element.textContent).not.toContain('No articles yet');
+    expect(element.querySelector('nav')).toBeNull();
+  });
+
+  it('rejects malformed or repeated filters and recovers when browser history restores a valid URL', async () => {
+    const original = http.expectOne(listUrl());
+    for (const query of [
+      { q: ['first', 'second'] },
+      { q: 'a'.repeat(101) },
+      { q: 'bad\ntext' },
+      { category: '' },
+      { category: 'Tech' },
+      { tag: ['databases', 'web'] },
+      { tag: 'two--hyphens' },
+      { unknown: 'ignored' },
+      { 'category[]': 'tech' },
+    ]) {
+      params.next(convertToParamMap(query));
+      await fixture.whenStable();
+      expect(element.querySelector('[role="alert"]')?.textContent).toContain('valid search/filter');
+      http.expectNone((request) => request.url === '/api/articles');
+    }
+    expect(original.cancelled).toBe(true);
+    params.next(convertToParamMap({ q: '🐦'.repeat(100), tag: 'databases' }));
+    const restored = http.expectOne((request) => request.url === '/api/articles');
+    expect(restored.request.params.get('q')).toBe('🐦'.repeat(100));
+    restored.flush(articlePageFixture());
+    await fixture.whenStable();
+    expect(element.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it('returns an out-of-range filtered page to page one without dropping its filters', async () => {
+    http.expectOne(listUrl());
+    params.next(convertToParamMap({ page: '4', category: 'tech' }));
+    http.expectOne((request) => request.url === '/api/articles').flush(articlePageFixture(4, 3));
+    await fixture.whenStable();
+    expect(element.querySelector('a')?.getAttribute('href')).toBe('/?category=tech');
+  });
+
+  it('cancels older filter reads and retries the applied query without resetting an unsubmitted search', async () => {
+    const original = http.expectOne(listUrl());
+    params.next(convertToParamMap({ q: 'first' }));
+    const first = http.expectOne((request) => request.url === '/api/articles');
+    params.next(convertToParamMap({ q: 'second' }));
+    expect(original.cancelled).toBe(true);
+    expect(first.cancelled).toBe(true);
+    http
+      .expectOne((request) => request.params.get('q') === 'second')
+      .flush(null, { status: 500, statusText: 'Failed' });
+    await fixture.whenStable();
+    const field = element.querySelector<HTMLInputElement>('input')!;
+    field.value = 'Unsubmitted';
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+    Array.from(element.querySelectorAll('button'))
+      .find((button) => button.textContent?.trim() === 'Try again')!
+      .click();
+    http.expectOne((request) => request.params.get('q') === 'second').flush(articlePageFixture());
+    await fixture.whenStable();
+    expect(field.value).toBe('Unsubmitted');
+  });
+
+  it('keeps current results and shows a safe message when filter navigation fails', async () => {
+    http.expectOne(listUrl()).flush(articlePageFixture());
+    await fixture.whenStable();
+    vi.spyOn(TestBed.inject(Router), 'navigate').mockRejectedValue(
+      new Error('Internal navigation details'),
+    );
+    element
+      .querySelector('form')!
+      .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await fixture.whenStable();
+    expect(element.textContent).toContain('We couldn’t update the filters');
+    expect(element.textContent).not.toContain('Internal navigation');
+    expect(element.querySelector('h3')?.textContent).toContain('Article 1');
+    http.expectNone((request) => request.url === '/api/articles');
   });
 });

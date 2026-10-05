@@ -227,17 +227,21 @@ describe('ArticleDetail', () => {
       .spyOn(TestBed.inject(Router), 'navigate')
       .mockRejectedValue(new Error('Navigation failed'));
     await openDeletion();
-    query.next(convertToParamMap({ page: '3' }));
+    query.next(convertToParamMap({ page: '3', q: 'SQL', category: 'tech', tag: 'databases' }));
     deleteButton('Permanently delete').click();
     expect(navigate).not.toHaveBeenCalled();
     http
       .expectOne('/api/articles/article-1')
       .flush(null, { status: 204, statusText: 'No Content' });
     await fixture.whenStable();
-    expect(navigate).toHaveBeenCalledExactlyOnceWith(['/'], { queryParams: { page: 3 } });
+    expect(navigate).toHaveBeenCalledExactlyOnceWith(['/'], {
+      queryParams: { page: 3, q: 'SQL', category: 'tech', tag: 'databases' },
+    });
     expect(element.querySelector('h1')?.textContent).toBe('Article deleted');
     expect(element.querySelector('.article-body')).toBeNull();
-    expect(element.querySelector('.back-link')?.getAttribute('href')).toBe('/?page=3');
+    expect(element.querySelector('.back-link')?.getAttribute('href')).toBe(
+      '/?page=3&q=SQL&category=tech&tag=databases',
+    );
     expect(TestBed.inject(Title).getTitle()).toBe('Hummingbird | Article deleted');
   });
 
@@ -279,5 +283,25 @@ describe('ArticleDetail', () => {
     expect(request.request.body).toEqual({ articleId: 1, version: '2' });
     request.flush('', { status: 429, statusText: 'Limited' });
     await fixture.whenStable();
+  });
+
+  it('preserves search, category and tag on back/edit links without refetching the article', async () => {
+    http.expectOne('/api/articles/article-1').flush({ article: articleFixture() });
+    TestBed.inject(Auth).restoreSession().subscribe();
+    http
+      .expectOne('/api/auth/me')
+      .flush({ user: { id: 1, username: 'Author', email: 'author@example.test' } });
+    query.next(convertToParamMap({ page: '2', q: 'SQL', category: 'tech', tag: 'databases' }));
+    await fixture.whenStable();
+    expect(element.querySelector('.back-link')?.getAttribute('href')).toBe(
+      '/?page=2&q=SQL&category=tech&tag=databases',
+    );
+    expect(element.querySelector('a[href*="/edit"]')?.getAttribute('href')).toBe(
+      '/articles/article-1/edit?page=2&q=SQL&category=tech&tag=databases',
+    );
+    http.expectNone('/api/articles/article-1');
+    query.next(convertToParamMap({ q: ['one', 'two'] }));
+    await fixture.whenStable();
+    expect(element.querySelector('.back-link')?.getAttribute('href')).toBe('/');
   });
 });

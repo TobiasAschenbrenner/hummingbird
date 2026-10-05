@@ -158,7 +158,7 @@ describe('ArticleEdit', () => {
     element.querySelector<HTMLInputElement>('[type="checkbox"]')!.click();
     fixture.detectChanges();
     const navigate = vi.spyOn(router, 'navigate').mockResolvedValue(true);
-    query.next(convertToParamMap({ page: '3' }));
+    query.next(convertToParamMap({ page: '3', q: 'SQL', category: 'tech', tag: 'databases' }));
     await fixture.whenStable();
     submit();
     submit();
@@ -176,7 +176,9 @@ describe('ArticleEdit', () => {
       article: articleFixture({ title: 'Edited title', version: '9007199254740994' }),
     });
     await fixture.whenStable();
-    expect(navigate).toHaveBeenCalledWith(['/articles', 'article-1'], { queryParams: { page: 3 } });
+    expect(navigate).toHaveBeenCalledWith(['/articles', 'article-1'], {
+      queryParams: { page: 3, q: 'SQL', category: 'tech', tag: 'databases' },
+    });
     expect(element.textContent).toContain('Your changes were saved');
     expect(element.querySelector('form')).toBeNull();
   });

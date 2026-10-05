@@ -1,19 +1,26 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   DestroyRef,
   inject,
   OnInit,
   signal,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, RouterLink } from '@angular/router';
-import { catchError, combineLatest, map, of, startWith, Subject, switchMap } from 'rxjs';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { catchError, combineLatest, map, of, startWith, Subject, switchMap, tap } from 'rxjs';
 
+import { ArticleFilters } from '../../components/article-filters/article-filters';
 import { ArticleCard } from '../../components/article-card/article-card';
-import { ArticlePage, MAX_ARTICLE_PAGE } from '../../models/article.model';
+import {
+  ArticlePage,
+  ArticleListQuery,
+  ArticleFilters as Filters,
+  MAX_ARTICLE_PAGE,
+} from '../../models/article.model';
 import { ArticlesApi } from '../../services/articles/articles';
-import { readArticlePage } from '../../validators/article.validator';
+import { articleListParams, readArticleListQuery } from '../../validators/article-list.validator';
 
 type PageState =
   | { status: 'loading' }
@@ -23,7 +30,7 @@ type PageState =
 
 @Component({
   selector: 'app-home',
-  imports: [ArticleCard, RouterLink],
+  imports: [ArticleCard, ArticleFilters, RouterLink],
   templateUrl: './home.html',
   styleUrl: './home.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -31,18 +38,30 @@ type PageState =
 export class Home implements OnInit {
   private readonly api = inject(ArticlesApi);
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
   private readonly retry = new Subject<void>();
   protected readonly maxPage = MAX_ARTICLE_PAGE;
   protected readonly state = signal<PageState>({ status: 'loading' });
+  protected readonly query = signal<ArticleListQuery>({ page: 1 });
+  protected readonly filtered = computed(
+    () => !!(this.query().q || this.query().category || this.query().tag),
+  );
+  protected readonly navigationMessage = signal('');
 
   ngOnInit(): void {
-    combineLatest([this.route.queryParamMap, this.retry.pipe(startWith(undefined))])
+    const queries = this.route.queryParamMap.pipe(
+      map(readArticleListQuery),
+      tap((query) => {
+        this.query.set(query ?? { page: 1 });
+        this.navigationMessage.set('');
+      }),
+    );
+    combineLatest([queries, this.retry.pipe(startWith(undefined))])
       .pipe(
-        switchMap(([params]) => {
-          const page = readArticlePage(params.getAll('page'));
-          if (page === null) return of<PageState>({ status: 'invalid' });
-          return this.api.list(page).pipe(
+        switchMap(([query]) => {
+          if (!query) return of<PageState>({ status: 'invalid' });
+          return this.api.list(query.page, query).pipe(
             map((data): PageState => ({ status: 'ready', data })),
             startWith<PageState>({ status: 'loading' }),
             catchError(() => of<PageState>({ status: 'error' })),
@@ -51,6 +70,17 @@ export class Home implements OnInit {
         takeUntilDestroyed(this.destroyRef),
       )
       .subscribe((state) => this.state.set(state));
+  }
+
+  protected pageParams(page: number): Record<string, string | number> {
+    return articleListParams(this.query(), page);
+  }
+
+  protected applyFilters(filters: Filters): void {
+    this.navigationMessage.set('');
+    void this.router
+      .navigate(['/'], { queryParams: articleListParams({ page: 1, ...filters }) })
+      .catch(() => this.navigationMessage.set('We couldn’t update the filters. Please try again.'));
   }
 
   protected tryAgain(): void {

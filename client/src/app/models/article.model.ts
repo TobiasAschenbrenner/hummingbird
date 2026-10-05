@@ -22,6 +22,16 @@ export type ArticleFieldErrors = Partial<Record<ArticleField, string>>;
 export const ARTICLE_PAGE_SIZE = 12;
 export const MAX_ARTICLE_PAGE = 10_000;
 
+export interface ArticleFilters {
+  q?: string;
+  category?: string;
+  tag?: string;
+}
+
+export interface ArticleListQuery extends ArticleFilters {
+  page: number;
+}
+
 export interface ArticleSummary {
   id: number;
   slug: string;

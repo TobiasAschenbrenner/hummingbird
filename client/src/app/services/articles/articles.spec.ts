@@ -392,4 +392,45 @@ describe('ArticlesApi', () => {
     expect(request.cancelled).toBe(true);
     http.expectNone('/api/articles/article-1');
   });
+
+  it('encodes literal search and filter slugs without extra caller fields or write headers', async () => {
+    const result = firstValueFrom(
+      service.list(2, {
+        q: '  100%_\\ 🐦  ',
+        category: 'tech',
+        tag: 'databases',
+        authorId: 99,
+      } as never),
+    );
+    const request = http.expectOne((request) => request.url === '/api/articles');
+    expect(request.request.params.keys()).toEqual(['page', 'pageSize', 'q', 'category', 'tag']);
+    expect(request.request.params.get('q')).toBe('100%_\\ 🐦');
+    expect(request.request.params.get('category')).toBe('tech');
+    expect(request.request.params.get('tag')).toBe('databases');
+    expect(request.request.headers.has('X-Hummingbird-Request')).toBe(false);
+    request.flush(articlePageFixture(2, 13));
+    await expect(result).resolves.toEqual(articlePageFixture(2, 13));
+  });
+
+  it('rejects invalid filters locally and omits blank searches', async () => {
+    for (const filters of [
+      { q: 'a'.repeat(101) },
+      { q: '🐦'.repeat(101) },
+      { q: '\uD800' },
+      { q: 'bad\ntext' },
+      { q: null },
+      { category: '' },
+      { category: ['tech'] },
+      { tag: 'Invalid' },
+      null,
+    ]) {
+      await expect(firstValueFrom(service.list(1, filters as never))).rejects.toThrow(
+        'Invalid article filters',
+      );
+    }
+    http.expectNone(() => true);
+    const result = firstValueFrom(service.list(1, { q: '   ' }));
+    http.expectOne('/api/articles?page=1&pageSize=12').flush(articlePageFixture());
+    await expect(result).resolves.toEqual(articlePageFixture());
+  });
 });
