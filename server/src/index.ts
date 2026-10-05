@@ -1,4 +1,5 @@
 import { createApp } from './app.ts';
+import { readCloudinaryConfig } from './config/cloudinary.ts';
 import { readConfig } from './config/environment.ts';
 import { createDatabaseClient } from './database/client.ts';
 import { createCommentQueries } from './queries/comment.queries.ts';
@@ -10,6 +11,7 @@ import { createAuthenticationService } from './services/authentication.service.t
 import { createRegistrationService } from './services/registration.service.ts';
 
 const config = readConfig();
+readCloudinaryConfig();
 const database = createDatabaseClient();
 const users = createUserQueries(database);
 const registerUser = createRegistrationService(users);

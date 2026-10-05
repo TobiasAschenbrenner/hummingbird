@@ -34,6 +34,25 @@ Percent-encode special characters in URL credentials (for example, `@` becomes `
 Run the scripts from `server/`. They load only its optional `.env`; the Flask
 configuration at the repository root is separate. Environment files stay out of Git.
 
+## ☁️ Cloudinary setup
+
+Use a separate **Hummingbird** product environment in your existing Cloudinary
+account. In [Console settings](https://cloudinary.com/documentation/account_settings#product-environment-management),
+create it under **Product Environments** if your plan permits; do not rename
+Chirp’s existing cloud. Keep dynamic folder mode enabled. If this requires an upgrade, stop and check the options first.
+
+From the new environment’s **API Keys** page, add `CLOUDINARY_CLOUD_NAME`,
+`CLOUDINARY_API_KEY` and `CLOUDINARY_API_SECRET` to `server/.env`. Keep secrets
+out of chat, Git and frontend files. All three blank disables the optional setup;
+partial or malformed credentials stop API startup without printing their values.
+The SDK does not use Chirp’s `.env` or fall back to `CLOUDINARY_URL`.
+
+The storage adapter uses unique IDs under `hummingbird/<NODE_ENV>/article-covers`
+and refuses cleanup outside that path. It expects processed WebP images and
+bounds storage requests to 30 seconds. Unit tests use a fake Cloudinary transport.
+**The upload API, image validation, database integration and Angular controls are
+still to come; no real Cloudinary upload has been verified yet.**
+
 ## 🗄️ PostgreSQL setup
 
 Keep the Flask database `hummingbird` unchanged. With PostgreSQL running, create a

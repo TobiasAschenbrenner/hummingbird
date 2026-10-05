@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import { readCloudinaryConfig } from '../src/config/cloudinary.ts';
 import { readConfig } from '../src/config/environment.ts';
 import { readDatabaseUrl, readMigrationDatasource } from '../src/config/database.ts';
 import { readTestDatabaseUrl } from './helpers/database.ts';
@@ -150,4 +151,84 @@ test('demo seed guard permits only local rewrite development or test databases',
     assert.throws(() => readSeedOptions(['--demo'], environment), /limited to local rewrite/);
   }
   assert.throws(() => readSeedOptions(['--demo'], {}), /DATABASE_URL must be/);
+});
+
+const cloudinaryEnvironment = {
+  CLOUDINARY_CLOUD_NAME: 'hummingbird-test-cloud',
+  CLOUDINARY_API_KEY: '123456789012345',
+  CLOUDINARY_API_SECRET: 'fake-test-secret-only',
+};
+
+test('Cloudinary is optional and does not read implicit SDK credentials', () => {
+  assert.equal(readCloudinaryConfig({}), null);
+  assert.equal(
+    readCloudinaryConfig({
+      CLOUDINARY_CLOUD_NAME: '',
+      CLOUDINARY_API_KEY: '',
+      CLOUDINARY_API_SECRET: '',
+    }),
+    null,
+  );
+  assert.equal(
+    readCloudinaryConfig({ CLOUDINARY_URL: 'cloudinary://key:secret@chirp-cloud' }),
+    null,
+  );
+});
+
+test('Cloudinary keeps development, test and production cover IDs separate', () => {
+  for (const nodeEnv of ['development', 'test', 'production']) {
+    assert.deepEqual(readCloudinaryConfig({ ...cloudinaryEnvironment, NODE_ENV: nodeEnv }), {
+      cloudName: cloudinaryEnvironment.CLOUDINARY_CLOUD_NAME,
+      apiKey: cloudinaryEnvironment.CLOUDINARY_API_KEY,
+      apiSecret: cloudinaryEnvironment.CLOUDINARY_API_SECRET,
+      assetFolder: `hummingbird/${nodeEnv}/article-covers`,
+    });
+  }
+  assert.equal(
+    readCloudinaryConfig(cloudinaryEnvironment)?.assetFolder,
+    'hummingbird/development/article-covers',
+  );
+});
+
+test('Cloudinary rejects partial configuration without printing supplied credentials', () => {
+  for (const field of Object.keys(cloudinaryEnvironment)) {
+    assert.throws(
+      () => readCloudinaryConfig({ ...cloudinaryEnvironment, [field]: '' }),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.match(error.message, /Set CLOUDINARY_CLOUD_NAME/);
+        assert.ok(!error.message.includes(cloudinaryEnvironment.CLOUDINARY_API_SECRET));
+        assert.ok(!error.message.includes(cloudinaryEnvironment.CLOUDINARY_API_KEY));
+        return true;
+      },
+    );
+  }
+});
+
+test('Cloudinary rejects unsafe cloud names, invalid keys and whitespace or controls in secrets', () => {
+  for (const cloudName of [
+    'https://example.test',
+    '../chirp',
+    ' cloud ',
+    'cloud/name',
+    'x'.repeat(129),
+  ])
+    assert.throws(
+      () => readCloudinaryConfig({ ...cloudinaryEnvironment, CLOUDINARY_CLOUD_NAME: cloudName }),
+      /CLOUDINARY_CLOUD_NAME must be/,
+    );
+  for (const apiKey of [' 123', 'key', '123.45', 'x'.repeat(65)])
+    assert.throws(
+      () => readCloudinaryConfig({ ...cloudinaryEnvironment, CLOUDINARY_API_KEY: apiKey }),
+      /CLOUDINARY_API_KEY must be/,
+    );
+  for (const apiSecret of [' secret ', 'secret\nvalue', 'secret\u0000', 'x'.repeat(257)])
+    assert.throws(
+      () => readCloudinaryConfig({ ...cloudinaryEnvironment, CLOUDINARY_API_SECRET: apiSecret }),
+      /CLOUDINARY_API_SECRET must be/,
+    );
+  assert.throws(
+    () => readCloudinaryConfig({ ...cloudinaryEnvironment, NODE_ENV: 'staging' }),
+    /NODE_ENV must be/,
+  );
 });
