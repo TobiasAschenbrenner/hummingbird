@@ -35,6 +35,12 @@ export interface ArticlePageInput {
   pageSize: number;
 }
 
+export interface ArticleListInput extends ArticlePageInput {
+  q?: string;
+  category?: string;
+  tag?: string;
+}
+
 export interface ArticleSummary {
   id: number;
   slug: string;
@@ -62,6 +68,6 @@ export interface ArticleQueries {
   createArticle(input: CreateArticleInput): Promise<ArticleDetail>;
   updateArticle(input: UpdateArticleInput): Promise<ArticleDetail>;
   deleteArticle(input: DeleteArticleInput): Promise<void>;
-  listArticles(input: ArticlePageInput): Promise<ArticlePage>;
+  listArticles(input: ArticleListInput): Promise<ArticlePage>;
   findArticleBySlug(slug: string): Promise<ArticleDetail | null>;
 }

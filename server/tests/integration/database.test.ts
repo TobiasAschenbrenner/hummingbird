@@ -2232,3 +2232,152 @@ test('a comment cannot be deleted through another article or an old confirmation
   await stale.arrayBuffer();
   assert.equal(await database.comment.count(), 1);
 });
+
+test('article search matches title or description, combines category and tag, and excludes body', async () => {
+  await seedDatabase(database, { demo: true });
+  const cases: [string, string[]][] = [
+    ['q=RELATIONAL', ['demo-relational-databases']],
+    ['q=%20layout%20', ['demo-readable-blog']],
+    ['q=junction', []],
+    ['category=tech', ['demo-relational-databases']],
+    ['tag=web-development', ['demo-readable-blog', 'demo-relational-databases']],
+    ['q=blog&category=design&tag=web-development', ['demo-readable-blog']],
+    ['q=readable&category=tech', []],
+    ['category=tech&tag=user-experience', []],
+    ['category=missing-category', []],
+    ['tag=missing-tag', []],
+    ['q=', ['demo-mobile-reading', 'demo-readable-blog', 'demo-relational-databases']],
+  ];
+  for (const [query, slugs] of cases) {
+    const response = await fetch(`${baseUrl}/api/articles?${query}`);
+    assert.equal(response.status, 200, query);
+    const result = await response.json();
+    assert.deepEqual(
+      result.articles.map((item: { slug: string }) => item.slug),
+      slugs,
+      query,
+    );
+    assert.deepEqual(result.pagination, {
+      page: 1,
+      pageSize: 12,
+      total: slugs.length,
+      totalPages: slugs.length ? 1 : 0,
+    });
+    for (const item of result.articles) {
+      assert.deepEqual(Object.keys(item.author).sort(), ['id', 'username']);
+      assert.equal('body' in item, false);
+      assert.equal('version' in item, false);
+    }
+  }
+});
+
+test('search treats SQL pattern characters, Unicode and SQL-looking input as literal text', async () => {
+  const { article, author, category } = await createArticle();
+  await database.article.update({
+    where: { id: article.id },
+    data: {
+      title: '100% coverage 🐦',
+      description: "snake_case C:\\docs and quote's",
+    },
+  });
+  await database.article.create({
+    data: {
+      slug: 'not-a-pattern-match',
+      title: '100X coverage',
+      description: 'snakeXcase C:Xdocs',
+      body: 'Other content.',
+      authorId: author.id,
+      categoryId: category.id,
+    },
+  });
+  for (const q of ['%', '_', '\\', '100%', 'snake_case', 'C:\\docs', '🐦', "quote's"]) {
+    const response = await fetch(`${baseUrl}/api/articles?${new URLSearchParams({ q })}`);
+    assert.equal(response.status, 200, q);
+    const result = await response.json();
+    assert.deepEqual(
+      result.articles.map((item: { id: number }) => item.id),
+      [article.id],
+      q,
+    );
+    assert.equal(result.pagination.total, 1);
+  }
+  const q = "' OR 1=1--";
+  const missing = await fetch(`${baseUrl}/api/articles?${new URLSearchParams({ q })}`);
+  assert.equal((await missing.json()).pagination.total, 0);
+  await database.article.update({ where: { id: article.id }, data: { description: q } });
+  const exact = await fetch(`${baseUrl}/api/articles?${new URLSearchParams({ q })}`);
+  assert.deepEqual(
+    (await exact.json()).articles.map((item: { id: number }) => item.id),
+    [article.id],
+  );
+  assert.equal(await database.article.count(), 2);
+});
+
+test('filtered pagination counts articles once and keeps all tags and independent comment counts', async () => {
+  await seedDatabase(database, { demo: true });
+  await database.article.updateMany({ data: { createdAt: new Date('2026-10-01T09:00:00Z') } });
+  const expected = await database.article.findMany({
+    where: { tags: { some: { tag: { slug: 'web-development' } } } },
+    orderBy: { id: 'desc' },
+    select: { id: true },
+  });
+  const ids: number[] = [];
+  for (const page of [1, 2, 3]) {
+    const response = await fetch(
+      `${baseUrl}/api/articles?tag=web-development&page=${page}&pageSize=1`,
+    );
+    const result = await response.json();
+    assert.equal(response.status, 200);
+    assert.deepEqual(result.pagination, { page, pageSize: 1, total: 2, totalPages: 2 });
+    for (const item of result.articles) {
+      ids.push(item.id);
+      assert.equal(item.tags.length, 2);
+      assert.equal(item.commentCount, 1);
+    }
+  }
+  assert.deepEqual(
+    ids,
+    expected.map((item) => item.id),
+  );
+});
+
+test('filtered rows and total share a snapshot when another connection publishes during the read', async () => {
+  const { author, category, article } = await createArticle();
+  let inserted = false;
+  const observing = database.$extends({
+    query: {
+      article: {
+        async findMany({ args, query }) {
+          const rows = await query(args);
+          if (!inserted) {
+            inserted = true;
+            await database.article.create({
+              data: {
+                slug: 'concurrent-first',
+                title: 'First concurrent article',
+                description: 'Another match.',
+                body: 'Concurrent content.',
+                authorId: author.id,
+                categoryId: category.id,
+              },
+            });
+          }
+          return rows;
+        },
+      },
+    },
+  });
+  const queries = createArticleQueries(observing as unknown as typeof database);
+  const result = await queries.listArticles({
+    page: 1,
+    pageSize: 12,
+    q: 'first',
+    category: category.slug,
+  });
+  assert.deepEqual(
+    result.articles.map((item) => item.id),
+    [article.id],
+  );
+  assert.equal(result.pagination.total, 1);
+  assert.equal(await database.article.count(), 2);
+});

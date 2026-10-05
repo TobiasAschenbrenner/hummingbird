@@ -204,8 +204,14 @@ creation timestamps first, then highest IDs to break ties. Use `page` (1–10,00
 and `pageSize` (1–50); defaults are 1 and 12. For example:
 
 ```text
-GET /api/articles?page=2&pageSize=12
+GET /api/articles?q=database&category=tech&tag=web-development&page=1&pageSize=12
 ```
+
+Optional `q` searches titles and descriptions as a case-insensitive, literal
+substring (up to 100 Unicode characters after trimming; no control characters).
+Blank search means no search. `category` and `tag` use catalog slugs and combine
+with search using AND; unknown slugs return no matches. `%`, `_` and `\` are
+searched literally, not as SQL wildcards. Each parameter may appear only once.
 
 The response is `{ "articles": [...], "pagination": { "page": 2, "pageSize": 12,
 "total": 3, "totalPages": 1 } }`. Empty catalogs and pages beyond the total return
@@ -222,8 +228,7 @@ article bodies as text, not as trusted HTML.
 Slugs use 1–80 lowercase letters/digits separated by single hyphens. A valid
 missing slug returns `404`; invalid slugs or pagination return `400`. Database
 failures return the same safe `500` error as other API routes. Responses are not
-cached. Search, category/tag filters and comment editing are not
-yet implemented; unsupported list query parameters return `400`.
+cached. Comment editing is not yet implemented; unsupported list query parameters return `400`.
 
 ## ✍️ Publish articles
 

@@ -2,12 +2,12 @@ import type { Request, Response } from 'express';
 
 import { HttpError } from '../errors/http-error.ts';
 import type { ArticleQueries } from '../models/article.model.ts';
+import { parseArticleList } from '../validators/article-list.validator.ts';
 import type { PublicUser } from '../models/user.model.ts';
 import {
   parseArticleCreation,
   parseArticleDeletion,
   parseArticleUpdate,
-  parseArticlePage,
   parseArticleSlug,
 } from '../validators/article.validator.ts';
 
@@ -35,7 +35,7 @@ export function createArticleControllers(articles: ArticleQueries) {
       response.status(204).end();
     },
     async list(request: Request, response: Response) {
-      response.json(await articles.listArticles(parseArticlePage(request.query)));
+      response.json(await articles.listArticles(parseArticleList(request.query)));
     },
     async detail(request: Request, response: Response) {
       const article = await articles.findArticleBySlug(parseArticleSlug(request.params.slug));

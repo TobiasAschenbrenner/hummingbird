@@ -20,7 +20,7 @@ import type {
   CreateArticleInput,
   UpdateArticleInput,
   DeleteArticleInput,
-  ArticlePageInput,
+  ArticleListInput,
   ArticleQueries,
 } from '../src/models/article.model.ts';
 
@@ -85,7 +85,7 @@ const catalogs = {
 let articleCreations: CreateArticleInput[] = [];
 let articleUpdates: UpdateArticleInput[] = [];
 let articleDeletions: DeleteArticleInput[] = [];
-let articlePageInputs: ArticlePageInput[] = [];
+let articlePageInputs: ArticleListInput[] = [];
 let articleSlugs: string[] = [];
 let articleError: Error | undefined;
 const articles: ArticleQueries = {
@@ -120,8 +120,9 @@ const articles: ArticleQueries = {
     articleDeletions.push(input);
     if (articleError) throw articleError;
   },
-  async listArticles({ page, pageSize }) {
-    articlePageInputs.push({ page, pageSize });
+  async listArticles(input) {
+    const { page, pageSize } = input;
+    articlePageInputs.push(input);
     if (articleError) throw articleError;
     const { body: _body, version: _version, ...summary } = exampleArticle;
     return {
@@ -795,8 +796,6 @@ test('article listing rejects malformed, repeated and unsupported query paramete
     'pageSize=2.5',
     'pageSize=2&pageSize=3',
     'pageSize[]=12',
-    'q=search',
-    'category=tech',
     'unknown=value',
     '__proto__=value',
   ];
@@ -1936,4 +1935,58 @@ test('comment deletion uses the secure production cookie name', async () => {
       assert.deepEqual(userTokens, [sessionToken]);
     },
   );
+});
+
+test('article search normalizes whitespace, combines filters and remains public', async () => {
+  for (const [query, input] of [
+    [
+      'q=%20SQL%20&category=tech&tag=databases&page=2&pageSize=5',
+      { page: 2, pageSize: 5, q: 'SQL', category: 'tech', tag: 'databases' },
+    ],
+    ['q=', { page: 1, pageSize: 12 }],
+    ['q=%20%20', { page: 1, pageSize: 12 }],
+    ['q=' + encodeURIComponent('🐦'.repeat(100)), { page: 1, pageSize: 12, q: '🐦'.repeat(100) }],
+    ['q=' + encodeURIComponent('100%_\\ SQL'), { page: 1, pageSize: 12, q: '100%_\\ SQL' }],
+    [
+      'category=not-found&tag=not-found',
+      { page: 1, pageSize: 12, category: 'not-found', tag: 'not-found' },
+    ],
+  ] as const) {
+    const response = await fetch(`${baseUrl}/api/articles?${query}`);
+    assert.equal(response.status, 200, query);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    await response.arrayBuffer();
+    assert.deepEqual(articlePageInputs.at(-1), input);
+  }
+  assert.deepEqual(userTokens, []);
+});
+
+test('article filters reject malformed, repeated, oversized and control-character values', async () => {
+  for (const query of [
+    'q=first&q=second',
+    'q[]=sql',
+    'q[text]=sql',
+    'q=%00',
+    'q=%0A',
+    'q=%7F',
+    'q=' + 'a'.repeat(101),
+    'q=' + encodeURIComponent('🐦'.repeat(101)),
+    'q=' + '%20'.repeat(201),
+    ...['category', 'tag'].flatMap((field) => [
+      `${field}=`,
+      `${field}=Tech`,
+      `${field}=two--words`,
+      `${field}=../users`,
+      `${field}=a&${field}=b`,
+      `${field}[]=tech`,
+      `${field}[slug]=tech`,
+      `${field}=${'a'.repeat(81)}`,
+    ]),
+  ]) {
+    const response = await fetch(`${baseUrl}/api/articles?${query}`);
+    assert.equal(response.status, 400, query);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    await response.arrayBuffer();
+  }
+  assert.deepEqual(articlePageInputs, []);
 });

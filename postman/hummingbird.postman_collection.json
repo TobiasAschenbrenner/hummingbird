@@ -79,6 +79,16 @@
       "key": "commentOtherEmail",
       "value": "",
       "type": "string"
+    },
+    {
+      "key": "articleCategorySlug",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "articleTagSlug",
+      "value": "",
+      "type": "string"
     }
   ],
   "item": [
@@ -355,7 +365,8 @@
               "  pm.response.json().categories.forEach(function (item) { pm.expect(Object.keys(item).sort()).to.eql(['id', 'name', 'slug']); });",
               "});",
               "const first = pm.response.json().categories[0];",
-              "pm.collectionVariables.set('articleCategoryId', first ? first.id : '');"
+              "pm.collectionVariables.set('articleCategoryId', first ? first.id : '');",
+              "pm.collectionVariables.set('articleCategorySlug', first ? first.slug : '');"
             ]
           }
         }
@@ -380,7 +391,8 @@
               "  pm.expect(pm.response.json().tags).to.be.an('array');",
               "  pm.response.json().tags.forEach(function (item) { pm.expect(Object.keys(item).sort()).to.eql(['id', 'name', 'slug']); });",
               "});",
-              "pm.collectionVariables.set('articleTagIds', JSON.stringify(pm.response.json().tags.slice(0, 2).map(function (tag) { return tag.id; })));"
+              "pm.collectionVariables.set('articleTagIds', JSON.stringify(pm.response.json().tags.slice(0, 2).map(function (tag) { return tag.id; })));",
+              "pm.collectionVariables.set('articleTagSlug', pm.response.json().tags[0] ? pm.response.json().tags[0].slug : '');"
             ]
           }
         }
@@ -440,6 +452,92 @@
               "  pm.expect(article.commentCount).to.eql(0);",
               "  pm.expect(article.imageFilename).to.eql(null);",
               "  pm.expect(pm.response.headers.get('Location')).to.eql('/api/articles/' + article.slug);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Search with category and optional tag",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/articles?q=publishing&category={{articleCategorySlug}}{{articleTagQuery}}",
+        "description": "Read-only search over the newly created article. Combines the selected catalog slugs; no login is required."
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const tag = pm.collectionVariables.get('articleTagSlug');",
+              "pm.variables.set('articleTagQuery', tag ? '&tag=' + encodeURIComponent(tag) : '');"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Search and filters include the created article', function () {",
+              "  pm.response.to.have.status(200); const result = pm.response.json();",
+              "  pm.expect(result.articles.some(function (article) { return article.slug === pm.collectionVariables.get('newArticleSlug'); })).to.eql(true);",
+              "  result.articles.forEach(function (article) {",
+              "    pm.expect(article.category.slug).to.eql(pm.collectionVariables.get('articleCategorySlug'));",
+              "    pm.expect((article.title + ' ' + article.description).toLowerCase()).to.include('publishing');",
+              "    const tag = pm.collectionVariables.get('articleTagSlug');",
+              "    if (tag) pm.expect(article.tags.some(function (item) { return item.slug === tag; })).to.eql(true);",
+              "  });",
+              "  pm.expect(result.pagination.totalPages).to.eql(Math.ceil(result.pagination.total / 12));",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Search with no matches",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/articles?q={{newArticleSlug}}",
+        "description": "The generated UUID slug is not in any title or description. Empty search results return 200."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('No matches have an empty page and zero totals', function () {",
+              "  pm.response.to.have.status(200);",
+              "  const result = pm.response.json(); pm.expect(result.articles).to.eql([]);",
+              "  pm.expect(result.pagination.total).to.eql(0); pm.expect(result.pagination.totalPages).to.eql(0);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Repeated search rejected",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/articles?q=first&q=second",
+        "description": "Repeated filter parameters return 400."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Repeated search is rejected', function () {",
+              "  pm.response.to.have.status(400); pm.expect(pm.response.json().error.message).to.be.a('string');",
               "});"
             ]
           }
