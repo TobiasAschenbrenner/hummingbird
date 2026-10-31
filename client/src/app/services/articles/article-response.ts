@@ -34,6 +34,26 @@ function slug(value: unknown): string {
   return value;
 }
 
+function readCover(value: unknown): ArticleSummary['coverImage'] {
+  if (value === null) return null;
+  const data = record(value);
+  const url = text(data['url']);
+  const parsed = new URL(url);
+  if (
+    parsed.origin !== 'https://res.cloudinary.com' ||
+    parsed.username ||
+    parsed.password ||
+    parsed.search ||
+    parsed.hash ||
+    !parsed.pathname.includes('/image/upload/')
+  )
+    invalidResponse();
+  const width = integer(data['width']);
+  const height = integer(data['height']);
+  if (width > 1600 || height > 1600) invalidResponse();
+  return { url, width, height };
+}
+
 function summary(value: unknown): ArticleSummary {
   const data = record(value);
   const author = record(data['author']);
@@ -54,6 +74,7 @@ function summary(value: unknown): ArticleSummary {
     title: text(data['title']),
     description: text(data['description']),
     imageFilename,
+    coverImage: readCover(data['coverImage']),
     createdAt,
     author: { id: integer(author['id']), username: text(author['username']) },
     category: readCatalogEntry(data['category']),

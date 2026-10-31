@@ -38,6 +38,7 @@ export interface ArticleSummary {
   title: string;
   description: string;
   imageFilename: string | null;
+  coverImage: { url: string; width: number; height: number } | null;
   createdAt: string;
   author: { id: number; username: string };
   category: CatalogEntry;

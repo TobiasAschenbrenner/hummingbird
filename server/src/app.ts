@@ -1,4 +1,6 @@
 import express from 'express';
+import { createCoverRouter } from './routes/cover.routes.ts';
+import type { CoverService } from './services/cover.service.ts';
 
 import { errorHandler } from './middleware/error-handler.ts';
 import type { ArticleQueries } from './models/article.model.ts';
@@ -14,6 +16,7 @@ export interface AppOptions extends AuthOptions {
   articles: ArticleQueries;
   comments: CommentQueries;
   catalogs: CatalogQueries;
+  covers?: CoverService;
 }
 
 export function createApp(options: AppOptions) {
@@ -22,6 +25,7 @@ export function createApp(options: AppOptions) {
   app.use('/api', healthRouter);
   app.use('/api/auth', createAuthRouter(options));
   app.use('/api/articles/:slug/comments', createCommentRouter(options));
+  app.use('/api/articles/:slug/cover', createCoverRouter(options));
   app.use('/api/articles', createArticleRouter(options));
   app.use('/api', createCatalogRouter(options.catalogs));
 

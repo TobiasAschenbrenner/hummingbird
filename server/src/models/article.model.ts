@@ -1,3 +1,4 @@
+import type { PublicCover } from './image.model.ts';
 import type { CatalogEntry } from './catalog.model.ts';
 
 export interface ArticleCreationInput {
@@ -47,6 +48,7 @@ export interface ArticleSummary {
   title: string;
   description: string;
   imageFilename: string | null;
+  coverImage: PublicCover | null;
   createdAt: string;
   author: { id: number; username: string };
   category: CatalogEntry;

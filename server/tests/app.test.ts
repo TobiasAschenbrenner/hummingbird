@@ -64,6 +64,7 @@ const exampleArticle: ArticleDetail = {
   title: 'First article',
   description: 'An introduction.',
   imageFilename: null,
+  coverImage: null,
   createdAt: '2026-10-01T09:00:00.000Z',
   author: { id: 7, username: 'Author' },
   category: { id: 3, slug: 'tech', name: 'Tech' },
@@ -1989,4 +1990,21 @@ test('article filters reject malformed, repeated, oversized and control-characte
     await response.arrayBuffer();
   }
   assert.deepEqual(articlePageInputs, []);
+});
+
+test('cover uploads require a session and report absent configuration without processing image bytes', async () => {
+  const response = await fetch(`${baseUrl}/api/articles/first-article/cover`, {
+    method: 'PUT',
+    headers: {
+      Cookie: `hummingbird_session=${sessionToken}`,
+      'X-Hummingbird-Request': '1',
+      'Content-Type': 'image/png',
+    },
+    body: 'not processed',
+  });
+  assert.equal(response.status, 503);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  assert.deepEqual(await response.json(), {
+    error: { message: 'Image uploads are not configured.' },
+  });
 });

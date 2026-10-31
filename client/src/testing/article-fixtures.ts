@@ -7,6 +7,7 @@ export function articleFixture(overrides: Partial<ArticleDetail> = {}): ArticleD
     title: 'Article 1',
     description: 'A useful introduction.',
     imageFilename: null,
+    coverImage: null,
     createdAt: '2026-10-01T09:00:00.000Z',
     author: { id: 1, username: 'Author 🐦' },
     category: { id: 1, slug: 'tech', name: 'Tech' },

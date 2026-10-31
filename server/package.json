@@ -23,7 +23,8 @@
     "db:status": "prisma migrate status",
     "db:seed": "prisma db seed",
     "db:seed:demo": "prisma db seed -- --demo",
-    "test:db": "node --env-file-if-exists=.env --test tests/integration/*.test.ts"
+    "test:db": "node --env-file-if-exists=.env --test tests/integration/*.test.ts",
+    "images:cleanup": "node --env-file-if-exists=.env src/scripts/cleanup-images.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "7.10.0",
@@ -34,6 +35,7 @@
     "express": "5.2.1",
     "express-rate-limit": "8.7.0",
     "pg": "8.23.1",
+    "sharp": "0.35.5",
     "validator": "13.15.35"
   },
   "devDependencies": {

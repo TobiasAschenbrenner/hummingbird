@@ -34,24 +34,40 @@ Percent-encode special characters in URL credentials (for example, `@` becomes `
 Run the scripts from `server/`. They load only its optional `.env`; the Flask
 configuration at the repository root is separate. Environment files stay out of Git.
 
-## ☁️ Cloudinary setup
+## ☁️ Cloudinary
 
-Use a separate **Hummingbird** product environment in your existing Cloudinary
-account. In [Console settings](https://cloudinary.com/documentation/account_settings#product-environment-management),
-create it under **Product Environments** if your plan permits; do not rename
-Chirp’s existing cloud. Keep dynamic folder mode enabled. If this requires an upgrade, stop and check the options first.
+Add `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY` and `CLOUDINARY_API_SECRET` to
+`server/.env`. Keep secrets out of Git, chat and frontend files. All three blank
+disables uploads; partial configuration stops startup. The existing Cloudinary
+product environment is shared with Chirp, but Hummingbird only writes and cleans
+its own `hummingbird/<NODE_ENV>/article-covers/<UUID>` IDs. Credentials and usage
+limits remain shared. Never rename Chirp’s cloud or change its settings.
 
-From the new environment’s **API Keys** page, add `CLOUDINARY_CLOUD_NAME`,
-`CLOUDINARY_API_KEY` and `CLOUDINARY_API_SECRET` to `server/.env`. Keep secrets
-out of chat, Git and frontend files. All three blank disables the optional setup;
-partial or malformed credentials stop API startup without printing their values.
-The SDK does not use Chirp’s `.env` or fall back to `CLOUDINARY_URL`.
+After publishing, add or replace a cover on your article’s detail page. Uploads
+accept static JPEG, PNG or WebP files up to 5 MiB and 20 million pixels. The API
+checks ownership before reading bytes, decodes and resizes to at most 1600×1600,
+strips source metadata and stores WebP. SVG, animation and damaged files are rejected.
+Only HTTPS image metadata is public; image bytes stay in Cloudinary.
 
-The storage adapter uses unique IDs under `hummingbird/<NODE_ENV>/article-covers`
-and refuses cleanup outside that path. It expects processed WebP images and
-bounds storage requests to 30 seconds. Unit tests use a fake Cloudinary transport.
-**The upload API, image validation, database integration and Angular controls are
-still to come; no real Cloudinary upload has been verified yet.**
+`PUT /api/articles/:slug/cover` accepts the image as its binary body, with its exact
+`Content-Type`. `DELETE` on the same route removes the cover. Both require the
+session cookie, `X-Hummingbird-Request: 1`, `X-Hummingbird-Article-Id` and
+`X-Hummingbird-Article-Version`. Success returns `{ "article": ... }` with an
+incremented version. Stale edits return `409`; writes are never retried automatically.
+
+Reservations are stored before uploads. Replacement or article deletion detaches
+image records; failures retain them for cleanup. Cloudinary and PostgreSQL do not
+share an ACID transaction. Run this periodically (for example, hourly on the host):
+
+```bash
+npm run images:cleanup
+```
+
+Each run processes up to 100 detached images older than one hour, preserving
+recent uploads and all attached images. Failed removals stay queued for retry.
+Until this command runs, old covers may still exist in Cloudinary. Schedule it
+when deploying; this project does not install a system scheduler automatically.
+Do not change the configured cloud without migrating its stored assets.
 
 ## 🗄️ PostgreSQL setup
 
@@ -241,7 +257,7 @@ Summaries include the author ID and display name, category, alphabetically sorte
 tags and comment count, but no body or private account fields. Details return
 `{ "article": { ... } }` with the body and a decimal-string version to preserve
 PostgreSQL bigint precision. Dates are UTC ISO strings. `imageFilename` is nullable
-metadata; the rewrite does not serve uploaded images yet. The client renders
+legacy metadata, not a served local file. `coverImage` contains the Cloudinary URL and dimensions, or null. The client renders
 article bodies as text, not as trusted HTML.
 
 Slugs use 1–80 lowercase letters/digits separated by single hyphens. A valid
@@ -337,7 +353,7 @@ A conditional delete and PostgreSQL foreign-key cascades remove the article, its
 comments and tag links in one transaction. Failures roll everything back. Shared
 categories, tags, accounts and other articles stay intact. This is permanent,
 without undo. Repeating the request returns `404`; deletion is never retried
-automatically. The rewrite does not yet upload or manage image files.
+automatically. Covers use the Cloudinary flow above.
 
 ## 💬 Comments
 

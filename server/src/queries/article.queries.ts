@@ -13,6 +13,7 @@ const summarySelect = {
   title: true,
   description: true,
   imageFilename: true,
+  coverImage: { select: { url: true, width: true, height: true } },
   createdAt: true,
   author: { select: { id: true, username: true } },
   category: { select: { id: true, slug: true, name: true } },
@@ -53,6 +54,13 @@ function toSummary(article: SummaryRecord): ArticleSummary {
     title: article.title,
     description: article.description,
     imageFilename: article.imageFilename,
+    coverImage: article.coverImage
+      ? {
+          url: article.coverImage.url!,
+          width: article.coverImage.width!,
+          height: article.coverImage.height!,
+        }
+      : null,
     createdAt: article.createdAt.toISOString(),
     author: article.author,
     category: article.category,
@@ -234,3 +242,5 @@ export function createArticleQueries(database: PrismaClient): ArticleQueries {
     },
   };
 }
+
+export { detailSelect, toDetail };

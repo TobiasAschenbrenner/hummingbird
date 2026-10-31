@@ -28,6 +28,7 @@ model Article {
   description   String       @db.VarChar(250)
   body          String       @db.Text
   version       BigInt       @default(1)
+  coverImage    CoverImage?
   imageFilename String?      @map("image_filename") @db.VarChar(250)
   createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   authorId      Int          @map("author_id")
@@ -73,13 +74,13 @@ model ArticleTag {
 
 model Comment {
   request   CommentRequest?
-  id        Int      @id @default(autoincrement())
-  body      String   @db.Text
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  articleId Int      @map("article_id")
-  article   Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
-  authorId  Int      @map("author_id")
-  author    User     @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  id        Int             @id @default(autoincrement())
+  body      String          @db.Text
+  createdAt DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  articleId Int             @map("article_id")
+  article   Article         @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  authorId  Int             @map("author_id")
+  author    User            @relation(fields: [authorId], references: [id], onDelete: Restrict)
 
   @@index([articleId, id], map: "ix_comments_article_id_id")
   @@index([authorId], map: "ix_comments_author_id")
@@ -104,4 +105,17 @@ model Session {
   @@index([userId], map: "ix_sessions_user_id")
   @@index([expiresAt], map: "ix_sessions_expires_at")
   @@map("sessions")
+}
+
+model CoverImage {
+  publicId  String   @id @map("public_id") @db.VarChar(250)
+  articleId Int?     @unique(map: "cover_images_article_id_key") @map("article_id")
+  article   Article? @relation(fields: [articleId], references: [id], onDelete: SetNull)
+  url       String?  @db.VarChar(2048)
+  width     Int?
+  height    Int?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([articleId, createdAt], map: "ix_cover_images_cleanup")
+  @@map("cover_images")
 }

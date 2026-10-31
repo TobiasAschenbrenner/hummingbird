@@ -12,6 +12,9 @@ import { after, afterEach, before, beforeEach, test } from 'node:test';
 import { createApp } from '../../src/app.ts';
 import { createCommentQueries } from '../../src/queries/comment.queries.ts';
 import { randomUUID } from 'node:crypto';
+import sharp from 'sharp';
+import { createCoverService } from '../../src/services/cover.service.ts';
+import { createCoverQueries } from '../../src/queries/cover.queries.ts';
 import { createArticleQueries } from '../../src/queries/article.queries.ts';
 import { createCatalogQueries } from '../../src/queries/catalog.queries.ts';
 import { createSessionQueries } from '../../src/queries/session.queries.ts';
@@ -61,6 +64,19 @@ before(async () => {
 async function startServer() {
   server = createApp({
     articles: createArticleQueries(database),
+    covers: createCoverService(createCoverQueries(database), {
+      newPublicId: () => `hummingbird/test/article-covers/${randomUUID()}`,
+      async upload(publicId, bytes) {
+        const info = await sharp(bytes).metadata();
+        return {
+          publicId,
+          url: `https://res.cloudinary.com/test/image/upload/v1/${publicId}.webp`,
+          width: info.width!,
+          height: info.height!,
+        };
+      },
+      async remove() {},
+    }),
     comments: createCommentQueries(database),
     catalogs: createCatalogQueries(database),
     registerUser: createRegistrationService(createUserQueries(database)),
@@ -77,7 +93,7 @@ async function startServer() {
 
 async function clearDatabase() {
   assert.ok(databaseVerified, 'Refusing to clear an unverified database.');
-  await database.$executeRaw`TRUNCATE TABLE public.comment_requests, public.sessions, public.comments, public.article_tags,
+  await database.$executeRaw`TRUNCATE TABLE public.cover_images, public.comment_requests, public.sessions, public.comments, public.article_tags,
     public.articles, public.tags, public.categories, public.users RESTART IDENTITY CASCADE`;
 }
 
@@ -852,6 +868,7 @@ test('article listing reads seed relationships without exposing accounts, bodies
     title: stored.title,
     description: stored.description,
     imageFilename: null,
+    coverImage: null,
     createdAt: '2026-10-01T09:00:00.000Z',
     author: { id: stored.author.id, username: 'Demo Author' },
     category: { id: stored.category.id, slug: 'tech', name: 'Tech' },
@@ -966,6 +983,7 @@ test('article detail serializes PostgreSQL bigint versions exactly and preserves
       title: article.title,
       description: article.description,
       imageFilename: 'test-cover.webp',
+      coverImage: null,
       createdAt: '2026-10-01T09:00:00.000Z',
       author: { id: author.id, username: author.username },
       category: { id: category.id, slug: category.slug, name: category.name },
@@ -2380,4 +2398,228 @@ test('filtered rows and total share a snapshot when another connection publishes
   );
   assert.equal(result.pagination.total, 1);
   assert.equal(await database.article.count(), 2);
+});
+
+function coverFixture(publicId = `hummingbird/test/article-covers/${randomUUID()}`) {
+  return {
+    publicId,
+    url: `https://res.cloudinary.com/test/image/upload/v1/${publicId}.webp`,
+    width: 1200,
+    height: 800,
+  };
+}
+
+test('cover replacement increments the article version atomically and retains detached assets for cleanup', async () => {
+  const { article, author } = await createArticle();
+  const queries = createCoverQueries(database);
+  const target = { slug: article.slug, articleId: article.id, authorId: author.id, version: '1' };
+  const first = coverFixture();
+  await queries.reserve(first.publicId);
+  const attached = await queries.attach(target, first);
+  assert.deepEqual(attached.coverImage, {
+    url: first.url,
+    width: first.width,
+    height: first.height,
+  });
+  assert.equal(attached.version, '2');
+  const second = coverFixture();
+  await queries.reserve(second.publicId);
+  const replaced = await queries.attach({ ...target, version: '2' }, second);
+  assert.equal(replaced.version, '3');
+  assert.equal(replaced.coverImage?.url, second.url);
+  assert.equal(
+    (await database.coverImage.findUniqueOrThrow({ where: { publicId: first.publicId } }))
+      .articleId,
+    null,
+  );
+  const removed = await queries.detach({ ...target, version: '3' });
+  assert.equal(removed.version, '4');
+  assert.equal(removed.coverImage, null);
+  assert.equal(await database.coverImage.count(), 2);
+});
+
+test('cover ownership, URL identity, stale versions and expired reservations cannot alter an article', async () => {
+  const { article, author } = await createArticle();
+  const queries = createCoverQueries(database);
+  const target = { slug: article.slug, articleId: article.id, authorId: author.id, version: '1' };
+  const image = coverFixture();
+  await queries.reserve(image.publicId);
+  for (const [changed, status] of [
+    [{ ...target, authorId: author.id + 1 }, 403],
+    [{ ...target, articleId: article.id + 1 }, 409],
+    [{ ...target, version: '2' }, 409],
+    [{ ...target, slug: 'missing' }, 404],
+  ] as const) {
+    await assert.rejects(
+      queries.attach(changed, image),
+      (error: unknown) =>
+        !!error && typeof error === 'object' && 'status' in error && error.status === status,
+    );
+  }
+  await database.coverImage.update({
+    where: { publicId: image.publicId },
+    data: { createdAt: new Date(Date.now() - 2 * 3600_000) },
+  });
+  await assert.rejects(queries.attach(target, image), /upload expired/);
+  assert.equal(
+    (await database.article.findUniqueOrThrow({ where: { id: article.id } })).version,
+    1n,
+  );
+  assert.equal(
+    (await database.coverImage.findUniqueOrThrow({ where: { publicId: image.publicId } }))
+      .articleId,
+    null,
+  );
+});
+
+test('competing cover changes have one winner and keep the other image available for cleanup', async () => {
+  const { article, author } = await createArticle();
+  const queries = createCoverQueries(database);
+  const target = { slug: article.slug, articleId: article.id, authorId: author.id, version: '1' };
+  const images = [coverFixture(), coverFixture()];
+  for (const image of images) await queries.reserve(image.publicId);
+  const results = await Promise.allSettled(images.map((image) => queries.attach(target, image)));
+  assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
+  assert.equal(await database.coverImage.count({ where: { articleId: article.id } }), 1);
+  assert.equal(await database.coverImage.count({ where: { articleId: null } }), 1);
+  assert.equal(
+    (await database.article.findUniqueOrThrow({ where: { id: article.id } })).version,
+    2n,
+  );
+});
+
+test('article deletion retains its image record and cleanup excludes attached or recent uploads', async () => {
+  const { article, author } = await createArticle();
+  const queries = createCoverQueries(database);
+  const image = coverFixture();
+  await queries.reserve(image.publicId);
+  await queries.attach(
+    { slug: article.slug, articleId: article.id, authorId: author.id, version: '1' },
+    image,
+  );
+  const old = new Date(Date.now() - 2 * 3600_000);
+  const cutoff = new Date(Date.now() - 3600_000);
+  await database.coverImage.update({
+    where: { publicId: image.publicId },
+    data: { createdAt: old },
+  });
+  assert.deepEqual(await queries.listDetached(cutoff), []);
+  await queries.forgetDetached(image.publicId, cutoff);
+  assert.equal(await database.coverImage.count(), 1);
+  await database.article.delete({ where: { id: article.id } });
+  assert.deepEqual(await queries.listDetached(cutoff), [image.publicId]);
+  const recent = coverFixture();
+  await queries.reserve(recent.publicId);
+  assert.deepEqual(await queries.listDetached(cutoff), [image.publicId]);
+  await queries.forgetDetached(image.publicId, cutoff);
+  assert.equal(await database.coverImage.count(), 1);
+});
+
+async function publishedCoverContext() {
+  const context = await publicationContext();
+  const created = await publishArticle(context.cookie, context.input);
+  const article = (await created.json()).article;
+  const image = await sharp({
+    create: { width: 2000, height: 1000, channels: 3, background: '#4488aa' },
+  })
+    .png()
+    .toBuffer();
+  const headers = {
+    Cookie: context.cookie,
+    'X-Hummingbird-Request': '1',
+    'Content-Type': 'image/png',
+    'X-Hummingbird-Article-Id': String(article.id),
+    'X-Hummingbird-Article-Version': article.version,
+  };
+  return { ...context, article, image, headers };
+}
+
+test('cover upload API validates, converts and attaches an author image visible on detail and listing', async () => {
+  const { article, image, headers } = await publishedCoverContext();
+  const response = await fetch(`${baseUrl}/api/articles/${article.slug}/cover`, {
+    method: 'PUT',
+    headers,
+    body: image,
+  });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  const saved = (await response.json()).article;
+  assert.equal(saved.version, '2');
+  assert.equal(saved.coverImage.width, 1600);
+  assert.equal(saved.coverImage.height, 800);
+  assert.deepEqual(Object.keys(saved.coverImage).sort(), ['height', 'url', 'width']);
+  const list = await fetch(`${baseUrl}/api/articles`);
+  assert.deepEqual((await list.json()).articles[0].coverImage, saved.coverImage);
+  const removed = await fetch(`${baseUrl}/api/articles/${article.slug}/cover`, {
+    method: 'DELETE',
+    headers: { ...headers, 'X-Hummingbird-Article-Version': '2' },
+  });
+  assert.equal(removed.status, 200);
+  const detached = (await removed.json()).article;
+  assert.equal(detached.version, '3');
+  assert.equal(detached.coverImage, null);
+  assert.equal(await database.coverImage.count({ where: { articleId: null } }), 1);
+});
+
+test('cover requests reject missing authentication, CSRF headers and another author before processing bytes', async () => {
+  const { article, image, headers } = await publishedCoverContext();
+  const url = `${baseUrl}/api/articles/${article.slug}/cover`;
+  const unauth = await fetch(url, {
+    method: 'PUT',
+    headers: { ...headers, Cookie: '' },
+    body: image,
+  });
+  assert.equal(unauth.status, 401);
+  await unauth.arrayBuffer();
+  const csrf = await fetch(url, {
+    method: 'PUT',
+    headers: { ...headers, 'X-Hummingbird-Request': '' },
+    body: image,
+  });
+  assert.equal(csrf.status, 403);
+  await csrf.arrayBuffer();
+  await registerAccount('reader@example.test');
+  const reader = responseSession(await signIn('reader@example.test'));
+  const forbidden = await fetch(url, {
+    method: 'PUT',
+    headers: { ...headers, Cookie: reader.cookie },
+    body: image,
+  });
+  assert.equal(forbidden.status, 403);
+  await forbidden.arrayBuffer();
+  const wrongId = await fetch(url, {
+    method: 'PUT',
+    headers: { ...headers, 'X-Hummingbird-Article-Id': String(article.id + 1) },
+    body: image,
+  });
+  assert.equal(wrongId.status, 409);
+  await wrongId.arrayBuffer();
+  assert.equal(await database.coverImage.count(), 0);
+});
+
+test('cover API rejects malformed headers, damaged files, SVGs, mismatched formats and oversized uploads', async () => {
+  const { article, image, headers } = await publishedCoverContext();
+  const url = `${baseUrl}/api/articles/${article.slug}/cover`;
+  for (const [overrides, body, expected] of [
+    [{ 'X-Hummingbird-Article-Id': '01' }, image, 400],
+    [{ 'X-Hummingbird-Article-Version': '0' }, image, 400],
+    [{ 'Content-Type': 'image/svg+xml' }, Buffer.from('<svg/>'), 415],
+    [{ 'Content-Type': 'image/jpeg' }, image, 400],
+    [{}, Buffer.from('not an image'), 400],
+    [{}, Buffer.alloc(5 * 1024 * 1024 + 1), 413],
+    [{ 'Content-Encoding': 'gzip' }, image, 415],
+  ] as const) {
+    const response = await fetch(url, {
+      method: 'PUT',
+      headers: { ...headers, ...overrides },
+      body,
+    });
+    assert.equal(response.status, expected);
+    await response.arrayBuffer();
+  }
+  assert.equal(await database.coverImage.count(), 0);
+  assert.equal(
+    (await database.article.findUniqueOrThrow({ where: { id: article.id } })).version,
+    1n,
+  );
 });

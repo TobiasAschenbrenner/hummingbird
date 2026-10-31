@@ -1,3 +1,6 @@
+import { createCoverQueries } from './queries/cover.queries.ts';
+import { createCoverService } from './services/cover.service.ts';
+import { createCloudinaryStorage } from './services/cloudinary.service.ts';
 import { createApp } from './app.ts';
 import { readCloudinaryConfig } from './config/cloudinary.ts';
 import { readConfig } from './config/environment.ts';
@@ -11,7 +14,7 @@ import { createAuthenticationService } from './services/authentication.service.t
 import { createRegistrationService } from './services/registration.service.ts';
 
 const config = readConfig();
-readCloudinaryConfig();
+const cloudinaryConfig = readCloudinaryConfig();
 const database = createDatabaseClient();
 const users = createUserQueries(database);
 const registerUser = createRegistrationService(users);
@@ -20,6 +23,9 @@ const server = createApp({
   articles: createArticleQueries(database),
   comments: createCommentQueries(database),
   catalogs: createCatalogQueries(database),
+  covers: cloudinaryConfig
+    ? createCoverService(createCoverQueries(database), createCloudinaryStorage(cloudinaryConfig))
+    : undefined,
   registerUser,
   authentication,
   secureCookies: config.nodeEnv === 'production',
