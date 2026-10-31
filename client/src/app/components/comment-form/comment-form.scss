@@ -8,5 +8,5 @@ textarea {
   min-height: 7rem;
 }
 textarea[readonly] {
-  background: #f5f7f6;
+  background: var(--surface-muted);
 }

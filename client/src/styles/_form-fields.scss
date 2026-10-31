@@ -8,48 +8,36 @@ fieldset {
   border: 0;
 }
 .field {
-  margin-block: 1.25rem;
+  margin-block: 1.35rem;
   label {
     display: block;
-    margin-bottom: 0.35rem;
+    margin-bottom: 0.5rem;
+    font-size: 0.9375rem;
     font-weight: 600;
   }
-  input,
-  select,
-  textarea {
-    width: 100%;
-    padding: 0.65rem 0.75rem;
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    background: var(--background);
-    color: var(--text);
-    font: inherit;
-    font-weight: 400;
-    cursor: auto;
-  }
-  [aria-invalid='true'] {
-    border-color: #a32323;
-  }
   p {
-    margin-block: 0.35rem 0;
-    font-size: 0.875rem;
+    margin-block: 0.45rem 0;
+    font-size: 0.8125rem;
+    line-height: 1.55;
   }
 }
 .field-error,
 .form-error {
-  color: #a32323;
+  color: var(--danger);
 }
 .form-error {
-  padding: 0.75rem;
-  background: #fff3f3;
-  border-radius: 4px;
+  padding: 0.85rem 1rem;
+  border: 1px solid #f0cdd0;
+  border-radius: var(--radius-control);
+  background: var(--danger-soft);
   overflow-wrap: anywhere;
 }
 .notice {
-  padding: 0.75rem;
-  border-radius: 4px;
-  color: #17603e;
-  background: #edf8f1;
+  padding: 0.85rem 1rem;
+  border: 1px solid #cde6d9;
+  border-radius: var(--radius-control);
+  color: #206344;
+  background: #eff8f3;
 }
 .visually-hidden {
   position: absolute;
