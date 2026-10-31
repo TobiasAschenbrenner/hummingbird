@@ -1,6 +1,6 @@
 # Hummingbird API 🐦
 
-Express, TypeScript and Prisma API for the rewrite. Accounts, article browsing,
+Express, TypeScript and Prisma API for Hummingbird. Accounts, article browsing,
 publishing, editing, deletion and comments are available.
 The [Angular client](../client/README.md) supports these flows.
 
@@ -27,12 +27,12 @@ Percent-encode special characters in URL credentials (for example, `@` becomes `
 | --------------------- | ----------------------------------------------------- |
 | `PORT`                | API port; defaults to `3000`                          |
 | `NODE_ENV`            | `development` (default), `test` or `production`       |
-| `DATABASE_URL`        | Required rewrite database connection                  |
+| `DATABASE_URL`        | Required application database connection              |
 | `SHADOW_DATABASE_URL` | Separate, disposable database for creating migrations |
 | `TEST_DATABASE_URL`   | Separate, disposable database ending in `_test`       |
 
-Run the scripts from `server/`. They load only its optional `.env`; the Flask
-configuration at the repository root is separate. Environment files stay out of Git.
+Run the scripts from `server/`. They load its optional `.env`.
+Environment files stay out of Git.
 
 ## ☁️ Cloudinary
 
@@ -75,8 +75,8 @@ Do not change the configured cloud without migrating its stored assets.
 
 ## 🗄️ PostgreSQL setup
 
-Keep the Flask database `hummingbird` unchanged. With PostgreSQL running, create a
-new role and three databases once, using an account allowed to create them:
+With PostgreSQL running, create a role and three databases once, using an
+account allowed to create them:
 
 ```bash
 createuser -h localhost --pwprompt hummingbird_rewrite
@@ -105,7 +105,7 @@ Use migrations rather than `prisma db push`, which would miss those constraints.
 
 > [!WARNING]
 > Prisma erases the shadow database while creating migrations. Tests erase data in
-> the test database. Neither URL may point at the development or Flask database.
+> the test database. Neither URL may point at the development database.
 
 ## 🌱 Seed data
 
@@ -115,7 +115,7 @@ After applying migrations, add the default categories (**Tech, Design, Mobile**)
 npm run db:seed
 ```
 
-For optional demo content in the local rewrite database:
+For optional demo content in the local development database:
 
 ```bash
 npm run db:seed:demo
@@ -482,7 +482,7 @@ repeated deletion, consumed creation keys and deletion after logout.
 
 Registration generates a new test address and publishing a new slug on each run.
 The collection creates two test accounts, sessions, an article and tag links in the
-configured rewrite database. It deletes its own article during a successful full
+configured application database. It deletes its own article during a successful full
 run, but leaves the test accounts and shared catalog entries in place. Its password
 is a test example, not a credential for a real account.
 

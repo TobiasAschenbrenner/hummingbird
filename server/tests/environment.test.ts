@@ -7,7 +7,7 @@ import { readDatabaseUrl, readMigrationDatasource } from '../src/config/database
 import { readTestDatabaseUrl } from './helpers/database.ts';
 import { readSeedOptions } from '../prisma/seed-options.ts';
 
-test('uses local development defaults without requiring Flask settings', () => {
+test('uses local development defaults without optional configuration', () => {
   assert.deepEqual(readConfig({}), { port: 3000, nodeEnv: 'development' });
 });
 

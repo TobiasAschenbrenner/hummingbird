@@ -1,6 +1,6 @@
 # Hummingbird client 🐦
 
-Angular frontend for the rewrite, with accounts, article browsing, publishing, editing and deletion.
+Angular frontend for Hummingbird, with accounts, article browsing, publishing, editing and deletion.
 Public comment reading, signed-in commenting and deletion of your own comments are also available.
 
 ## 🚀 Run locally
@@ -103,7 +103,7 @@ or uncertain results require **Reload article** before another change. No image
 write retries itself. Selected files stay only on the open page. The server setup
 explains Cloudinary credentials and periodic cleanup of detached files.
 
-Reading is public. Comment editing is not implemented in the rewrite yet.
+Reading is public. Comment editing is not implemented.
 
 ## 📁 Structure
 
