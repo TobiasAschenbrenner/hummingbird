@@ -1,0 +1,25 @@
+.deletion {
+  margin-block: 1rem;
+}
+.confirmation {
+  margin-top: 1rem;
+  padding: 1.25rem;
+  border: 1px solid #edc8cc;
+  background: var(--danger-soft);
+  border-radius: var(--radius-control);
+}
+h2 {
+  margin-top: 0;
+  font-size: 1.3rem;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+button:disabled {
+  cursor: not-allowed;
+}
+[aria-busy='true'] button:disabled {
+  cursor: wait;
+}

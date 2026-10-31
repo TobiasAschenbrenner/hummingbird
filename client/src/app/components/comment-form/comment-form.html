@@ -1,0 +1,73 @@
+@if (auth.status() === 'authenticated' || hasDraft()) {
+  <form
+    aria-label="Write a comment"
+    [formGroup]="form"
+    [attr.aria-busy]="pending()"
+    (ngSubmit)="submit()"
+  >
+    <div class="field">
+      <label for="comment-body">Your comment</label>
+      <textarea
+        id="comment-body"
+        rows="4"
+        maxlength="4000"
+        [formControl]="body"
+        [readOnly]="disabled() || uncertain()"
+        [attr.aria-invalid]="body.touched && body.invalid"
+        aria-describedby="comment-help comment-error"
+      ></textarea>
+      <p id="comment-help" class="help">
+        {{ characters() }} / 2,000 characters. Plain text and line breaks are supported.
+      </p>
+      <p id="comment-error" class="field-error">
+        @if (body.touched && body.invalid) {
+          Use 1–2,000 characters; only tabs and line breaks are allowed as control characters.
+        }
+      </p>
+    </div>
+    <button type="submit" class="button" [disabled]="disabled() || uncertain()">
+      {{ pending() ? 'Posting…' : 'Post comment' }}
+    </button>
+    @if (hasDraft()) {
+      <p class="help">Your draft stays only on this page. Leaving or refreshing discards it.</p>
+    }
+  </form>
+}
+@if (message()) {
+  <p
+    [attr.role]="success() ? 'status' : 'alert'"
+    [class.notice]="success()"
+    [class.form-error]="!success()"
+  >
+    {{ message() }}
+  </p>
+}
+@if (uncertain() && !blocked()) {
+  <p>
+    The retry keeps the same request ID and text. It cannot create a second copy of this submission.
+  </p>
+  <button type="button" class="button" [disabled]="!canRetry()" (click)="retrySubmission()">
+    Retry same comment
+  </button>
+  @if (auth.status() === 'authenticated' && !canRetry() && !pending() && available()) {
+    <p>Sign in as the account that submitted this comment before retrying.</p>
+  }
+}
+@if (auth.status() !== 'authenticated') {
+  <p>
+    @if (auth.status() === 'checking') {
+      Checking your session…
+    } @else {
+      Sign in to join the discussion.
+      <a routerLink="/login" target="_blank" rel="noopener">Log in in a new tab</a>
+    }
+  </p>
+  <button
+    type="button"
+    class="button"
+    [disabled]="pending() || auth.pending() || auth.status() === 'checking'"
+    (click)="checkSession()"
+  >
+    Check session
+  </button>
+}

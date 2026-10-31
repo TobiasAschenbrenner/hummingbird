@@ -1,10 +1,10 @@
-venv
-.env
-__pycache__
-database.db
 .DS_Store
+.env
+.env.*
+!.env.example
 
-# Locally uploaded images
-/app/static/images/uploads/
-
-.ruff_cache/
+node_modules/
+/server/dist/
+/server/coverage/
+/server/src/generated/
+npm-debug.log*

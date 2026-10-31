@@ -1,0 +1,62 @@
+.hero {
+  display: grid;
+  min-height: 240px;
+  place-items: center;
+  padding-block: 3rem;
+  color: #fff;
+  background: var(--surface-dark);
+  text-align: center;
+  h1 {
+    margin: 0 0 0.7rem;
+    font-size: clamp(2rem, 5vw, 2.75rem);
+    line-height: 1.2;
+  }
+  p {
+    margin: 0;
+    color: #bdcbd5;
+    font-size: 1.05rem;
+  }
+}
+.articles-section {
+  padding-block: clamp(2rem, 5vw, 3rem);
+  h2 {
+    margin: 0;
+    font-size: 1.5rem;
+  }
+}
+.article-total {
+  margin-block: 1.75rem 1rem;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+.article-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  gap: 1.5rem;
+}
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.875rem;
+  a {
+    padding: 0.55rem 0.85rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-control);
+    background: var(--surface);
+    text-decoration: none;
+    font-weight: 600;
+    &:hover {
+      border-color: var(--border-strong);
+      background: var(--surface-muted);
+    }
+  }
+}
+.inactive {
+  color: var(--text-muted);
+}

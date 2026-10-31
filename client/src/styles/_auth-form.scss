@@ -1,0 +1,35 @@
+@use 'form-fields';
+.auth-page {
+  padding-block: clamp(2rem, 6vw, 4.5rem);
+}
+.auth-card {
+  max-width: 31rem;
+  margin-inline: auto;
+  padding: clamp(1.5rem, 5vw, 2.5rem);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  box-shadow: var(--shadow-panel);
+  h1 {
+    margin: 0;
+    font-size: 2rem;
+  }
+  form .button {
+    width: 100%;
+    margin-top: 0.35rem;
+  }
+}
+.intro,
+.help {
+  color: var(--text-muted);
+}
+.intro {
+  margin-block: 0.7rem 1.75rem;
+}
+.auth-link {
+  margin-top: 1.5rem;
+  margin-bottom: 0;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.9375rem;
+}

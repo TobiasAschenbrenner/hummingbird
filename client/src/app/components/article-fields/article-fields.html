@@ -1,0 +1,156 @@
+<div class="field">
+  <label for="article-title">Title</label>
+  <input
+    id="article-title"
+    name="title"
+    [formControl]="form().controls.title"
+    maxlength="110"
+    required
+    [attr.aria-invalid]="fieldError('title') ? 'true' : null"
+    [attr.aria-describedby]="fieldError('title') ? 'title-help title-error' : 'title-help'"
+  />
+  <p id="title-help" class="help">Up to 55 characters.</p>
+  @if (fieldError('title')) {
+    <p id="title-error" class="field-error">{{ fieldError('title') }}</p>
+  }
+</div>
+<div class="field">
+  <label for="article-slug">URL slug</label>
+  <input
+    id="article-slug"
+    name="slug"
+    [formControl]="form().controls.slug"
+    maxlength="80"
+    required
+    spellcheck="false"
+    [readOnly]="readOnlySlug()"
+    [attr.aria-invalid]="fieldError('slug') ? 'true' : null"
+    [attr.aria-describedby]="fieldError('slug') ? 'slug-help slug-error' : 'slug-help'"
+  />
+  <p id="slug-help" class="help">
+    @if (readOnlySlug()) {
+      Article URLs stay unchanged when editing.
+    } @else {
+      Suggested from the title until you edit it.
+    }
+    URL: /articles/{{ form().controls.slug.value }}
+  </p>
+  @if (fieldError('slug')) {
+    <p id="slug-error" class="field-error">{{ fieldError('slug') }}</p>
+  }
+</div>
+<div class="field">
+  <label for="article-description">Description</label>
+  <textarea
+    id="article-description"
+    name="description"
+    [formControl]="form().controls.description"
+    rows="3"
+    maxlength="500"
+    required
+    [attr.aria-invalid]="fieldError('description') ? 'true' : null"
+    [attr.aria-describedby]="
+      fieldError('description') ? 'description-help description-error' : 'description-help'
+    "
+  ></textarea>
+  <p id="description-help" class="help">A short summary, up to 250 characters.</p>
+  @if (fieldError('description')) {
+    <p id="description-error" class="field-error">{{ fieldError('description') }}</p>
+  }
+</div>
+<div class="field">
+  <label for="article-body">Article body</label>
+  <textarea
+    id="article-body"
+    name="body"
+    [formControl]="form().controls.body"
+    rows="12"
+    maxlength="40000"
+    required
+    [attr.aria-invalid]="fieldError('body') ? 'true' : null"
+    [attr.aria-describedby]="fieldError('body') ? 'body-help body-error' : 'body-help'"
+  ></textarea>
+  <p id="body-help" class="help">
+    Plain text, up to 20,000 characters. Paragraph breaks and tabs are preserved.
+  </p>
+  @if (fieldError('body')) {
+    <p id="body-error" class="field-error">{{ fieldError('body') }}</p>
+  }
+</div>
+@if (optionStatus() === 'loading') {
+  <p role="status">Loading categories and tags…</p>
+} @else if (optionStatus() === 'error') {
+  <p role="alert">We couldn’t load categories and tags. Your text is kept here.</p>
+  <button type="button" class="button" (click)="reloadOptions.emit()">Retry options</button>
+} @else if (optionStatus() === 'ready' && !options().categories.length) {
+  <p role="alert">
+    No categories are available. Add the default categories with the server’s seed command before
+    publishing.
+  </p>
+}
+<fieldset [disabled]="optionStatus() !== 'ready'">
+  <legend class="visually-hidden">Categories and tags</legend>
+  <div class="field">
+    <label for="article-category">Category</label>
+    <select
+      id="article-category"
+      name="categoryId"
+      [formControl]="form().controls.categoryId"
+      required
+      [attr.aria-invalid]="fieldError('categoryId') ? 'true' : null"
+      [attr.aria-describedby]="fieldError('categoryId') ? 'category-error' : null"
+    >
+      <option [ngValue]="0">Select a category</option>
+      @for (category of options().categories; track category.id) {
+        <option [ngValue]="category.id">{{ category.name }}</option>
+      }
+    </select>
+    @if (fieldError('categoryId')) {
+      <p id="category-error" class="field-error">{{ fieldError('categoryId') }}</p>
+    }
+  </div>
+  <fieldset
+    class="tag-field"
+    [attr.aria-invalid]="fieldError('tagIds') ? 'true' : null"
+    [attr.aria-describedby]="fieldError('tagIds') ? 'tags-help tags-error' : 'tags-help'"
+  >
+    <legend>Tags (optional)</legend>
+    <p id="tags-help" class="help">Choose up to 10 existing tags.</p>
+    <div class="tag-options">
+      @for (tag of options().tags; track tag.id) {
+        <label class="tag-option">
+          <input
+            type="checkbox"
+            name="tagIds"
+            [checked]="form().controls.tagIds.value.includes(tag.id)"
+            [disabled]="
+              form().controls.tagIds.value.length >= 10 &&
+              !form().controls.tagIds.value.includes(tag.id)
+            "
+            (change)="toggleTag(tag.id, $event)"
+          />
+          {{ tag.name }}
+        </label>
+      } @empty {
+        <p class="help">No tags available. You can publish without tags.</p>
+      }
+    </div>
+    @if (hasUnavailableTags()) {
+      <p class="help">Some selected tags are no longer available.</p>
+      <button type="button" class="text-button" (click)="removeUnavailableTags()">
+        Remove unavailable tags
+      </button>
+    }
+    @if (fieldError('tagIds')) {
+      <p id="tags-error" class="field-error">{{ fieldError('tagIds') }}</p>
+    }
+  </fieldset>
+</fieldset>
+<button
+  type="button"
+  class="text-button"
+  [disabled]="disabled() || optionStatus() === 'loading'"
+  (click)="reloadOptions.emit()"
+>
+  Refresh categories and tags
+</button>

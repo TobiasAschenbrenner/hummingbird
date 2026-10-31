@@ -1,0 +1,74 @@
+@if (!finished() && (ownsComment() || opened() || needsReview())) {
+  <div class="deletion" [attr.aria-busy]="pending()">
+    <button
+      #trigger
+      type="button"
+      class="button danger"
+      [disabled]="disabled() || opened()"
+      [attr.aria-expanded]="opened()"
+      [attr.aria-controls]="confirmationId()"
+      (click)="open()"
+    >
+      Delete comment
+    </button>
+    @if (opened()) {
+      <section
+        [id]="confirmationId()"
+        class="confirmation"
+        [attr.aria-labelledby]="confirmationId() + '-title'"
+      >
+        <h3 [id]="confirmationId() + '-title'">Delete your comment?</h3>
+        <p>
+          This permanently removes this comment. The article and other comments remain. This cannot
+          be undone.
+        </p>
+        <div class="actions">
+          <button
+            #cancelButton
+            type="button"
+            class="button secondary"
+            [disabled]="pending()"
+            (click)="cancel()"
+          >
+            Cancel
+          </button>
+          <button type="button" class="button danger" [disabled]="disabled()" (click)="confirm()">
+            {{ pending() ? 'Deleting…' : 'Permanently delete comment' }}
+          </button>
+        </div>
+      </section>
+    }
+    @if (message()) {
+      <p role="alert">{{ message() }}</p>
+    }
+    @if (opened() && !ownsComment()) {
+      <p>
+        Sign in as the comment’s author to delete it.
+        <a routerLink="/login" target="_blank" rel="noopener">Log in in a new tab</a>
+      </p>
+      <button
+        type="button"
+        class="button secondary"
+        [disabled]="pending() || auth.pending() || auth.status() === 'checking'"
+        (click)="checkSession()"
+      >
+        Check session
+      </button>
+    }
+    @if (articleChanged()) {
+      <p>Copy your draft before reloading the article.</p>
+      <a #reloadButton class="button secondary" [href]="'/articles/' + slug()">Reload article</a>
+    } @else if (needsReview()) {
+      <p>Reloading reads comments again. It does not delete anything.</p>
+      <button
+        #reloadButton
+        type="button"
+        class="button secondary"
+        [disabled]="pending() || !available()"
+        (click)="reloadComments()"
+      >
+        Reload comments
+      </button>
+    }
+  </div>
+}

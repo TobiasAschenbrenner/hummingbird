@@ -1,0 +1,195 @@
+{
+  "info": {
+    "name": "Hummingbird cover images (manual file selection)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Use a disposable article owned by your login account. Set email, password and articleSlug in a local Postman environment; do not export real credentials. Run Login, then Read article. In Upload cover, select a JPEG, PNG or WebP under Body > binary. Run it, then optionally Remove cover. These requests make real changes; removal queues the stored file for server cleanup. The main Hummingbird collection remains usable without Cloudinary."
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:3000",
+      "type": "string"
+    },
+    {
+      "key": "email",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "password",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "articleSlug",
+      "value": "replace-with-a-test-article-slug",
+      "type": "string"
+    },
+    {
+      "key": "articleId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "articleVersion",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Login",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Hummingbird-Request",
+            "value": "1"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/auth/login",
+        "body": {
+          "mode": "raw",
+          "raw": "{{loginBody}}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const email = pm.variables.get('email'); const password = pm.variables.get('password');",
+              "if (!email || !password) throw new Error('Set email and password in your local Postman environment.');",
+              "pm.variables.set('loginBody', JSON.stringify({ email: email, password: password }));"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Login succeeds', function () { pm.response.to.have.status(200); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Read article and current version",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/articles/{{articleSlug}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Article exists', function () { pm.response.to.have.status(200); });",
+              "const article = pm.response.json().article;",
+              "pm.collectionVariables.set('articleId', String(article.id));",
+              "pm.collectionVariables.set('articleVersion', article.version);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Upload cover (select Body binary file first)",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "X-Hummingbird-Request",
+            "value": "1"
+          },
+          {
+            "key": "X-Hummingbird-Article-Id",
+            "value": "{{articleId}}"
+          },
+          {
+            "key": "X-Hummingbird-Article-Version",
+            "value": "{{articleVersion}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "image/png",
+            "description": "Match your selected file: image/png, image/jpeg or image/webp."
+          }
+        ],
+        "url": "{{baseUrl}}/api/articles/{{articleSlug}}/cover",
+        "body": {
+          "mode": "file",
+          "file": {
+            "src": ""
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "if (!pm.collectionVariables.get('articleId') || !pm.collectionVariables.get('articleVersion')) throw new Error('Run Read article first.');"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Cover saved', function () { pm.response.to.have.status(200); const article = pm.response.json().article; pm.expect(article.coverImage.url).to.match(/^https:\\/\\/res\\.cloudinary\\.com\\//); pm.expect(article.coverImage.width).to.be.at.most(1600); pm.expect(article.coverImage.height).to.be.at.most(1600); pm.collectionVariables.set('articleVersion', article.version); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Remove cover (changes the selected article)",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "X-Hummingbird-Request",
+            "value": "1"
+          },
+          {
+            "key": "X-Hummingbird-Article-Id",
+            "value": "{{articleId}}"
+          },
+          {
+            "key": "X-Hummingbird-Article-Version",
+            "value": "{{articleVersion}}"
+          }
+        ],
+        "url": "{{baseUrl}}/api/articles/{{articleSlug}}/cover"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Cover removed', function () { pm.response.to.have.status(200); const article = pm.response.json().article; pm.expect(article.coverImage).to.eql(null); pm.collectionVariables.set('articleVersion', article.version); });"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,87 @@
+<section class="container create-page" aria-labelledby="create-heading">
+  <div class="create-card">
+    <h1 id="create-heading">New article</h1>
+    @if (published(); as article) {
+      <p class="notice" role="status">Your article was published.</p>
+      @if (message()) {
+        <p>{{ message() }}</p>
+      }
+      <a class="button" [routerLink]="['/articles', article.slug]">Read your article</a>
+    } @else {
+      <p class="intro">
+        Share something worth reading. You can add an optional cover image on the article page after
+        publishing.
+      </p>
+      @if (auth.status() === 'checking') {
+        <p role="status">Checking your session…</p>
+      } @else if (auth.status() === 'unavailable') {
+        <p role="alert">
+          We couldn’t check your session. Your draft stays here while this page is open.
+        </p>
+        <button type="button" class="button" [disabled]="auth.pending()" (click)="retrySession()">
+          Check session
+        </button>
+      } @else if (auth.status() === 'anonymous') {
+        @if (editorOpened()) {
+          <div class="session-notice" role="alert">
+            <p>Sign in again to publish. Your draft stays here while this page is open.</p>
+            <a routerLink="/login" target="_blank" rel="noopener">Log in in a new tab</a>
+            <button
+              type="button"
+              class="button"
+              [disabled]="auth.pending()"
+              (click)="retrySession()"
+            >
+              Check session
+            </button>
+          </div>
+        } @else {
+          <p>Log in to write an article.</p>
+          <a routerLink="/login" class="button">Log in</a>
+          <p>New here? <a routerLink="/register">Create an account</a>.</p>
+        }
+      }
+      @if (editorOpened()) {
+        <p class="help">
+          Drafts are kept only on this page. Leaving or refreshing discards unpublished text.
+        </p>
+        <form [formGroup]="form" (ngSubmit)="submit()" [attr.aria-busy]="pending()">
+          <fieldset [disabled]="editorDisabled()">
+            <legend class="visually-hidden">Article details</legend>
+            <app-article-fields
+              [form]="form"
+              [options]="options()"
+              [optionStatus]="optionStatus()"
+              [disabled]="editorDisabled()"
+              [serverFields]="serverFields()"
+              (reloadOptions)="loadOptions()"
+            />
+            @if (message()) {
+              <p class="form-error" role="alert">{{ message() }}</p>
+            }
+            @if (checkArticle(); as slug) {
+              <p class="help">
+                Check the attempted URL without leaving this draft:
+                <a [routerLink]="['/articles', slug]" target="_blank" rel="noopener"
+                  >View article at this URL</a
+                >.
+              </p>
+            }
+            <div class="actions">
+              <button
+                type="submit"
+                class="button"
+                [disabled]="
+                  editorDisabled() || optionStatus() !== 'ready' || !options().categories.length
+                "
+              >
+                {{ pending() ? 'Publishing…' : 'Publish article' }}
+              </button>
+              <a routerLink="/">Back to articles</a>
+            </div>
+          </fieldset>
+        </form>
+      }
+    }
+  </div>
+</section>

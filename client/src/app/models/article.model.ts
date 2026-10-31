@@ -1,0 +1,57 @@
+import { CatalogEntry } from './catalog.model';
+
+export interface ArticleCreationInput {
+  slug: string;
+  title: string;
+  description: string;
+  body: string;
+  categoryId: number;
+  tagIds: number[];
+}
+
+export type ArticleUpdateInput = Omit<ArticleCreationInput, 'slug'> & { version: string };
+
+export interface ArticleDeletionInput {
+  articleId: number;
+  version: string;
+}
+
+export type ArticleField = keyof ArticleCreationInput;
+export type ArticleFieldErrors = Partial<Record<ArticleField, string>>;
+
+export const ARTICLE_PAGE_SIZE = 12;
+export const MAX_ARTICLE_PAGE = 10_000;
+
+export interface ArticleFilters {
+  q?: string;
+  category?: string;
+  tag?: string;
+}
+
+export interface ArticleListQuery extends ArticleFilters {
+  page: number;
+}
+
+export interface ArticleSummary {
+  id: number;
+  slug: string;
+  title: string;
+  description: string;
+  imageFilename: string | null;
+  coverImage: { url: string; width: number; height: number } | null;
+  createdAt: string;
+  author: { id: number; username: string };
+  category: CatalogEntry;
+  tags: CatalogEntry[];
+  commentCount: number;
+}
+
+export interface ArticleDetail extends ArticleSummary {
+  body: string;
+  version: string;
+}
+
+export interface ArticlePage {
+  articles: ArticleSummary[];
+  pagination: { page: number; pageSize: number; total: number; totalPages: number };
+}

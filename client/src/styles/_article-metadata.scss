@@ -1,0 +1,29 @@
+.category {
+  margin: 0 0 0.6rem;
+  color: var(--accent);
+  font-size: 0.8125rem;
+  font-weight: 650;
+  letter-spacing: 0.015em;
+}
+.metadata {
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+}
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 1.1rem 0 0;
+  padding: 0;
+  list-style: none;
+  li {
+    padding: 0.25rem 0.65rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--text-muted);
+    background: var(--surface-muted);
+    font-size: 0.75rem;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+}

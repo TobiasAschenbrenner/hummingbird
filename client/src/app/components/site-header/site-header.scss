@@ -1,0 +1,88 @@
+header {
+  background: var(--surface-dark);
+  color: #fff;
+  border-bottom: 1px solid rgb(255 255 255 / 9%);
+}
+nav {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  min-height: 76px;
+  padding-block: 0.85rem;
+  font-size: 0.9375rem;
+}
+a,
+.nav-button {
+  padding: 0.45rem 0.65rem;
+  border-radius: 6px;
+  color: #d9e2e8;
+  text-decoration: none;
+  transition:
+    background-color var(--motion-duration) ease,
+    color var(--motion-duration) ease;
+  &:hover,
+  &.active {
+    color: #fff;
+    background: rgb(255 255 255 / 8%);
+    text-decoration: none;
+  }
+}
+.logo {
+  padding-left: 0;
+  color: #fff;
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.055em;
+  &:hover {
+    background: none;
+  }
+}
+.account-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+.username {
+  max-width: 28ch;
+  padding-inline: 0.5rem;
+  color: #bdcbd5;
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
+}
+.nav-button {
+  min-height: 40px;
+  border: 1px solid rgb(255 255 255 / 18%);
+  background: transparent;
+  font-weight: 500;
+}
+.register-link {
+  border: 1px solid rgb(255 255 255 / 24%);
+}
+.header-message {
+  margin-block: 0;
+  padding-bottom: 1rem;
+  font-size: 0.875rem;
+}
+@media (max-width: 640px) {
+  nav {
+    gap: 0.6rem 1rem;
+  }
+  .account-nav {
+    width: 100%;
+    margin-left: 0;
+  }
+  .username {
+    order: 1;
+    flex-basis: 100%;
+    max-width: none;
+    padding-left: 0;
+  }
+}
+
+a:focus-visible,
+.nav-button:focus-visible {
+  outline-color: #8ecbf3;
+}

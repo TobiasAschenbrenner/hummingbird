@@ -1,0 +1,6 @@
+/dist/
+/out-tsc/
+/.angular/
+/coverage/
+/.idea/
+/.vscode/

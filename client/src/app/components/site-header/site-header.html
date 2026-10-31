@@ -1,0 +1,55 @@
+<header>
+  <nav class="container" aria-label="Main navigation">
+    <a routerLink="/" class="logo" aria-label="Hummingbird home">hummingbird</a>
+    <a
+      routerLink="/"
+      routerLinkActive="active"
+      [routerLinkActiveOptions]="{
+        paths: 'exact',
+        queryParams: 'ignored',
+        matrixParams: 'ignored',
+        fragment: 'ignored',
+      }"
+      ariaCurrentWhenActive="page"
+      >Home</a
+    >
+    <div class="account-nav">
+      @if (auth.status() === 'checking') {
+        <span role="status">Checking session…</span>
+      } @else if (auth.user(); as user) {
+        <a routerLink="/new-article" routerLinkActive="active" ariaCurrentWhenActive="page"
+          >New article</a
+        >
+        <span class="username">Signed in as {{ user.username }}</span>
+        <button
+          type="button"
+          class="nav-button"
+          [disabled]="pending() || auth.pending()"
+          (click)="logout()"
+        >
+          {{ pending() ? 'Logging out…' : 'Log out' }}
+        </button>
+      } @else {
+        <a routerLink="/login" routerLinkActive="active" ariaCurrentWhenActive="page">Log in</a>
+        <a
+          class="register-link"
+          routerLink="/register"
+          routerLinkActive="active"
+          ariaCurrentWhenActive="page"
+          >Register</a
+        >
+      }
+    </div>
+  </nav>
+  @if (auth.status() === 'unavailable') {
+    <p class="container header-message" role="status">
+      Session check unavailable.
+      <button type="button" class="nav-button" [disabled]="auth.pending()" (click)="retrySession()">
+        Try again
+      </button>
+    </p>
+  }
+  @if (errorMessage()) {
+    <p class="container header-message" role="alert">{{ errorMessage() }}</p>
+  }
+</header>

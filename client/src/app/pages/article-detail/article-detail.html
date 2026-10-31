@@ -1,0 +1,79 @@
+<section class="container detail-page" [attr.aria-busy]="state().status === 'loading'">
+  <a class="back-link" routerLink="/" [queryParams]="listQuery()">← Back to articles</a>
+  @let current = state();
+  @switch (current.status) {
+    @case ('loading') {
+      <h1>Loading article…</h1>
+      <p role="status">Please wait while we load the article.</p>
+    }
+    @case ('deleted') {
+      <h1>Article deleted</h1>
+      <p role="status">
+        The article, its comments and tag links have been permanently removed. Return to the article
+        list using the link above.
+      </p>
+    }
+    @case ('not-found') {
+      <h1>Article not found</h1>
+      <p>This article does not exist or has been removed.</p>
+    }
+    @case ('error') {
+      <h1>Article unavailable</h1>
+      <p role="alert">We couldn’t load this article. Please try again.</p>
+      <button type="button" class="button" (click)="tryAgain()">Try again</button>
+    }
+    @case ('ready') {
+      @if (auth.status() === 'authenticated' && auth.user()?.id === current.article.author.id) {
+        <p>
+          <a [routerLink]="['/articles', current.article.slug, 'edit']" [queryParams]="listQuery()"
+            >Edit article</a
+          >
+        </p>
+      }
+      <app-article-delete
+        [article]="current.article"
+        (removed)="articleRemoved($event)"
+        (reload)="reloadArticle()"
+      />
+      @if (current.article.coverImage; as cover) {
+        <img
+          class="cover-image"
+          [src]="cover.url"
+          [width]="cover.width"
+          [height]="cover.height"
+          alt=""
+          decoding="async"
+        />
+      }
+      <article>
+        <header>
+          <p class="category">{{ current.article.category.name }}</p>
+          <h1>{{ current.article.title }}</h1>
+          <p class="description">{{ current.article.description }}</p>
+          <p class="metadata">
+            {{ current.article.author.username }} ·
+            <time [dateTime]="current.article.createdAt">{{
+              current.article.createdAt | date: 'mediumDate' : 'UTC'
+            }}</time>
+            · {{ current.article.commentCount }}
+            {{ current.article.commentCount === 1 ? 'comment' : 'comments' }}
+          </p>
+          @if (current.article.tags.length) {
+            <ul class="tags" aria-label="Tags">
+              @for (tag of current.article.tags; track tag.id) {
+                <li>{{ tag.name }}</li>
+              }
+            </ul>
+          }
+        </header>
+        <div class="article-body">{{ current.article.body }}</div>
+      </article>
+      <app-article-cover [article]="current.article" (changed)="coverChanged($event)" />
+      <app-article-comments
+        [slug]="current.article.slug"
+        [articleId]="current.article.id"
+        (countChanged)="updateCommentCount($event)"
+      />
+    }
+  }
+</section>
