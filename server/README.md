@@ -55,6 +55,10 @@ session cookie, `X-Hummingbird-Request: 1`, `X-Hummingbird-Article-Id` and
 `X-Hummingbird-Article-Version`. Success returns `{ "article": ... }` with an
 incremented version. Stale edits return `409`; writes are never retried automatically.
 
+For Postman, import `postman/hummingbird-covers.postman_collection.json`, use a
+disposable article and select your local file under **Body → binary**. The
+collection explains its required variables; never export real login credentials.
+
 Reservations are stored before uploads. Replacement or article deletion detaches
 image records; failures retain them for cleanup. Cloudinary and PostgreSQL do not
 share an ACID transaction. Run this periodically (for example, hourly on the host):

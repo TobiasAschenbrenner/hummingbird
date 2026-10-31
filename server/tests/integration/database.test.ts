@@ -2456,19 +2456,27 @@ test('cover ownership, URL identity, stale versions and expired reservations can
         !!error && typeof error === 'object' && 'status' in error && error.status === status,
     );
   }
+  const previous = coverFixture();
+  await queries.reserve(previous.publicId);
+  await queries.attach(target, previous);
   await database.coverImage.update({
     where: { publicId: image.publicId },
     data: { createdAt: new Date(Date.now() - 2 * 3600_000) },
   });
-  await assert.rejects(queries.attach(target, image), /upload expired/);
+  await assert.rejects(queries.attach({ ...target, version: '2' }, image), /upload expired/);
   assert.equal(
     (await database.article.findUniqueOrThrow({ where: { id: article.id } })).version,
-    1n,
+    2n,
   );
   assert.equal(
     (await database.coverImage.findUniqueOrThrow({ where: { publicId: image.publicId } }))
       .articleId,
     null,
+  );
+  assert.equal(
+    (await database.coverImage.findUniqueOrThrow({ where: { publicId: previous.publicId } }))
+      .articleId,
+    article.id,
   );
 });
 
