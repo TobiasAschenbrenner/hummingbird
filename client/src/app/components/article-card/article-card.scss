@@ -26,3 +26,13 @@ h3 a:hover {
 .description {
   margin-block: 1rem;
 }
+
+.cover-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 4px;
+  margin-bottom: 1rem;
+}

@@ -24,3 +24,12 @@ h1 {
   border-top: 1px solid var(--border);
   white-space: pre-wrap;
 }
+
+.cover-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 500px;
+  object-fit: contain;
+  margin-block: 1rem;
+}

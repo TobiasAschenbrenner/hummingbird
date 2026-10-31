@@ -14,6 +14,7 @@ import { Title } from '@angular/platform-browser';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { catchError, combineLatest, map, of, startWith, Subject, switchMap } from 'rxjs';
 
+import { ArticleCover } from '../../components/article-cover/article-cover';
 import { ArticleComments } from '../../components/article-comments/article-comments';
 import { ArticleDelete } from '../../components/article-delete/article-delete';
 import { ArticleDetail as Article } from '../../models/article.model';
@@ -31,7 +32,7 @@ type ArticleState =
 
 @Component({
   selector: 'app-article-detail',
-  imports: [DatePipe, RouterLink, ArticleDelete, ArticleComments],
+  imports: [DatePipe, RouterLink, ArticleDelete, ArticleComments, ArticleCover],
   templateUrl: './article-detail.html',
   styleUrl: './article-detail.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -83,6 +84,14 @@ export class ArticleDetail implements OnInit {
               : 'Hummingbird | Article',
         );
       });
+  }
+
+  protected coverChanged(article: Article): void {
+    const current = this.state();
+    if (current.status === 'ready' && current.article.id === article.id) {
+      this.state.set({ status: 'ready', article });
+      this.title.setTitle(`Hummingbird | ${article.title}`);
+    }
   }
 
   protected updateCommentCount(total: number): void {

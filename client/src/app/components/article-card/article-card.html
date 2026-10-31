@@ -1,4 +1,15 @@
 <article>
+  @if (article().coverImage; as cover) {
+    <img
+      class="cover-image"
+      [src]="cover.url"
+      [width]="cover.width"
+      [height]="cover.height"
+      alt=""
+      loading="lazy"
+      decoding="async"
+    />
+  }
   <p class="category">{{ article().category.name }}</p>
   <h3>
     <a [routerLink]="['/articles', article().slug]" [queryParams]="listQuery()">{{

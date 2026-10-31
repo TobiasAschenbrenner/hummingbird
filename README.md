@@ -10,6 +10,7 @@ Readers can browse articles, while registered users can publish posts and join t
 > Article browsing, search, category/tag filters, publishing and editing work through Angular and the API.
 > Delete your own articles from Angular with a confirmation and version check.
 > Read, post and delete your own comments from Angular.
+> Add, replace and remove Cloudinary cover images on your own articles.
 > The Flask instructions below remain valid;
 > its baseline is tagged `flask-baseline`.
 

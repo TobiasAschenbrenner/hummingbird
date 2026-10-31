@@ -1,0 +1,73 @@
+@if (owner() || opened()) {
+  <section class="cover-manager" aria-labelledby="cover-heading" [attr.aria-busy]="pending()">
+    <h2 id="cover-heading">Cover image</h2>
+    <p>Optional. Static JPEG, PNG or WebP, up to 5 MiB and 20 million pixels.</p>
+    <p class="help">
+      Uploads become public. Source metadata is removed. Leaving this page discards the selected
+      file.
+    </p>
+    @if (!owner()) {
+      <p>Sign in as this article’s author to change its cover.</p>
+      <a routerLink="/login" target="_blank" rel="noopener">Log in in a new tab</a>
+      <button type="button" class="button" [disabled]="auth.pending()" (click)="checkSession()">
+        Check session
+      </button>
+    }
+    <form (submit)="upload($event)">
+      <label for="cover-file">Select cover image</label>
+      <input
+        #coverPicker
+        id="cover-file"
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        [disabled]="disabled() || needsReview()"
+        (change)="selectFile($event)"
+      />
+      @if (file(); as selected) {
+        <p>Selected: {{ selected.name }}</p>
+      }
+      <div class="actions">
+        <button type="submit" class="button" [disabled]="disabled() || needsReview() || !file()">
+          {{ pending() ? 'Please wait…' : article().coverImage ? 'Replace cover' : 'Upload cover' }}
+        </button>
+        @if (article().coverImage && !confirming()) {
+          <button
+            type="button"
+            [disabled]="disabled() || needsReview()"
+            #removeButton
+            (click)="requestRemoval()"
+          >
+            Remove cover
+          </button>
+        }
+      </div>
+    </form>
+    @if (confirming()) {
+      <div class="confirmation">
+        <p>
+          Remove this cover? It will disappear from the article and its stored file will be queued
+          for deletion.
+        </p>
+        <button
+          type="button"
+          class="button"
+          [disabled]="disabled() || needsReview()"
+          (click)="remove()"
+        >
+          Confirm removal
+        </button>
+        <button type="button" [disabled]="pending()" #cancelButton (click)="cancelRemoval()">
+          Cancel
+        </button>
+      </div>
+    }
+    @if (message()) {
+      <p role="status">{{ message() }}</p>
+    }
+    @if (needsReview()) {
+      <button type="button" class="button" [disabled]="pending()" #reloadButton (click)="reload()">
+        Reload article
+      </button>
+    }
+  </section>
+}

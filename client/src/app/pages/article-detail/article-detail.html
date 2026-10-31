@@ -35,6 +35,16 @@
         (removed)="articleRemoved($event)"
         (reload)="reloadArticle()"
       />
+      @if (current.article.coverImage; as cover) {
+        <img
+          class="cover-image"
+          [src]="cover.url"
+          [width]="cover.width"
+          [height]="cover.height"
+          alt=""
+          decoding="async"
+        />
+      }
       <article>
         <header>
           <p class="category">{{ current.article.category.name }}</p>
@@ -58,6 +68,7 @@
         </header>
         <div class="article-body">{{ current.article.body }}</div>
       </article>
+      <app-article-cover [article]="current.article" (changed)="coverChanged($event)" />
       <app-article-comments
         [slug]="current.article.slug"
         [articleId]="current.article.id"

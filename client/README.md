@@ -91,7 +91,19 @@ then refreshes the count. Other comments and the article stay intact. Uncertain
 results require **Reload comments** and a new confirmation; no automatic retry.
 Deletion keeps only the creation request ID, so a retry cannot bring deleted text back.
 
-Reading is public. Comment editing and cover images are not implemented in the rewrite yet.
+## 🖼️ Cover images
+
+After publishing, use **Cover image** on your article’s detail page to upload,
+replace or remove an optional cover. JPEG, PNG and WebP are accepted up to 5 MiB
+and 20 million pixels; the API converts them to WebP and strips source metadata.
+Covers appear on article cards and detail pages. Uploaded images are public.
+
+Only the article’s author sees these controls. Removal needs confirmation; stale
+or uncertain results require **Reload article** before another change. No image
+write retries itself. Selected files stay only on the open page. The server setup
+explains Cloudinary credentials and periodic cleanup of detached files.
+
+Reading is public. Comment editing is not implemented in the rewrite yet.
 
 ## 📁 Structure
 

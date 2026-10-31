@@ -8,7 +8,10 @@
       }
       <a class="button" [routerLink]="['/articles', article.slug]">Read your article</a>
     } @else {
-      <p class="intro">Share something worth reading.</p>
+      <p class="intro">
+        Share something worth reading. You can add an optional cover image on the article page after
+        publishing.
+      </p>
       @if (auth.status() === 'checking') {
         <p role="status">Checking your session…</p>
       } @else if (auth.status() === 'unavailable') {

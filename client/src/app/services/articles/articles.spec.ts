@@ -433,4 +433,68 @@ describe('ArticlesApi', () => {
     http.expectOne('/api/articles?page=1&pageSize=12').flush(articlePageFixture());
     await expect(result).resolves.toEqual(articlePageFixture());
   });
+
+  it('uploads binary image bytes with author-session protection and validates the returned version and target', async () => {
+    const original = articleFixture();
+    const file = new File(['image'], 'cover.png', { type: 'image/png' });
+    const cover = {
+      url: 'https://res.cloudinary.com/test/image/upload/v1/example.webp',
+      width: 800,
+      height: 400,
+    };
+    const saved = articleFixture({ version: '2', coverImage: cover });
+    const result = firstValueFrom(service.saveCover(original, file));
+    const request = http.expectOne('/api/articles/article-1/cover');
+    expect(request.request.body).toBe(file);
+    expect(request.request.withCredentials).toBe(true);
+    expect(request.request.headers.get('Content-Type')).toBe('image/png');
+    expect(request.request.headers.get('X-Hummingbird-Article-Id')).toBe('1');
+    expect(request.request.headers.get('X-Hummingbird-Article-Version')).toBe('1');
+    request.flush({ article: saved });
+    await expect(result).resolves.toEqual(saved);
+    for (const article of [
+      articleFixture({ version: '3', coverImage: cover }),
+      articleFixture({ id: 2, version: '2', coverImage: cover }),
+      articleFixture({ version: '2' }),
+      articleFixture({
+        version: '2',
+        coverImage: { ...cover, url: 'https://evil.example/image.webp' },
+      }),
+    ]) {
+      const result = firstValueFrom(service.saveCover(original, file));
+      const rejected = expect(result).rejects.toThrow();
+      http.expectOne('/api/articles/article-1/cover').flush({ article });
+      await rejected;
+    }
+  });
+  it('removes a cover without sending image bytes and preserves error statuses without retrying', async () => {
+    const result = firstValueFrom(service.removeCover(articleFixture()));
+    const request = http.expectOne('/api/articles/article-1/cover');
+    expect(request.request.method).toBe('DELETE');
+    request.flush({ article: articleFixture({ version: '2' }) });
+    await expect(result).resolves.toMatchObject({ version: '2', coverImage: null });
+    for (const status of [401, 403, 409, 429, 503]) {
+      const result = firstValueFrom(service.removeCover(articleFixture()));
+      const rejected = expect(result).rejects.toMatchObject({ status });
+      http
+        .expectOne('/api/articles/article-1/cover')
+        .flush(null, { status, statusText: 'Rejected' });
+      await rejected;
+      http.expectNone('/api/articles/article-1/cover');
+    }
+  });
+
+  it('never treats an invalid or missing upload file as cover removal', async () => {
+    for (const file of [
+      undefined,
+      new File([], 'empty.png', { type: 'image/png' }),
+      new File(['svg'], 'cover.svg', { type: 'image/svg+xml' }),
+      new File([new Uint8Array(5 * 1024 * 1024 + 1)], 'big.png', { type: 'image/png' }),
+    ]) {
+      await expect(
+        firstValueFrom(service.saveCover(articleFixture(), file as File)),
+      ).rejects.toThrow('Invalid image file');
+    }
+    http.expectNone((request) => request.url.includes('/cover'));
+  });
 });

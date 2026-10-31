@@ -113,6 +113,64 @@ export class ArticlesApi {
     });
   }
 
+  saveCover(article: ArticleDetail, file: File): Observable<ArticleDetail> {
+    return this.changeCover(article, 'PUT', file);
+  }
+
+  removeCover(article: ArticleDetail): Observable<ArticleDetail> {
+    return this.changeCover(article, 'DELETE');
+  }
+
+  private changeCover(
+    article: ArticleDetail,
+    method: 'PUT' | 'DELETE',
+    file?: File,
+  ): Observable<ArticleDetail> {
+    return defer(() => {
+      if (
+        !isArticleSlug(article.slug) ||
+        !isArticleVersion(article.version) ||
+        !Number.isInteger(article.id) ||
+        article.id < 1 ||
+        article.id > 2147483647
+      )
+        throw new Error('Invalid cover target.');
+      if (
+        method === 'PUT' &&
+        (!file ||
+          !['image/jpeg', 'image/png', 'image/webp'].includes(file.type) ||
+          file.size === 0 ||
+          file.size > 5 * 1024 * 1024)
+      )
+        throw new Error('Invalid image file.');
+      const headers: Record<string, string> = {
+        'X-Hummingbird-Request': '1',
+        'X-Hummingbird-Article-Id': String(article.id),
+        'X-Hummingbird-Article-Version': article.version,
+        ...(file ? { 'Content-Type': file.type } : {}),
+      };
+      return this.http
+        .request<unknown>(method, `/api/articles/${article.slug}/cover`, {
+          body: file,
+          headers,
+          withCredentials: true,
+        })
+        .pipe(
+          timeout(45_000),
+          map((response) => {
+            const saved = readArticleDetailResponse(response, article.slug);
+            if (
+              saved.id !== article.id ||
+              saved.version !== (BigInt(article.version) + 1n).toString() ||
+              (method === 'PUT' ? !saved.coverImage : saved.coverImage !== null)
+            )
+              throw new Error('Unexpected cover response.');
+            return saved;
+          }),
+        );
+    });
+  }
+
   detail(slug: string): Observable<ArticleDetail> {
     return defer(() => {
       if (!isArticleSlug(slug)) throw new Error('Invalid article slug.');
