@@ -1,0 +1,19 @@
+@mixin page {
+  padding-block: clamp(var(--space-6), 5vw, 3.5rem);
+}
+
+@mixin card {
+  max-width: 48rem;
+  margin-inline: auto;
+  padding: clamp(var(--space-5), 5vw, var(--space-10));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  box-shadow: var(--shadow-panel);
+  overflow-wrap: anywhere;
+  h1 {
+    margin: 0;
+    font-size: var(--font-size-heading);
+    line-height: 1.2;
+  }
+}

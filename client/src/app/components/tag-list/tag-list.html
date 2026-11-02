@@ -1,0 +1,7 @@
+@if (tags().length) {
+  <ul class="tags" aria-label="Tags">
+    @for (tag of tags(); track tag.id) {
+      <li>{{ tag.name }}</li>
+    }
+  </ul>
+}

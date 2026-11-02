@@ -1,5 +1,6 @@
+import { ArticleMetadata } from '../../components/article-metadata/article-metadata';
+import { TagList } from '../../components/tag-list/tag-list';
 import { Button } from '../../components/button/button';
-import { DatePipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import {
   ChangeDetectionStrategy,
@@ -33,7 +34,15 @@ type ArticleState =
 
 @Component({
   selector: 'app-article-detail',
-  imports: [Button, DatePipe, RouterLink, ArticleDelete, ArticleComments, ArticleCover],
+  imports: [
+    ArticleMetadata,
+    TagList,
+    Button,
+    RouterLink,
+    ArticleDelete,
+    ArticleComments,
+    ArticleCover,
+  ],
   templateUrl: './article-detail.html',
   styleUrl: './article-detail.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

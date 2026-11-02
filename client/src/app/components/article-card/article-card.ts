@@ -1,4 +1,5 @@
-import { DatePipe } from '@angular/common';
+import { ArticleMetadata } from '../article-metadata/article-metadata';
+import { TagList } from '../tag-list/tag-list';
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
@@ -7,7 +8,7 @@ import { ArticleFilters, ArticleSummary } from '../../models/article.model';
 
 @Component({
   selector: 'app-article-card',
-  imports: [DatePipe, RouterLink],
+  imports: [ArticleMetadata, TagList, RouterLink],
   templateUrl: './article-card.html',
   styleUrl: './article-card.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

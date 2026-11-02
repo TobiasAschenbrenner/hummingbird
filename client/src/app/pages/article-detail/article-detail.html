@@ -50,21 +50,8 @@
           <p class="category">{{ current.article.category.name }}</p>
           <h1>{{ current.article.title }}</h1>
           <p class="description">{{ current.article.description }}</p>
-          <p class="metadata">
-            {{ current.article.author.username }} ·
-            <time [dateTime]="current.article.createdAt">{{
-              current.article.createdAt | date: 'mediumDate' : 'UTC'
-            }}</time>
-            · {{ current.article.commentCount }}
-            {{ current.article.commentCount === 1 ? 'comment' : 'comments' }}
-          </p>
-          @if (current.article.tags.length) {
-            <ul class="tags" aria-label="Tags">
-              @for (tag of current.article.tags; track tag.id) {
-                <li>{{ tag.name }}</li>
-              }
-            </ul>
-          }
+          <app-article-metadata [article]="current.article" />
+          <app-tag-list [tags]="current.article.tags" />
         </header>
         <div class="article-body">{{ current.article.body }}</div>
       </article>

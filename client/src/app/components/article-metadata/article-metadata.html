@@ -1,0 +1,7 @@
+<p class="metadata">
+  {{ article().author.username }} ·
+  <time [dateTime]="article().createdAt">{{
+    article().createdAt | date: 'mediumDate' : 'UTC'
+  }}</time>
+  · {{ article().commentCount }} {{ article().commentCount === 1 ? 'comment' : 'comments' }}
+</p>
