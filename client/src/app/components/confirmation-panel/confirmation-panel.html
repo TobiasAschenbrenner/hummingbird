@@ -1,0 +1,33 @@
+<section
+  class="confirmation"
+  [id]="confirmationId()"
+  [attr.aria-labelledby]="confirmationId() + '-title'"
+>
+  @if (headingLevel() === 3) {
+    <h3 [id]="confirmationId() + '-title'">{{ title() }}</h3>
+  } @else {
+    <h2 [id]="confirmationId() + '-title'">{{ title() }}</h2>
+  }
+  <ng-content />
+  <div class="actions">
+    <button
+      appButton
+      variant="secondary"
+      #cancelButton
+      type="button"
+      [disabled]="pending()"
+      (click)="cancelled.emit()"
+    >
+      Cancel
+    </button>
+    <button
+      appButton
+      variant="danger"
+      type="button"
+      [disabled]="pending() || confirmDisabled()"
+      (click)="confirmed.emit()"
+    >
+      {{ pending() ? 'Deleting…' : confirmLabel() }}
+    </button>
+  </div>
+</section>

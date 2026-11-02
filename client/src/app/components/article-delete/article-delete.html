@@ -13,39 +13,21 @@
       Delete article
     </button>
     @if (opened()) {
-      <section
-        id="article-deletion-confirmation"
-        class="confirmation"
-        aria-labelledby="deletion-title"
+      <app-confirmation-panel
+        confirmationId="article-deletion-confirmation"
+        [title]="'Delete “' + article().title + '”?'"
+        confirmLabel="Permanently delete"
+        [pending]="pending()"
+        [confirmDisabled]="disabled()"
+        (confirmed)="confirm()"
+        (cancelled)="cancel()"
       >
-        <h2 id="deletion-title">Delete “{{ article().title }}”?</h2>
         <p>
           This permanently removes the article, its {{ article().commentCount }}
           {{ article().commentCount === 1 ? 'comment' : 'comments' }} and its tag links. Shared
           categories and tags remain. This cannot be undone.
         </p>
-        <div class="actions">
-          <button
-            appButton
-            variant="secondary"
-            #cancelButton
-            type="button"
-            [disabled]="pending()"
-            (click)="cancel()"
-          >
-            Cancel
-          </button>
-          <button
-            appButton
-            variant="danger"
-            type="button"
-            [disabled]="disabled()"
-            (click)="confirm()"
-          >
-            {{ pending() ? 'Deleting…' : 'Permanently delete' }}
-          </button>
-        </div>
-      </section>
+      </app-confirmation-panel>
     }
     @if (message()) {
       <p role="alert">{{ message() }}</p>

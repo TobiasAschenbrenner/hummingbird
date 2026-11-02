@@ -13,38 +13,22 @@
       Delete comment
     </button>
     @if (opened()) {
-      <section
-        [id]="confirmationId()"
-        class="confirmation"
-        [attr.aria-labelledby]="confirmationId() + '-title'"
+      <app-confirmation-panel
+        [confirmationId]="confirmationId()"
+        title="Delete your comment?"
+        confirmLabel="Permanently delete comment"
+        [headingLevel]="3"
+        [compact]="true"
+        [pending]="pending()"
+        [confirmDisabled]="disabled()"
+        (confirmed)="confirm()"
+        (cancelled)="cancel()"
       >
-        <h3 [id]="confirmationId() + '-title'">Delete your comment?</h3>
         <p>
           This permanently removes this comment. The article and other comments remain. This cannot
           be undone.
         </p>
-        <div class="actions">
-          <button
-            appButton
-            variant="secondary"
-            #cancelButton
-            type="button"
-            [disabled]="pending()"
-            (click)="cancel()"
-          >
-            Cancel
-          </button>
-          <button
-            appButton
-            variant="danger"
-            type="button"
-            [disabled]="disabled()"
-            (click)="confirm()"
-          >
-            {{ pending() ? 'Deleting…' : 'Permanently delete comment' }}
-          </button>
-        </div>
-      </section>
+      </app-confirmation-panel>
     }
     @if (message()) {
       <p role="alert">{{ message() }}</p>

@@ -1,3 +1,4 @@
+import { ConfirmationPanel } from '../confirmation-panel/confirmation-panel';
 import { Button } from '../button/button';
 import {
   afterNextRender,
@@ -25,7 +26,7 @@ import { readCommentDeletionError } from '../../services/comments/comment-error'
 
 @Component({
   selector: 'app-comment-delete',
-  imports: [Button, RouterLink],
+  imports: [ConfirmationPanel, Button, RouterLink],
   templateUrl: './comment-delete.html',
   styleUrl: './comment-delete.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -44,12 +45,6 @@ export class CommentDelete {
   private readonly trigger = viewChild<unknown, ElementRef<HTMLButtonElement>>('trigger', {
     read: ElementRef,
   });
-  private readonly cancelButton = viewChild<unknown, ElementRef<HTMLButtonElement>>(
-    'cancelButton',
-    {
-      read: ElementRef,
-    },
-  );
   private readonly reloadButton = viewChild<unknown, ElementRef<HTMLElement>>('reloadButton', {
     read: ElementRef,
   });
@@ -96,7 +91,6 @@ export class CommentDelete {
     if (this.disabled() || this.opened()) return;
     this.opened.set(true);
     this.message.set('');
-    afterNextRender(() => this.cancelButton()?.nativeElement.focus(), { injector: this.injector });
   }
   protected cancel(): void {
     if (this.pending()) return;

@@ -1,0 +1,28 @@
+:host {
+  display: block;
+}
+.confirmation {
+  margin-top: var(--space-4);
+  padding: var(--space-5);
+  border: 1px solid var(--danger-border);
+  background: var(--danger-soft);
+  border-radius: var(--radius-control);
+}
+:host(.compact) .confirmation {
+  padding: var(--space-4);
+}
+h2,
+h3 {
+  margin-top: 0;
+}
+h2 {
+  font-size: 1.3rem;
+}
+h3 {
+  font-size: 1.1rem;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}

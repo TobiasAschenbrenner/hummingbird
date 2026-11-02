@@ -1,3 +1,4 @@
+import { ConfirmationPanel } from '../confirmation-panel/confirmation-panel';
 import { Button } from '../button/button';
 import {
   ChangeDetectionStrategy,
@@ -26,7 +27,7 @@ import { Auth } from '../../services/auth/auth';
 
 @Component({
   selector: 'app-article-delete',
-  imports: [Button, RouterLink],
+  imports: [ConfirmationPanel, Button, RouterLink],
   templateUrl: './article-delete.html',
   styleUrl: './article-delete.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -43,12 +44,7 @@ export class ArticleDelete {
   private readonly trigger = viewChild<unknown, ElementRef<HTMLButtonElement>>('trigger', {
     read: ElementRef,
   });
-  private readonly cancelButton = viewChild<unknown, ElementRef<HTMLButtonElement>>(
-    'cancelButton',
-    {
-      read: ElementRef,
-    },
-  );
+
   private readonly reloadButton = viewChild<unknown, ElementRef<HTMLButtonElement>>(
     'reloadButton',
     {
@@ -93,7 +89,6 @@ export class ArticleDelete {
     if (this.disabled() || this.opened()) return;
     this.opened.set(true);
     this.message.set('');
-    afterNextRender(() => this.cancelButton()?.nativeElement.focus(), { injector: this.injector });
   }
 
   protected cancel(): void {
