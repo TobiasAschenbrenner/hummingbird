@@ -34,19 +34,13 @@
       <p role="alert">{{ message() }}</p>
     }
     @if (opened() && !ownsComment()) {
-      <p>
-        Sign in as the comment’s author to delete it.
-        <a routerLink="/login" target="_blank" rel="noopener">Log in in a new tab</a>
-      </p>
-      <button
-        appButton
+      <app-session-notice
+        [blocked]="pending()"
         variant="secondary"
-        type="button"
-        [disabled]="pending() || auth.pending() || auth.status() === 'checking'"
-        (click)="checkSession()"
+        (checkRequested)="checkSession()"
       >
-        Check session
-      </button>
+        <p>Sign in as the comment’s author to delete it.</p>
+      </app-session-notice>
     }
     @if (articleChanged()) {
       <p>Copy your draft before reloading the article.</p>

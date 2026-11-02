@@ -1,3 +1,5 @@
+import { SessionNotice } from '../session-notice/session-notice';
+import { createSessionCheck } from '../../services/auth/session-check';
 import { ConfirmationPanel } from '../confirmation-panel/confirmation-panel';
 import { Button } from '../button/button';
 import {
@@ -17,7 +19,6 @@ import {
   Injector,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { RouterLink } from '@angular/router';
 import { finalize, Subject, takeUntil } from 'rxjs';
 
 import { ArticleDetail } from '../../models/article.model';
@@ -27,7 +28,7 @@ import { Auth } from '../../services/auth/auth';
 
 @Component({
   selector: 'app-article-delete',
-  imports: [ConfirmationPanel, Button, RouterLink],
+  imports: [SessionNotice, ConfirmationPanel, Button],
   templateUrl: './article-delete.html',
   styleUrl: './article-delete.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -39,6 +40,9 @@ export class ArticleDelete {
   protected readonly auth = inject(Auth);
   private readonly api = inject(ArticlesApi);
   private readonly destroyRef = inject(DestroyRef);
+  protected readonly checkSession = createSessionCheck(this.auth, this.destroyRef, () =>
+    this.pending(),
+  );
   private readonly injector = inject(Injector);
   private readonly cancelRequests = new Subject<void>();
   private readonly trigger = viewChild<unknown, ElementRef<HTMLButtonElement>>('trigger', {
@@ -141,10 +145,5 @@ export class ArticleDelete {
   protected reloadArticle(): void {
     if (this.pending()) return;
     this.reload.emit();
-  }
-
-  protected checkSession(): void {
-    if (this.pending() || this.auth.pending() || this.auth.status() === 'checking') return;
-    this.auth.restoreSession().pipe(takeUntilDestroyed(this.destroyRef)).subscribe();
   }
 }

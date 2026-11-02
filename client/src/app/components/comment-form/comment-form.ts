@@ -1,3 +1,5 @@
+import { SessionNotice } from '../session-notice/session-notice';
+import { createSessionCheck } from '../../services/auth/session-check';
 import { Button } from '../button/button';
 import {
   ChangeDetectionStrategy,
@@ -13,7 +15,6 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { FormControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
 import { finalize, startWith, Subject, takeUntil } from 'rxjs';
 import { CommentCreationInput, PublicComment } from '../../models/comment.model';
 import { Auth } from '../../services/auth/auth';
@@ -23,7 +24,7 @@ import { commentBodyValidator } from '../../validators/comment.validator';
 
 @Component({
   selector: 'app-comment-form',
-  imports: [Button, ReactiveFormsModule, RouterLink],
+  imports: [SessionNotice, Button, ReactiveFormsModule],
   templateUrl: './comment-form.html',
   styleUrl: './comment-form.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -36,6 +37,9 @@ export class CommentForm {
   protected readonly auth = inject(Auth);
   private readonly api = inject(CommentsApi);
   private readonly destroyRef = inject(DestroyRef);
+  protected readonly checkSession = createSessionCheck(this.auth, this.destroyRef, () =>
+    this.pending(),
+  );
   private readonly cancelRequests = new Subject<void>();
   protected readonly body = new FormControl('', {
     nonNullable: true,
@@ -138,9 +142,5 @@ export class CommentForm {
           if (result.sessionExpired) this.auth.expireSession();
         },
       });
-  }
-  protected checkSession(): void {
-    if (this.pending() || this.auth.pending() || this.auth.status() === 'checking') return;
-    this.auth.restoreSession().pipe(takeUntilDestroyed(this.destroyRef)).subscribe();
   }
 }

@@ -7,11 +7,9 @@
       file.
     </p>
     @if (!owner()) {
-      <p>Sign in as this article’s author to change its cover.</p>
-      <a routerLink="/login" target="_blank" rel="noopener">Log in in a new tab</a>
-      <button appButton type="button" [disabled]="auth.pending()" (click)="checkSession()">
-        Check session
-      </button>
+      <app-session-notice [blocked]="pending()" (checkRequested)="checkSession()">
+        <p>Sign in as this article’s author to change its cover.</p>
+      </app-session-notice>
     }
     <form (submit)="upload($event)">
       <label for="cover-file">Select cover image</label>

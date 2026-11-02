@@ -15,21 +15,26 @@
       @if (auth.status() === 'checking') {
         <p role="status">Checking your session…</p>
       } @else if (auth.status() === 'unavailable') {
-        <p role="alert">
-          We couldn’t check your session. Your draft stays here while this page is open.
-        </p>
-        <button appButton type="button" [disabled]="auth.pending()" (click)="retrySession()">
-          Check session
-        </button>
+        <app-session-notice
+          [blocked]="pending()"
+          [showLogin]="false"
+          (checkRequested)="checkSession()"
+        >
+          <p role="alert">
+            We couldn’t check your session. Your draft stays here while this page is open.
+          </p>
+        </app-session-notice>
       } @else if (auth.status() === 'anonymous') {
         @if (editorOpened()) {
-          <div class="session-notice" role="alert">
-            <p>Sign in again to publish. Your draft stays here while this page is open.</p>
-            <a routerLink="/login" target="_blank" rel="noopener">Log in in a new tab</a>
-            <button appButton type="button" [disabled]="auth.pending()" (click)="retrySession()">
-              Check session
-            </button>
-          </div>
+          <app-session-notice
+            [blocked]="pending()"
+            class="session-notice"
+            (checkRequested)="checkSession()"
+          >
+            <p role="alert">
+              Sign in again to publish. Your draft stays here while this page is open.
+            </p>
+          </app-session-notice>
         } @else {
           <p>Log in to write an article.</p>
           <a appButton routerLink="/login">Log in</a>

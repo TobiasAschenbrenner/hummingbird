@@ -1,3 +1,5 @@
+import { SessionNotice } from '../session-notice/session-notice';
+import { createSessionCheck } from '../../services/auth/session-check';
 import { ConfirmationPanel } from '../confirmation-panel/confirmation-panel';
 import { Button } from '../button/button';
 import {
@@ -17,7 +19,6 @@ import {
   viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { RouterLink } from '@angular/router';
 import { finalize, Subject, takeUntil } from 'rxjs';
 import { PublicComment } from '../../models/comment.model';
 import { Auth } from '../../services/auth/auth';
@@ -26,7 +27,7 @@ import { readCommentDeletionError } from '../../services/comments/comment-error'
 
 @Component({
   selector: 'app-comment-delete',
-  imports: [ConfirmationPanel, Button, RouterLink],
+  imports: [SessionNotice, ConfirmationPanel, Button],
   templateUrl: './comment-delete.html',
   styleUrl: './comment-delete.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -40,6 +41,9 @@ export class CommentDelete {
   protected readonly auth = inject(Auth);
   private readonly api = inject(CommentsApi);
   private readonly destroyRef = inject(DestroyRef);
+  protected readonly checkSession = createSessionCheck(this.auth, this.destroyRef, () =>
+    this.pending(),
+  );
   private readonly injector = inject(Injector);
   private readonly cancelRequests = new Subject<void>();
   private readonly trigger = viewChild<unknown, ElementRef<HTMLButtonElement>>('trigger', {
@@ -134,9 +138,5 @@ export class CommentDelete {
   }
   protected reloadComments(): void {
     if (!this.pending()) this.reload.emit();
-  }
-  protected checkSession(): void {
-    if (this.pending() || this.auth.pending() || this.auth.status() === 'checking') return;
-    this.auth.restoreSession().pipe(takeUntilDestroyed(this.destroyRef)).subscribe();
   }
 }

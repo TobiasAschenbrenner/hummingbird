@@ -1,3 +1,5 @@
+import { SessionNotice } from '../../components/session-notice/session-notice';
+import { createSessionCheck } from '../../services/auth/session-check';
 import { Button } from '../../components/button/button';
 import {
   ChangeDetectionStrategy,
@@ -42,7 +44,7 @@ type EditState =
 
 @Component({
   selector: 'app-article-edit',
-  imports: [Button, ReactiveFormsModule, RouterLink, ArticleFields],
+  imports: [SessionNotice, Button, ReactiveFormsModule, RouterLink, ArticleFields],
   templateUrl: './article-edit.html',
   styleUrl: './article-edit.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -54,6 +56,9 @@ export class ArticleEdit implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
+  protected readonly checkSession = createSessionCheck(this.auth, this.destroyRef, () =>
+    this.pending(),
+  );
   private readonly retry = new Subject<void>();
   private readonly cancelRequests = new Subject<void>();
   protected readonly state = signal<EditState>({ status: 'loading' });
@@ -170,10 +175,7 @@ export class ArticleEdit implements OnInit {
   protected tryAgain(): void {
     if (this.state().status === 'error') this.retry.next();
   }
-  protected retrySession(): void {
-    if (this.pending() || this.auth.pending() || this.auth.status() === 'checking') return;
-    this.auth.restoreSession().pipe(takeUntilDestroyed(this.destroyRef)).subscribe();
-  }
+
   protected loadOptions(): void {
     if (this.editorDisabled() || this.optionStatus() === 'loading') return;
     this.optionStatus.set('loading');

@@ -1,0 +1,15 @@
+<ng-content />
+<div class="actions">
+  @if (showLogin()) {
+    <a routerLink="/login" target="_blank" rel="noopener">Log in in a new tab</a>
+  }
+  <button
+    appButton
+    [variant]="variant()"
+    type="button"
+    [disabled]="disabled()"
+    (click)="checkRequested.emit()"
+  >
+    Check session
+  </button>
+</div>

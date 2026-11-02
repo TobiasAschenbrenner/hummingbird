@@ -1,3 +1,5 @@
+import { SessionNotice } from '../../components/session-notice/session-notice';
+import { createSessionCheck } from '../../services/auth/session-check';
 import { Button } from '../../components/button/button';
 import {
   ChangeDetectionStrategy,
@@ -26,7 +28,7 @@ import { slugFromTitle } from '../../validators/article.validator';
 
 @Component({
   selector: 'app-article-create',
-  imports: [Button, ReactiveFormsModule, RouterLink, ArticleFields],
+  imports: [SessionNotice, Button, ReactiveFormsModule, RouterLink, ArticleFields],
   templateUrl: './article-create.html',
   styleUrl: './article-create.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -37,6 +39,9 @@ export class ArticleCreate {
   private readonly catalogs = inject(CatalogsApi);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
+  protected readonly checkSession = createSessionCheck(this.auth, this.destroyRef, () =>
+    this.pending(),
+  );
   protected readonly options = signal<ArticleOptions>({ categories: [], tags: [] });
   protected readonly optionStatus = signal<'idle' | 'loading' | 'ready' | 'error'>('idle');
   protected readonly editorOpened = signal(false);
@@ -84,11 +89,6 @@ export class ArticleCreate {
         },
         error: () => this.optionStatus.set('error'),
       });
-  }
-
-  protected retrySession(): void {
-    if (this.pending() || this.auth.pending() || this.auth.status() === 'checking') return;
-    this.auth.restoreSession().pipe(takeUntilDestroyed(this.destroyRef)).subscribe();
   }
 
   protected submit(): void {

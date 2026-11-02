@@ -22,22 +22,23 @@
         <p role="status">Checking your session…</p>
       } @else if (auth.status() === 'anonymous') {
         @if (editorOpened()) {
-          <p role="alert">Sign in again to save. Your draft stays here while this page is open.</p>
-          <div class="actions">
-            <a routerLink="/login" target="_blank" rel="noopener">Log in in a new tab</a>
-            <button appButton type="button" [disabled]="auth.pending()" (click)="retrySession()">
-              Check session
-            </button>
-          </div>
+          <app-session-notice [blocked]="pending()" (checkRequested)="checkSession()">
+            <p role="alert">
+              Sign in again to save. Your draft stays here while this page is open.
+            </p>
+          </app-session-notice>
         } @else {
           <p>Log in as the author to edit this article.</p>
           <a appButton routerLink="/login">Log in</a>
         }
       } @else if (auth.status() === 'unavailable') {
-        <p role="alert">We couldn’t check your session. Your open draft stays here.</p>
-        <button appButton type="button" [disabled]="auth.pending()" (click)="retrySession()">
-          Check session
-        </button>
+        <app-session-notice
+          [blocked]="pending()"
+          [showLogin]="false"
+          (checkRequested)="checkSession()"
+        >
+          <p role="alert">We couldn’t check your session. Your open draft stays here.</p>
+        </app-session-notice>
       } @else if (!ownsArticle()) {
         <p role="alert">Only the author can edit this article.</p>
       }

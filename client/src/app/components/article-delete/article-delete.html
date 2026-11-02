@@ -33,19 +33,13 @@
       <p role="alert">{{ message() }}</p>
     }
     @if (opened() && !ownsArticle()) {
-      <p>
-        Sign in as the article’s author to delete it.
-        <a routerLink="/login" target="_blank" rel="noopener">Log in in a new tab</a>
-      </p>
-      <button
-        appButton
+      <app-session-notice
+        [blocked]="pending()"
         variant="secondary"
-        type="button"
-        [disabled]="pending() || auth.pending() || auth.status() === 'checking'"
-        (click)="checkSession()"
+        (checkRequested)="checkSession()"
       >
-        Check session
-      </button>
+        <p>Sign in as the article’s author to delete it.</p>
+      </app-session-notice>
     }
     @if (needsReview() || forbidden()) {
       <p>Reloading reads the article again. It does not delete anything.</p>

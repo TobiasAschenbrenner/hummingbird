@@ -1,3 +1,4 @@
+import { createSessionCheck } from '../../services/auth/session-check';
 import { Button } from '../button/button';
 import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -18,13 +19,11 @@ export class SiteHeader {
   protected readonly auth = inject(Auth);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
+  protected readonly checkSession = createSessionCheck(this.auth, this.destroyRef, () =>
+    this.pending(),
+  );
   protected readonly pending = signal(false);
   protected readonly errorMessage = signal('');
-
-  protected retrySession(): void {
-    if (this.auth.pending() || this.auth.status() === 'checking') return;
-    this.auth.restoreSession().pipe(takeUntilDestroyed(this.destroyRef)).subscribe();
-  }
 
   protected logout(): void {
     if (this.pending() || this.auth.pending() || this.auth.status() === 'checking') return;

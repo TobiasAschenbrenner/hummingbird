@@ -54,20 +54,17 @@
   }
 }
 @if (auth.status() !== 'authenticated') {
-  <p>
-    @if (auth.status() === 'checking') {
-      Checking your session…
-    } @else {
-      Sign in to join the discussion.
-      <a routerLink="/login" target="_blank" rel="noopener">Log in in a new tab</a>
-    }
-  </p>
-  <button
-    appButton
-    type="button"
-    [disabled]="pending() || auth.pending() || auth.status() === 'checking'"
-    (click)="checkSession()"
+  <app-session-notice
+    [blocked]="pending()"
+    [showLogin]="auth.status() !== 'checking'"
+    (checkRequested)="checkSession()"
   >
-    Check session
-  </button>
+    <p>
+      @if (auth.status() === 'checking') {
+        Checking your session…
+      } @else {
+        Sign in to join the discussion.
+      }
+    </p>
+  </app-session-notice>
 }

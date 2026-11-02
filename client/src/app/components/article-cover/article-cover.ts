@@ -1,3 +1,5 @@
+import { SessionNotice } from '../session-notice/session-notice';
+import { createSessionCheck } from '../../services/auth/session-check';
 import { Button } from '../button/button';
 import { HttpErrorResponse } from '@angular/common/http';
 import {
@@ -16,7 +18,6 @@ import {
   signal,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { RouterLink } from '@angular/router';
 import { Subject, finalize, takeUntil } from 'rxjs';
 import { ArticleDetail } from '../../models/article.model';
 import { ArticlesApi } from '../../services/articles/articles';
@@ -24,7 +25,7 @@ import { Auth } from '../../services/auth/auth';
 
 @Component({
   selector: 'app-article-cover',
-  imports: [Button, RouterLink],
+  imports: [SessionNotice, Button],
   templateUrl: './article-cover.html',
   styleUrl: './article-cover.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -35,6 +36,9 @@ export class ArticleCover {
   protected readonly auth = inject(Auth);
   private readonly api = inject(ArticlesApi);
   private readonly destroyRef = inject(DestroyRef);
+  protected readonly checkSession = createSessionCheck(this.auth, this.destroyRef, () =>
+    this.pending(),
+  );
   private readonly cancel = new Subject<void>();
   private context = '';
   private readonly injector = inject(Injector);
@@ -212,9 +216,5 @@ export class ArticleCover {
         },
         error: () => this.message.set('We couldn’t reload the article. Please try again.'),
       });
-  }
-  protected checkSession(): void {
-    if (!this.pending() && !this.auth.pending())
-      this.auth.restoreSession().pipe(takeUntilDestroyed(this.destroyRef)).subscribe();
   }
 }
