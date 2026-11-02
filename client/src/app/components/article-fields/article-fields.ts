@@ -16,6 +16,15 @@ import { ArticleField, ArticleFieldErrors } from '../../models/article.model';
 import { ArticleOptions } from '../../models/catalog.model';
 import { ArticleForm } from '../../validators/article-form.validator';
 
+const ARTICLE_FIELD_MESSAGES: Record<ArticleField, string> = {
+  title: 'Use 1–55 characters without control characters.',
+  slug: 'Use 1–80 lowercase letters, digits and single hyphens.',
+  description: 'Use 1–250 characters without control characters.',
+  body: 'Use 1–20,000 characters. Tabs and line breaks are allowed.',
+  categoryId: 'Select an existing category.',
+  tagIds: 'Select up to 10 distinct existing tags.',
+};
+
 @Component({
   selector: 'app-article-fields',
   imports: [Button, ReactiveFormsModule],
@@ -75,16 +84,10 @@ export class ArticleFields implements OnInit {
 
   protected fieldError(field: ArticleField): string {
     const control = this.form().controls[field];
-    const messages: Record<ArticleField, string> = {
-      title: 'Use 1–55 characters without control characters.',
-      slug: 'Use 1–80 lowercase letters, digits and single hyphens.',
-      description: 'Use 1–250 characters without control characters.',
-      body: 'Use 1–20,000 characters. Tabs and line breaks are allowed.',
-      categoryId: 'Select an existing category.',
-      tagIds: 'Select up to 10 distinct existing tags.',
-    };
+
     return (
-      this.serverFields()[field] ?? (control.touched && control.invalid ? messages[field] : '')
+      this.serverFields()[field] ??
+      (control.touched && control.invalid ? ARTICLE_FIELD_MESSAGES[field] : '')
     );
   }
 }

@@ -51,6 +51,10 @@ export class Home implements OnInit {
   protected readonly navigationMessage = signal('');
 
   ngOnInit(): void {
+    this.watchListQuery();
+  }
+
+  private watchListQuery(): void {
     const queries = this.route.queryParamMap.pipe(
       map(readArticleListQuery),
       tap((query) => {

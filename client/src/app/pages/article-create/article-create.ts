@@ -1,4 +1,4 @@
-import { LoadStatus } from '../../models/load-status.model';
+import { createArticleOptionsLoader } from '../../services/catalogs/article-options-loader';
 import { SessionNotice } from '../../components/session-notice/session-notice';
 import { createSessionCheck } from '../../services/auth/session-check';
 import { Button } from '../../components/button/button';
@@ -18,12 +18,14 @@ import { Router, RouterLink } from '@angular/router';
 import { finalize } from 'rxjs';
 
 import { ArticleDetail, ArticleFieldErrors } from '../../models/article.model';
-import { ArticleOptions } from '../../models/catalog.model';
 import { ArticlesApi } from '../../services/articles/articles';
 import { readPublicationError } from '../../services/articles/article-error';
 import { Auth } from '../../services/auth/auth';
 import { CatalogsApi } from '../../services/catalogs/catalogs';
-import { createArticleForm } from '../../validators/article-form.validator';
+import {
+  createArticleForm,
+  revalidateArticleOptions,
+} from '../../validators/article-form.validator';
 import { ArticleFields } from '../../components/article-fields/article-fields';
 import { slugFromTitle } from '../../validators/article.validator';
 
@@ -37,14 +39,18 @@ import { slugFromTitle } from '../../validators/article.validator';
 export class ArticleCreate {
   protected readonly auth = inject(Auth);
   private readonly articles = inject(ArticlesApi);
-  private readonly catalogs = inject(CatalogsApi);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
   protected readonly checkSession = createSessionCheck(this.auth, this.destroyRef, () =>
     this.pending(),
   );
-  protected readonly options = signal<ArticleOptions>({ categories: [], tags: [] });
-  protected readonly optionStatus = signal<LoadStatus>('idle');
+  private readonly optionsLoader = createArticleOptionsLoader(
+    inject(CatalogsApi),
+    this.destroyRef,
+    () => revalidateArticleOptions(this.form),
+  );
+  protected readonly options = this.optionsLoader.options;
+  protected readonly optionStatus = this.optionsLoader.status;
   protected readonly editorOpened = signal(false);
   protected readonly pending = signal(false);
   protected readonly message = signal('');
@@ -76,20 +82,7 @@ export class ArticleCreate {
   }
 
   protected loadOptions(): void {
-    if (this.optionStatus() === 'loading' || this.editorDisabled()) return;
-    this.optionStatus.set('loading');
-    this.catalogs
-      .articleOptions()
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (options) => {
-          this.options.set(options);
-          this.form.controls.categoryId.updateValueAndValidity();
-          this.form.controls.tagIds.updateValueAndValidity();
-          this.optionStatus.set('ready');
-        },
-        error: () => this.optionStatus.set('error'),
-      });
+    if (!this.editorDisabled()) this.optionsLoader.load();
   }
 
   protected submit(): void {

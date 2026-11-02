@@ -1,14 +1,19 @@
 import { Button } from '../../components/button/button';
 import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { FormBuilder, ReactiveFormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { finalize } from 'rxjs';
 
 import { AuthField, AuthFieldErrors } from '../../models/auth.model';
 import { Auth } from '../../services/auth/auth';
 import { readAuthError } from '../../services/auth/auth-error';
-import { characterLength, nonBlank, noControlCharacters } from '../../validators/auth.validator';
+import {
+  emailValidators,
+  characterLength,
+  nonBlank,
+  noControlCharacters,
+} from '../../validators/auth.validator';
 
 @Component({
   selector: 'app-register',
@@ -23,15 +28,7 @@ export class Register {
   private readonly destroyRef = inject(DestroyRef);
   protected readonly form = inject(FormBuilder).nonNullable.group({
     username: ['', [nonBlank, characterLength(1, 80), noControlCharacters]],
-    email: [
-      '',
-      [
-        Validators.required,
-        Validators.email,
-        Validators.maxLength(120),
-        Validators.pattern(/^[\x21-\x7E]+$/),
-      ],
-    ],
+    email: ['', emailValidators()],
     password: ['', [nonBlank, characterLength(15, 128)]],
   });
   protected readonly pending = signal(false);

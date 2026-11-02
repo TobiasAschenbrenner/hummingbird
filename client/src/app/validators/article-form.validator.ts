@@ -57,3 +57,8 @@ export function createArticleForm(builder: FormBuilder, options: () => ArticleOp
   });
 }
 export type ArticleForm = ReturnType<typeof createArticleForm>;
+
+export function revalidateArticleOptions(form: ArticleForm): void {
+  form.controls.categoryId.updateValueAndValidity();
+  form.controls.tagIds.updateValueAndValidity();
+}

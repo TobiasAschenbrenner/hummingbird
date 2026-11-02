@@ -1,14 +1,14 @@
 import { Button } from '../../components/button/button';
 import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { FormBuilder, ReactiveFormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { finalize } from 'rxjs';
 
 import { AuthField, AuthFieldErrors } from '../../models/auth.model';
 import { Auth } from '../../services/auth/auth';
 import { readAuthError } from '../../services/auth/auth-error';
-import { characterLength, nonBlank } from '../../validators/auth.validator';
+import { emailValidators, characterLength, nonBlank } from '../../validators/auth.validator';
 
 @Component({
   selector: 'app-login',
@@ -22,15 +22,7 @@ export class Login {
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
   protected readonly form = inject(FormBuilder).nonNullable.group({
-    email: [
-      '',
-      [
-        Validators.required,
-        Validators.email,
-        Validators.maxLength(120),
-        Validators.pattern(/^[\x21-\x7E]+$/),
-      ],
-    ],
+    email: ['', emailValidators()],
     password: ['', [nonBlank, characterLength(1, 128)]],
   });
   protected readonly pending = signal(false);

@@ -64,6 +64,10 @@ export class ArticleDetail implements OnInit {
   protected readonly listQuery = computed(() => articleListParams(this.listContext()));
 
   ngOnInit(): void {
+    this.watchArticleRoute();
+  }
+
+  private watchArticleRoute(): void {
     combineLatest([this.route.paramMap, this.retry.pipe(startWith(undefined))])
       .pipe(
         switchMap(([params]) => {

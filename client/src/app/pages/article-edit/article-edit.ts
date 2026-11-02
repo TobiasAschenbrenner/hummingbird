@@ -1,3 +1,4 @@
+import { createArticleOptionsLoader } from '../../services/catalogs/article-options-loader';
 import { LoadStatus } from '../../models/load-status.model';
 import { ArticleVersionReview } from '../../components/article-version-review/article-version-review';
 import { SessionNotice } from '../../components/session-notice/session-notice';
@@ -19,6 +20,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { FormBuilder, ReactiveFormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import {
+  Observable,
   catchError,
   combineLatest,
   finalize,
@@ -32,12 +34,14 @@ import {
 } from 'rxjs';
 import { ArticleFields } from '../../components/article-fields/article-fields';
 import { ArticleDetail, ArticleFieldErrors, MAX_ARTICLE_VERSION } from '../../models/article.model';
-import { ArticleOptions } from '../../models/catalog.model';
 import { ArticlesApi } from '../../services/articles/articles';
 import { readArticleUpdateError } from '../../services/articles/article-error';
 import { Auth } from '../../services/auth/auth';
 import { CatalogsApi } from '../../services/catalogs/catalogs';
-import { createArticleForm } from '../../validators/article-form.validator';
+import {
+  createArticleForm,
+  revalidateArticleOptions,
+} from '../../validators/article-form.validator';
 import { articleListParams, readArticleListQuery } from '../../validators/article-list.validator';
 import { isArticleSlug } from '../../validators/article.validator';
 
@@ -61,7 +65,6 @@ type EditState =
 export class ArticleEdit implements OnInit {
   protected readonly auth = inject(Auth);
   private readonly api = inject(ArticlesApi);
-  private readonly catalogs = inject(CatalogsApi);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
@@ -75,8 +78,13 @@ export class ArticleEdit implements OnInit {
     const state = this.state();
     return state.status === 'ready' ? state.article : null;
   });
-  protected readonly options = signal<ArticleOptions>({ categories: [], tags: [] });
-  protected readonly optionStatus = signal<LoadStatus>('idle');
+  private readonly optionsLoader = createArticleOptionsLoader(
+    inject(CatalogsApi),
+    this.destroyRef,
+    () => revalidateArticleOptions(this.form),
+  );
+  protected readonly options = this.optionsLoader.options;
+  protected readonly optionStatus = this.optionsLoader.status;
   protected readonly form = createArticleForm(inject(FormBuilder), () => this.options());
   protected readonly serverFields = signal<ArticleFieldErrors>({});
   protected readonly editorOpened = signal(false);
@@ -130,42 +138,47 @@ export class ArticleEdit implements OnInit {
   }
 
   ngOnInit(): void {
+    this.watchArticleRoute();
+  }
+
+  private watchArticleRoute(): void {
     combineLatest([this.route.paramMap, this.retry.pipe(startWith(undefined))])
       .pipe(
-        tap(() => {
-          this.cancelRequests.next();
-          this.editorOpened.set(false);
-          this.message.set('');
-          this.needsReview.set(false);
-          this.latest.set(null);
-          this.latestStatus.set('idle');
-          this.forbidden.set(false);
-          this.removed.set(false);
-          this.saved.set(null);
-          this.serverFields.set({});
-        }),
-        switchMap(([params]) => {
-          const slug = params.get('slug');
-          if (!isArticleSlug(slug)) return of<EditState>({ status: 'not-found' });
-          return this.api.detail(slug).pipe(
-            map((article): EditState => ({ status: 'ready', article })),
-            startWith<EditState>({ status: 'loading' }),
-            catchError((error: unknown) =>
-              of<EditState>({
-                status:
-                  error instanceof HttpErrorResponse && error.status === 404
-                    ? 'not-found'
-                    : 'error',
-              }),
-            ),
-          );
-        }),
+        tap(() => this.resetEditorState()),
+        switchMap(([params]) => this.readArticle(params.get('slug'))),
         takeUntilDestroyed(this.destroyRef),
       )
       .subscribe((state) => {
         this.state.set(state);
         if (state.status === 'ready') this.resetForm(state.article);
       });
+  }
+
+  private resetEditorState(): void {
+    this.cancelRequests.next();
+    this.editorOpened.set(false);
+    this.message.set('');
+    this.needsReview.set(false);
+    this.latest.set(null);
+    this.latestStatus.set('idle');
+    this.forbidden.set(false);
+    this.removed.set(false);
+    this.saved.set(null);
+    this.serverFields.set({});
+  }
+
+  private readArticle(slug: string | null): Observable<EditState> {
+    if (!isArticleSlug(slug)) return of<EditState>({ status: 'not-found' });
+    return this.api.detail(slug).pipe(
+      map((article): EditState => ({ status: 'ready', article })),
+      startWith<EditState>({ status: 'loading' }),
+      catchError((error: unknown) =>
+        of<EditState>({
+          status:
+            error instanceof HttpErrorResponse && error.status === 404 ? 'not-found' : 'error',
+        }),
+      ),
+    );
   }
 
   private resetForm(article: ArticleDetail): void {
@@ -184,20 +197,7 @@ export class ArticleEdit implements OnInit {
   }
 
   protected loadOptions(): void {
-    if (this.editorDisabled() || this.optionStatus() === 'loading') return;
-    this.optionStatus.set('loading');
-    this.catalogs
-      .articleOptions()
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (options) => {
-          this.options.set(options);
-          this.form.controls.categoryId.updateValueAndValidity();
-          this.form.controls.tagIds.updateValueAndValidity();
-          this.optionStatus.set('ready');
-        },
-        error: () => this.optionStatus.set('error'),
-      });
+    if (!this.editorDisabled()) this.optionsLoader.load();
   }
 
   protected submit(): void {
