@@ -1,9 +1,10 @@
 @if (!finished() && (ownsComment() || opened() || needsReview())) {
   <div class="deletion" [attr.aria-busy]="pending()">
     <button
+      appButton
+      variant="danger"
       #trigger
       type="button"
-      class="button danger"
       [disabled]="disabled() || opened()"
       [attr.aria-expanded]="opened()"
       [attr.aria-controls]="confirmationId()"
@@ -24,15 +25,22 @@
         </p>
         <div class="actions">
           <button
+            appButton
+            variant="secondary"
             #cancelButton
             type="button"
-            class="button secondary"
             [disabled]="pending()"
             (click)="cancel()"
           >
             Cancel
           </button>
-          <button type="button" class="button danger" [disabled]="disabled()" (click)="confirm()">
+          <button
+            appButton
+            variant="danger"
+            type="button"
+            [disabled]="disabled()"
+            (click)="confirm()"
+          >
             {{ pending() ? 'Deleting…' : 'Permanently delete comment' }}
           </button>
         </div>
@@ -47,8 +55,9 @@
         <a routerLink="/login" target="_blank" rel="noopener">Log in in a new tab</a>
       </p>
       <button
+        appButton
+        variant="secondary"
         type="button"
-        class="button secondary"
         [disabled]="pending() || auth.pending() || auth.status() === 'checking'"
         (click)="checkSession()"
       >
@@ -57,13 +66,16 @@
     }
     @if (articleChanged()) {
       <p>Copy your draft before reloading the article.</p>
-      <a #reloadButton class="button secondary" [href]="'/articles/' + slug()">Reload article</a>
+      <a appButton variant="secondary" #reloadButton [href]="'/articles/' + slug()"
+        >Reload article</a
+      >
     } @else if (needsReview()) {
       <p>Reloading reads comments again. It does not delete anything.</p>
       <button
+        appButton
+        variant="secondary"
         #reloadButton
         type="button"
-        class="button secondary"
         [disabled]="pending() || !available()"
         (click)="reloadComments()"
       >

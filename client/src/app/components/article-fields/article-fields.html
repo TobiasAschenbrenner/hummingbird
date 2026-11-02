@@ -81,7 +81,7 @@
   <p role="status">Loading categories and tags…</p>
 } @else if (optionStatus() === 'error') {
   <p role="alert">We couldn’t load categories and tags. Your text is kept here.</p>
-  <button type="button" class="button" (click)="reloadOptions.emit()">Retry options</button>
+  <button appButton type="button" (click)="reloadOptions.emit()">Retry options</button>
 } @else if (optionStatus() === 'ready' && !options().categories.length) {
   <p role="alert">
     No categories are available. Add the default categories with the server’s seed command before
@@ -137,7 +137,7 @@
     </div>
     @if (hasUnavailableTags()) {
       <p class="help">Some selected tags are no longer available.</p>
-      <button type="button" class="text-button" (click)="removeUnavailableTags()">
+      <button appButton variant="text" type="button" (click)="removeUnavailableTags()">
         Remove unavailable tags
       </button>
     }
@@ -147,8 +147,9 @@
   </fieldset>
 </fieldset>
 <button
+  appButton
+  variant="text"
   type="button"
-  class="text-button"
   [disabled]="disabled() || optionStatus() === 'loading'"
   (click)="reloadOptions.emit()"
 >

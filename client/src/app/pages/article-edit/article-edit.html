@@ -6,7 +6,7 @@
       @if (message()) {
         <p>{{ message() }}</p>
       }
-      <a class="button" [routerLink]="['/articles', result.slug]" [queryParams]="listQuery()"
+      <a appButton [routerLink]="['/articles', result.slug]" [queryParams]="listQuery()"
         >Read your article</a
       >
     } @else if (state().status === 'loading') {
@@ -16,7 +16,7 @@
       <a routerLink="/">Back to articles</a>
     } @else if (state().status === 'error') {
       <p role="alert">We couldn’t load this article.</p>
-      <button type="button" class="button" (click)="tryAgain()">Try again</button>
+      <button appButton type="button" (click)="tryAgain()">Try again</button>
     } @else {
       @if (auth.status() === 'checking') {
         <p role="status">Checking your session…</p>
@@ -25,22 +25,17 @@
           <p role="alert">Sign in again to save. Your draft stays here while this page is open.</p>
           <div class="actions">
             <a routerLink="/login" target="_blank" rel="noopener">Log in in a new tab</a>
-            <button
-              type="button"
-              class="button"
-              [disabled]="auth.pending()"
-              (click)="retrySession()"
-            >
+            <button appButton type="button" [disabled]="auth.pending()" (click)="retrySession()">
               Check session
             </button>
           </div>
         } @else {
           <p>Log in as the author to edit this article.</p>
-          <a class="button" routerLink="/login">Log in</a>
+          <a appButton routerLink="/login">Log in</a>
         }
       } @else if (auth.status() === 'unavailable') {
         <p role="alert">We couldn’t check your session. Your open draft stays here.</p>
-        <button type="button" class="button" [disabled]="auth.pending()" (click)="retrySession()">
+        <button appButton type="button" [disabled]="auth.pending()" (click)="retrySession()">
           Check session
         </button>
       } @else if (!ownsArticle()) {
@@ -68,8 +63,8 @@
             />
             <div class="actions">
               <button
+                appButton
                 type="submit"
-                class="button"
                 [disabled]="
                   editorDisabled() ||
                   needsReview() ||
@@ -94,8 +89,8 @@
               continue.
             </p>
             <button
+              appButton
               type="button"
-              class="button"
               [disabled]="editorDisabled() || latestStatus() === 'loading'"
               (click)="loadLatest()"
             >
@@ -135,16 +130,16 @@
               </p>
               <div class="actions">
                 <button
+                  appButton
                   type="button"
-                  class="button"
                   [disabled]="editorDisabled()"
                   (click)="useLatest(false)"
                 >
                   Use latest saved version
                 </button>
                 <button
+                  appButton
                   type="button"
-                  class="button"
                   [disabled]="editorDisabled()"
                   (click)="useLatest(true)"
                 >

@@ -1,3 +1,4 @@
+import { Button } from '../../components/button/button';
 import { DatePipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import {
@@ -32,7 +33,7 @@ type ArticleState =
 
 @Component({
   selector: 'app-article-detail',
-  imports: [DatePipe, RouterLink, ArticleDelete, ArticleComments, ArticleCover],
+  imports: [Button, DatePipe, RouterLink, ArticleDelete, ArticleComments, ArticleCover],
   templateUrl: './article-detail.html',
   styleUrl: './article-detail.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

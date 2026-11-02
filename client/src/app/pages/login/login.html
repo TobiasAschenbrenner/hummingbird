@@ -8,7 +8,7 @@
 
     @if (auth.user(); as user) {
       <p>You are already signed in as {{ user.username }}.</p>
-      <a routerLink="/" class="button">Back to home</a>
+      <a appButton routerLink="/">Back to home</a>
     } @else {
       <p class="intro">Welcome back to Hummingbird.</p>
       @if (auth.status() === 'checking') {
@@ -59,8 +59,8 @@
             <p class="form-error" role="alert">{{ message() }}</p>
           }
           <button
+            appButton
             type="submit"
-            class="button"
             [disabled]="pending() || auth.pending() || auth.status() === 'checking'"
           >
             {{ pending() ? 'Logging in…' : 'Log in' }}

@@ -1,8 +1,8 @@
 @use '../../../styles/article-metadata';
 .detail-page {
   max-width: 860px;
-  margin-block: clamp(1.25rem, 4vw, 2.5rem);
-  padding: clamp(1.25rem, 4vw, 2.5rem);
+  margin-block: clamp(var(--space-5), 4vw, var(--space-10));
+  padding: clamp(var(--space-5), 4vw, var(--space-10));
   border: 1px solid var(--border);
   border-radius: var(--radius-panel);
   background: var(--surface);
@@ -11,9 +11,9 @@
 }
 .back-link {
   display: inline-block;
-  margin-bottom: 1.5rem;
-  font-size: 0.875rem;
-  font-weight: 500;
+  margin-bottom: var(--space-6);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
   text-decoration: none;
   &:hover {
     text-decoration: underline;
@@ -30,7 +30,7 @@ h1 {
   line-height: 1.65;
 }
 .article-body {
-  margin-top: 2rem;
+  margin-top: var(--space-8);
   padding-top: 1.75rem;
   border-top: 1px solid var(--border);
   white-space: pre-wrap;
@@ -42,7 +42,7 @@ h1 {
   height: auto;
   max-height: 500px;
   object-fit: contain;
-  margin-block: 1.25rem;
+  margin-block: var(--space-5);
   border-radius: var(--radius-control);
   background: var(--surface-muted);
 }

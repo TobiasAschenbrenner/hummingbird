@@ -1,3 +1,4 @@
+import { Button } from '../button/button';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -22,7 +23,7 @@ import { commentBodyValidator } from '../../validators/comment.validator';
 
 @Component({
   selector: 'app-comment-form',
-  imports: [ReactiveFormsModule, RouterLink],
+  imports: [Button, ReactiveFormsModule, RouterLink],
   templateUrl: './comment-form.html',
   styleUrl: './comment-form.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

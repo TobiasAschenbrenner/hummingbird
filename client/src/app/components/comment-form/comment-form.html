@@ -25,7 +25,7 @@
         }
       </p>
     </div>
-    <button type="submit" class="button" [disabled]="disabled() || uncertain()">
+    <button appButton type="submit" [disabled]="disabled() || uncertain()">
       {{ pending() ? 'Posting…' : 'Post comment' }}
     </button>
     @if (hasDraft()) {
@@ -46,7 +46,7 @@
   <p>
     The retry keeps the same request ID and text. It cannot create a second copy of this submission.
   </p>
-  <button type="button" class="button" [disabled]="!canRetry()" (click)="retrySubmission()">
+  <button appButton type="button" [disabled]="!canRetry()" (click)="retrySubmission()">
     Retry same comment
   </button>
   @if (auth.status() === 'authenticated' && !canRetry() && !pending() && available()) {
@@ -63,8 +63,8 @@
     }
   </p>
   <button
+    appButton
     type="button"
-    class="button"
     [disabled]="pending() || auth.pending() || auth.status() === 'checking'"
     (click)="checkSession()"
   >

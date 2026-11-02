@@ -1,3 +1,4 @@
+import { Button } from '../button/button';
 import {
   afterNextRender,
   ElementRef,
@@ -25,7 +26,7 @@ import { CommentForm } from '../comment-form/comment-form';
 
 @Component({
   selector: 'app-article-comments',
-  imports: [DatePipe, CommentForm, CommentDelete],
+  imports: [Button, DatePipe, CommentForm, CommentDelete],
   templateUrl: './article-comments.html',
   styleUrl: './article-comments.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -39,7 +40,12 @@ export class ArticleComments {
   private readonly cancelReads = new Subject<void>();
   private readonly removedIds = new Set<number>();
   private readonly injector = inject(Injector);
-  private readonly mutationStatus = viewChild<ElementRef<HTMLParagraphElement>>('mutationStatus');
+  private readonly mutationStatus = viewChild<unknown, ElementRef<HTMLParagraphElement>>(
+    'mutationStatus',
+    {
+      read: ElementRef,
+    },
+  );
   protected readonly mutationNotice = signal('');
   protected readonly comments = signal<PublicComment[]>([]);
   protected readonly pending = signal(false);

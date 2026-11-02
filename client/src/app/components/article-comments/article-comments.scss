@@ -1,21 +1,21 @@
 .comments {
-  margin-top: 2.5rem;
-  padding-top: 1.5rem;
+  margin-top: var(--space-10);
+  padding-top: var(--space-6);
   border-top: 1px solid var(--border);
 }
 .comment-list {
   list-style: none;
   padding: 0;
-  margin-block: 1.5rem;
+  margin-block: var(--space-6);
 }
 li {
-  padding-block: 1.25rem;
+  padding-block: var(--space-5);
   border-bottom: 1px solid var(--border);
 }
 .metadata {
   margin-top: 0;
   color: var(--text-muted);
-  font-size: 0.8125rem;
+  font-size: var(--font-size-sm);
 }
 .comment-body {
   white-space: pre-wrap;

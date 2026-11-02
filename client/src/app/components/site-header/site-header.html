@@ -22,8 +22,9 @@
         >
         <span class="username">Signed in as {{ user.username }}</span>
         <button
+          appButton
+          variant="header"
           type="button"
-          class="nav-button"
           [disabled]="pending() || auth.pending()"
           (click)="logout()"
         >
@@ -44,7 +45,13 @@
   @if (auth.status() === 'unavailable') {
     <p class="container header-message" role="status">
       Session check unavailable.
-      <button type="button" class="nav-button" [disabled]="auth.pending()" (click)="retrySession()">
+      <button
+        appButton
+        variant="header"
+        type="button"
+        [disabled]="auth.pending()"
+        (click)="retrySession()"
+      >
         Try again
       </button>
     </p>

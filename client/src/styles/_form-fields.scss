@@ -11,13 +11,13 @@ fieldset {
   margin-block: 1.35rem;
   label {
     display: block;
-    margin-bottom: 0.5rem;
-    font-size: 0.9375rem;
-    font-weight: 600;
+    margin-bottom: var(--space-2);
+    font-size: var(--font-size-control);
+    font-weight: var(--font-weight-semibold);
   }
   p {
     margin-block: 0.45rem 0;
-    font-size: 0.8125rem;
+    font-size: var(--font-size-sm);
     line-height: 1.55;
   }
 }
@@ -26,25 +26,16 @@ fieldset {
   color: var(--danger);
 }
 .form-error {
-  padding: 0.85rem 1rem;
-  border: 1px solid #f0cdd0;
+  padding: 0.85rem var(--space-4);
+  border: 1px solid var(--error-border);
   border-radius: var(--radius-control);
   background: var(--danger-soft);
   overflow-wrap: anywhere;
 }
 .notice {
-  padding: 0.85rem 1rem;
-  border: 1px solid #cde6d9;
+  padding: 0.85rem var(--space-4);
+  border: 1px solid var(--success-border);
   border-radius: var(--radius-control);
-  color: #206344;
-  background: #eff8f3;
-}
-.visually-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
+  color: var(--success-text);
+  background: var(--success-surface);
 }

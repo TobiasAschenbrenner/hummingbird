@@ -1,3 +1,4 @@
+import { Button } from '../button/button';
 import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router, RouterLink, RouterLinkActive } from '@angular/router';
@@ -8,7 +9,7 @@ import { readAuthError } from '../../services/auth/auth-error';
 
 @Component({
   selector: 'app-site-header',
-  imports: [RouterLink, RouterLinkActive],
+  imports: [Button, RouterLink, RouterLinkActive],
   templateUrl: './site-header.html',
   styleUrl: './site-header.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

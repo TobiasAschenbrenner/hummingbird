@@ -1,3 +1,4 @@
+import { Button } from '../../components/button/button';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -41,7 +42,7 @@ type EditState =
 
 @Component({
   selector: 'app-article-edit',
-  imports: [ReactiveFormsModule, RouterLink, ArticleFields],
+  imports: [Button, ReactiveFormsModule, RouterLink, ArticleFields],
   templateUrl: './article-edit.html',
   styleUrl: './article-edit.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

@@ -1,3 +1,4 @@
+import { Button } from '../button/button';
 import {
   afterNextRender,
   ChangeDetectionStrategy,
@@ -24,7 +25,7 @@ import { readCommentDeletionError } from '../../services/comments/comment-error'
 
 @Component({
   selector: 'app-comment-delete',
-  imports: [RouterLink],
+  imports: [Button, RouterLink],
   templateUrl: './comment-delete.html',
   styleUrl: './comment-delete.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -40,9 +41,18 @@ export class CommentDelete {
   private readonly destroyRef = inject(DestroyRef);
   private readonly injector = inject(Injector);
   private readonly cancelRequests = new Subject<void>();
-  private readonly trigger = viewChild<ElementRef<HTMLButtonElement>>('trigger');
-  private readonly cancelButton = viewChild<ElementRef<HTMLButtonElement>>('cancelButton');
-  private readonly reloadButton = viewChild<ElementRef<HTMLElement>>('reloadButton');
+  private readonly trigger = viewChild<unknown, ElementRef<HTMLButtonElement>>('trigger', {
+    read: ElementRef,
+  });
+  private readonly cancelButton = viewChild<unknown, ElementRef<HTMLButtonElement>>(
+    'cancelButton',
+    {
+      read: ElementRef,
+    },
+  );
+  private readonly reloadButton = viewChild<unknown, ElementRef<HTMLElement>>('reloadButton', {
+    read: ElementRef,
+  });
   private target = '';
   protected readonly finished = signal(false);
   protected readonly opened = signal(false);

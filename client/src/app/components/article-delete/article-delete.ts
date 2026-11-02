@@ -1,3 +1,4 @@
+import { Button } from '../button/button';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -25,7 +26,7 @@ import { Auth } from '../../services/auth/auth';
 
 @Component({
   selector: 'app-article-delete',
-  imports: [RouterLink],
+  imports: [Button, RouterLink],
   templateUrl: './article-delete.html',
   styleUrl: './article-delete.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -39,9 +40,21 @@ export class ArticleDelete {
   private readonly destroyRef = inject(DestroyRef);
   private readonly injector = inject(Injector);
   private readonly cancelRequests = new Subject<void>();
-  private readonly trigger = viewChild<ElementRef<HTMLButtonElement>>('trigger');
-  private readonly cancelButton = viewChild<ElementRef<HTMLButtonElement>>('cancelButton');
-  private readonly reloadButton = viewChild<ElementRef<HTMLButtonElement>>('reloadButton');
+  private readonly trigger = viewChild<unknown, ElementRef<HTMLButtonElement>>('trigger', {
+    read: ElementRef,
+  });
+  private readonly cancelButton = viewChild<unknown, ElementRef<HTMLButtonElement>>(
+    'cancelButton',
+    {
+      read: ElementRef,
+    },
+  );
+  private readonly reloadButton = viewChild<unknown, ElementRef<HTMLButtonElement>>(
+    'reloadButton',
+    {
+      read: ElementRef,
+    },
+  );
   protected readonly finished = signal(false);
   protected readonly opened = signal(false);
   protected readonly pending = signal(false);

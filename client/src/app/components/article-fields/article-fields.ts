@@ -1,3 +1,4 @@
+import { Button } from '../button/button';
 import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
@@ -16,7 +17,7 @@ import { ArticleForm } from '../../validators/article-form.validator';
 
 @Component({
   selector: 'app-article-fields',
-  imports: [ReactiveFormsModule],
+  imports: [Button, ReactiveFormsModule],
   templateUrl: './article-fields.html',
   styleUrl: './article-fields.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

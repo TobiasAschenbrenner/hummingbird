@@ -1,7 +1,8 @@
+@use '../../../styles/controls';
 @use '../../../styles/form-fields';
 :host {
   display: block;
-  margin-bottom: 2rem;
+  margin-bottom: var(--space-8);
 }
 textarea {
   resize: vertical;
@@ -10,3 +11,5 @@ textarea {
 textarea[readonly] {
   background: var(--surface-muted);
 }
+
+@include controls.fields;

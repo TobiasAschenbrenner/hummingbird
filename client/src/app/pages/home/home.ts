@@ -1,3 +1,4 @@
+import { Button } from '../../components/button/button';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -30,7 +31,7 @@ type PageState =
 
 @Component({
   selector: 'app-home',
-  imports: [ArticleCard, ArticleFilters, RouterLink],
+  imports: [Button, ArticleCard, ArticleFilters, RouterLink],
   templateUrl: './home.html',
   styleUrl: './home.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

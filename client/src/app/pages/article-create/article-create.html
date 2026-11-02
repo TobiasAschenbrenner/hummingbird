@@ -6,7 +6,7 @@
       @if (message()) {
         <p>{{ message() }}</p>
       }
-      <a class="button" [routerLink]="['/articles', article.slug]">Read your article</a>
+      <a appButton [routerLink]="['/articles', article.slug]">Read your article</a>
     } @else {
       <p class="intro">
         Share something worth reading. You can add an optional cover image on the article page after
@@ -18,7 +18,7 @@
         <p role="alert">
           We couldn’t check your session. Your draft stays here while this page is open.
         </p>
-        <button type="button" class="button" [disabled]="auth.pending()" (click)="retrySession()">
+        <button appButton type="button" [disabled]="auth.pending()" (click)="retrySession()">
           Check session
         </button>
       } @else if (auth.status() === 'anonymous') {
@@ -26,18 +26,13 @@
           <div class="session-notice" role="alert">
             <p>Sign in again to publish. Your draft stays here while this page is open.</p>
             <a routerLink="/login" target="_blank" rel="noopener">Log in in a new tab</a>
-            <button
-              type="button"
-              class="button"
-              [disabled]="auth.pending()"
-              (click)="retrySession()"
-            >
+            <button appButton type="button" [disabled]="auth.pending()" (click)="retrySession()">
               Check session
             </button>
           </div>
         } @else {
           <p>Log in to write an article.</p>
-          <a routerLink="/login" class="button">Log in</a>
+          <a appButton routerLink="/login">Log in</a>
           <p>New here? <a routerLink="/register">Create an account</a>.</p>
         }
       }
@@ -69,8 +64,8 @@
             }
             <div class="actions">
               <button
+                appButton
                 type="submit"
-                class="button"
                 [disabled]="
                   editorDisabled() || optionStatus() !== 'ready' || !options().categories.length
                 "

@@ -1,3 +1,4 @@
+import { Button } from '../button/button';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -19,7 +20,7 @@ import { readArticleFilters } from '../../validators/article-list.validator';
 
 @Component({
   selector: 'app-article-filters',
-  imports: [ReactiveFormsModule],
+  imports: [Button, ReactiveFormsModule],
   templateUrl: './article-filters.html',
   styleUrl: './article-filters.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

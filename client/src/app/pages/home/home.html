@@ -24,11 +24,11 @@
       <p role="alert">
         Choose an article page from 1 to 10,000 and valid search/filter parameters.
       </p>
-      <a routerLink="/" class="button">Clear filters and return to first page</a>
+      <a appButton routerLink="/">Clear filters and return to first page</a>
     }
     @case ('error') {
       <p role="alert">We couldn’t load the articles. Please try again.</p>
-      <button type="button" class="button" (click)="tryAgain()">Try again</button>
+      <button appButton type="button" (click)="tryAgain()">Try again</button>
     }
     @case ('ready') {
       @if (current.data.articles.length) {

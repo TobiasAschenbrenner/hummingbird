@@ -1,3 +1,4 @@
+import { Button } from '../../components/button/button';
 import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
@@ -11,7 +12,7 @@ import { characterLength, nonBlank, noControlCharacters } from '../../validators
 
 @Component({
   selector: 'app-register',
-  imports: [ReactiveFormsModule, RouterLink],
+  imports: [Button, ReactiveFormsModule, RouterLink],
   templateUrl: './register.html',
   styleUrl: './register.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

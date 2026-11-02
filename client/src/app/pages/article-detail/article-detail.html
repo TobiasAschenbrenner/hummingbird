@@ -20,7 +20,7 @@
     @case ('error') {
       <h1>Article unavailable</h1>
       <p role="alert">We couldn’t load this article. Please try again.</p>
-      <button type="button" class="button" (click)="tryAgain()">Try again</button>
+      <button appButton type="button" (click)="tryAgain()">Try again</button>
     }
     @case ('ready') {
       @if (auth.status() === 'authenticated' && auth.user()?.id === current.article.author.id) {

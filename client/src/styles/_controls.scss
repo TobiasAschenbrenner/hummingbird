@@ -1,0 +1,80 @@
+@mixin fields {
+  :where(
+    input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='hidden']),
+    select,
+    textarea
+  ) {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    min-height: 46px;
+    padding: 0.7rem 0.85rem;
+    border: 1px solid var(--control-border);
+    border-radius: var(--radius-control);
+    color: var(--text);
+    background: var(--surface);
+    font-weight: 400;
+    line-height: 1.5;
+    cursor: auto;
+    transition:
+      border-color var(--motion-duration) ease,
+      box-shadow var(--motion-duration) ease;
+  }
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--text-muted);
+    opacity: 1;
+  }
+  :is(input, select, textarea):focus-visible {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--focus-ring);
+  }
+  :is(input, select, textarea)[aria-invalid='true'] {
+    border-color: var(--danger);
+  }
+  :is(input, select, textarea)[aria-invalid='true']:focus-visible {
+    box-shadow: 0 0 0 3px var(--danger-focus-ring);
+  }
+  :is(input, select, textarea):disabled,
+  input[readonly],
+  textarea[readonly] {
+    color: var(--text-muted);
+    background: var(--surface-muted);
+  }
+  :is(input, select, textarea):disabled {
+    cursor: not-allowed;
+  }
+  textarea {
+    resize: vertical;
+  }
+  input[type='checkbox'],
+  input[type='radio'] {
+    accent-color: var(--accent);
+  }
+  input[type='file'] {
+    padding: 0.4rem;
+    font-size: var(--font-size-md);
+  }
+  input[type='file']::file-selector-button {
+    margin-right: var(--space-3);
+    padding: 0.45rem var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--text);
+    background: var(--surface-muted);
+    font: inherit;
+    font-weight: var(--font-weight-semibold);
+    cursor: pointer;
+  }
+  input[type='file']:disabled::file-selector-button {
+    cursor: not-allowed;
+  }
+
+  input[type='checkbox']:focus-visible,
+  input[type='radio']:focus-visible {
+    outline: 3px solid var(--accent);
+    outline-offset: 3px;
+    box-shadow: none;
+  }
+}

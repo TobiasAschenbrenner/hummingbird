@@ -1,3 +1,4 @@
+import { Button } from '../../components/button/button';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -25,7 +26,7 @@ import { slugFromTitle } from '../../validators/article.validator';
 
 @Component({
   selector: 'app-article-create',
-  imports: [ReactiveFormsModule, RouterLink, ArticleFields],
+  imports: [Button, ReactiveFormsModule, RouterLink, ArticleFields],
   templateUrl: './article-create.html',
   styleUrl: './article-create.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

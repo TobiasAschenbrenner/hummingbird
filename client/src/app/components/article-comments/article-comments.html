@@ -15,7 +15,7 @@
   @if (message()) {
     <p role="alert">{{ message() }}</p>
   }
-  <button type="button" class="button" [disabled]="pending()" (click)="load()">
+  <button appButton type="button" [disabled]="pending()" (click)="load()">
     {{ message() ? 'Try again' : 'Refresh comments' }}
   </button>
   @if (loaded() && !comments().length) {
@@ -42,7 +42,7 @@
     }
   </ol>
   @if (nextCursor() !== null) {
-    <button type="button" class="button" [disabled]="pending()" (click)="load(true)">
+    <button appButton type="button" [disabled]="pending()" (click)="load(true)">
       Load older comments
     </button>
   }

@@ -1,11 +1,11 @@
 @use '../../../styles/form-fields';
 .edit-page {
-  padding-block: clamp(1.5rem, 5vw, 3.5rem);
+  padding-block: clamp(var(--space-6), 5vw, 3.5rem);
 }
 .edit-card {
   max-width: 48rem;
   margin-inline: auto;
-  padding: clamp(1.25rem, 5vw, 2.5rem);
+  padding: clamp(var(--space-5), 5vw, var(--space-10));
   border: 1px solid var(--border);
   border-radius: var(--radius-panel);
   background: var(--surface);
@@ -13,7 +13,7 @@
   overflow-wrap: anywhere;
   h1 {
     margin: 0;
-    font-size: 2rem;
+    font-size: var(--font-size-heading);
     line-height: 1.2;
   }
 }
@@ -21,17 +21,17 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 1rem;
-  margin-top: 1.5rem;
+  gap: var(--space-4);
+  margin-top: var(--space-6);
 }
 .review {
-  margin-top: 2rem;
-  padding-top: 1.5rem;
+  margin-top: var(--space-8);
+  padding-top: var(--space-6);
   border-top: 1px solid var(--border);
 }
 .saved-version {
-  margin-top: 1.5rem;
-  padding: 1rem;
+  margin-top: var(--space-6);
+  padding: var(--space-4);
   border: 1px solid var(--border);
   border-radius: var(--radius-control);
   background: var(--surface-muted);

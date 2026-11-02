@@ -1,3 +1,4 @@
+import { Button } from '../button/button';
 import { HttpErrorResponse } from '@angular/common/http';
 import {
   ChangeDetectionStrategy,
@@ -23,7 +24,7 @@ import { Auth } from '../../services/auth/auth';
 
 @Component({
   selector: 'app-article-cover',
-  imports: [RouterLink],
+  imports: [Button, RouterLink],
   templateUrl: './article-cover.html',
   styleUrl: './article-cover.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -37,10 +38,27 @@ export class ArticleCover {
   private readonly cancel = new Subject<void>();
   private context = '';
   private readonly injector = inject(Injector);
-  private readonly removeButton = viewChild<ElementRef<HTMLButtonElement>>('removeButton');
-  private readonly cancelButton = viewChild<ElementRef<HTMLButtonElement>>('cancelButton');
-  private readonly reloadButton = viewChild<ElementRef<HTMLButtonElement>>('reloadButton');
-  private readonly picker = viewChild<ElementRef<HTMLInputElement>>('coverPicker');
+  private readonly removeButton = viewChild<unknown, ElementRef<HTMLButtonElement>>(
+    'removeButton',
+    {
+      read: ElementRef,
+    },
+  );
+  private readonly cancelButton = viewChild<unknown, ElementRef<HTMLButtonElement>>(
+    'cancelButton',
+    {
+      read: ElementRef,
+    },
+  );
+  private readonly reloadButton = viewChild<unknown, ElementRef<HTMLButtonElement>>(
+    'reloadButton',
+    {
+      read: ElementRef,
+    },
+  );
+  private readonly picker = viewChild<unknown, ElementRef<HTMLInputElement>>('coverPicker', {
+    read: ElementRef,
+  });
   protected readonly file = signal<File | null>(null);
   protected readonly pending = signal(false);
   protected readonly message = signal('');
