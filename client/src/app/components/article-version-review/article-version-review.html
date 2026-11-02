@@ -1,0 +1,50 @@
+<section class="review" aria-labelledby="review-heading">
+  <h2 id="review-heading">Review the saved version</h2>
+  <p>Loading it will not change your draft. Compare it below before choosing how to continue.</p>
+  <button
+    appButton
+    type="button"
+    [disabled]="disabled() || status() === 'loading'"
+    (click)="loadRequested.emit()"
+  >
+    Load latest saved version
+  </button>
+  @if (status() === 'loading') {
+    <p role="status">Loading the saved version…</p>
+  } @else if (status() === 'error') {
+    <p role="alert">
+      We couldn’t load the saved version, or the article changed ownership. Your draft is unchanged.
+    </p>
+  }
+  @if (article(); as latestArticle) {
+    <div class="saved-version">
+      <h3>{{ latestArticle.title }}</h3>
+      <p>{{ latestArticle.description }}</p>
+      <p class="help">Version {{ latestArticle.version }} · {{ latestArticle.category.name }}</p>
+      @if (latestArticle.tags.length) {
+        <p class="help">
+          Tags:
+          @for (tag of latestArticle.tags; track tag.id) {
+            {{ tag.name }}
+            @if (!$last) {
+              ,
+            }
+          }
+        </p>
+      }
+      <div class="saved-body">{{ latestArticle.body }}</div>
+    </div>
+    <p class="help">
+      The first choice replaces your draft. The second keeps it and lets your next save overwrite
+      the version shown above. Neither choice saves automatically.
+    </p>
+    <div class="actions">
+      <button appButton type="button" [disabled]="disabled()" (click)="savedVersionChosen.emit()">
+        Use latest saved version
+      </button>
+      <button appButton type="button" [disabled]="disabled()" (click)="draftKept.emit()">
+        Keep my draft after review
+      </button>
+    </div>
+  }
+</section>

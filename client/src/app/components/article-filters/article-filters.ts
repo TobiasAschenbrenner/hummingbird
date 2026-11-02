@@ -1,3 +1,4 @@
+import { LoadStatus } from '../../models/load-status.model';
 import { Button } from '../button/button';
 import {
   ChangeDetectionStrategy,
@@ -31,7 +32,7 @@ export class ArticleFilters implements OnInit {
   private readonly api = inject(CatalogsApi);
   private readonly destroyRef = inject(DestroyRef);
   protected readonly options = signal<ArticleOptions>({ categories: [], tags: [] });
-  protected readonly status = signal<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  protected readonly status = signal<LoadStatus>('idle');
   protected readonly message = signal('');
   protected readonly form = inject(FormBuilder).nonNullable.group({
     q: '',

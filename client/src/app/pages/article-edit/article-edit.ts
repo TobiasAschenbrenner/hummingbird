@@ -1,3 +1,5 @@
+import { LoadStatus } from '../../models/load-status.model';
+import { ArticleVersionReview } from '../../components/article-version-review/article-version-review';
 import { SessionNotice } from '../../components/session-notice/session-notice';
 import { createSessionCheck } from '../../services/auth/session-check';
 import { Button } from '../../components/button/button';
@@ -44,7 +46,14 @@ type EditState =
 
 @Component({
   selector: 'app-article-edit',
-  imports: [SessionNotice, Button, ReactiveFormsModule, RouterLink, ArticleFields],
+  imports: [
+    ArticleVersionReview,
+    SessionNotice,
+    Button,
+    ReactiveFormsModule,
+    RouterLink,
+    ArticleFields,
+  ],
   templateUrl: './article-edit.html',
   styleUrl: './article-edit.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -67,7 +76,7 @@ export class ArticleEdit implements OnInit {
     return state.status === 'ready' ? state.article : null;
   });
   protected readonly options = signal<ArticleOptions>({ categories: [], tags: [] });
-  protected readonly optionStatus = signal<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  protected readonly optionStatus = signal<LoadStatus>('idle');
   protected readonly form = createArticleForm(inject(FormBuilder), () => this.options());
   protected readonly serverFields = signal<ArticleFieldErrors>({});
   protected readonly editorOpened = signal(false);
@@ -76,7 +85,7 @@ export class ArticleEdit implements OnInit {
   protected readonly saved = signal<ArticleDetail | null>(null);
   protected readonly needsReview = signal(false);
   protected readonly latest = signal<ArticleDetail | null>(null);
-  protected readonly latestStatus = signal<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  protected readonly latestStatus = signal<LoadStatus>('idle');
   protected readonly forbidden = signal(false);
   protected readonly removed = signal(false);
   protected readonly ownsArticle = computed(
@@ -268,11 +277,24 @@ export class ArticleEdit implements OnInit {
       });
   }
 
-  protected useLatest(keepDraft: boolean): void {
-    const latest = this.latest();
-    if (!latest || this.editorDisabled() || this.latestStatus() !== 'ready') return;
+  protected useSavedVersion(): void {
+    const latest = this.reviewedVersion();
+    if (!latest) return;
+    this.resetForm(latest);
+    this.finishReview(latest);
+  }
+
+  protected keepDraftAfterReview(): void {
+    const latest = this.reviewedVersion();
+    if (latest) this.finishReview(latest);
+  }
+
+  private reviewedVersion(): ArticleDetail | null {
+    return !this.editorDisabled() && this.latestStatus() === 'ready' ? this.latest() : null;
+  }
+
+  private finishReview(latest: ArticleDetail): void {
     this.state.set({ status: 'ready', article: latest });
-    if (!keepDraft) this.resetForm(latest);
     this.needsReview.set(false);
     this.latest.set(null);
     this.latestStatus.set('idle');

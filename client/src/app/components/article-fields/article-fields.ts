@@ -1,3 +1,4 @@
+import { LoadStatus } from '../../models/load-status.model';
 import { Button } from '../button/button';
 import {
   ChangeDetectionStrategy,
@@ -25,7 +26,7 @@ import { ArticleForm } from '../../validators/article-form.validator';
 export class ArticleFields implements OnInit {
   readonly form = input.required<ArticleForm>();
   readonly options = input.required<ArticleOptions>();
-  readonly optionStatus = input.required<'idle' | 'loading' | 'ready' | 'error'>();
+  readonly optionStatus = input.required<LoadStatus>();
   readonly disabled = input(false);
   readonly readOnlySlug = input(false);
   readonly serverFields = input<ArticleFieldErrors>({});

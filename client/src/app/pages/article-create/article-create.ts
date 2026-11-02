@@ -1,3 +1,4 @@
+import { LoadStatus } from '../../models/load-status.model';
 import { SessionNotice } from '../../components/session-notice/session-notice';
 import { createSessionCheck } from '../../services/auth/session-check';
 import { Button } from '../../components/button/button';
@@ -43,7 +44,7 @@ export class ArticleCreate {
     this.pending(),
   );
   protected readonly options = signal<ArticleOptions>({ categories: [], tags: [] });
-  protected readonly optionStatus = signal<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  protected readonly optionStatus = signal<LoadStatus>('idle');
   protected readonly editorOpened = signal(false);
   protected readonly pending = signal(false);
   protected readonly message = signal('');

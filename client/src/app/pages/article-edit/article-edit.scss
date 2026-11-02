@@ -13,24 +13,3 @@
   gap: var(--space-4);
   margin-top: var(--space-6);
 }
-.review {
-  margin-top: var(--space-8);
-  padding-top: var(--space-6);
-  border-top: 1px solid var(--border);
-}
-.saved-version {
-  margin-top: var(--space-6);
-  padding: var(--space-4);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-control);
-  background: var(--surface-muted);
-  h3 {
-    margin-top: 0;
-  }
-}
-.saved-body {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  max-height: 24rem;
-  overflow: auto;
-}
