@@ -31,7 +31,7 @@ import {
   tap,
 } from 'rxjs';
 import { ArticleFields } from '../../components/article-fields/article-fields';
-import { ArticleDetail, ArticleFieldErrors } from '../../models/article.model';
+import { ArticleDetail, ArticleFieldErrors, MAX_ARTICLE_VERSION } from '../../models/article.model';
 import { ArticleOptions } from '../../models/catalog.model';
 import { ArticlesApi } from '../../services/articles/articles';
 import { readArticleUpdateError } from '../../services/articles/article-error';
@@ -94,9 +94,7 @@ export class ArticleEdit implements OnInit {
       !!this.article() &&
       this.auth.user()?.id === this.article()?.author.id,
   );
-  protected readonly versionLimit = computed(
-    () => this.article()?.version === '9223372036854775807',
-  );
+  protected readonly versionLimit = computed(() => this.article()?.version === MAX_ARTICLE_VERSION);
   protected readonly editorDisabled = computed(
     () =>
       !this.ownsArticle() ||

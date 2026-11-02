@@ -1,4 +1,4 @@
-import { MAX_ARTICLE_PAGE } from '../models/article.model';
+import { MAX_ARTICLE_PAGE, MAX_ARTICLE_VERSION } from '../models/article.model';
 
 export function readArticlePage(values: string[]): number | null {
   if (!values.length) return 1;
@@ -30,6 +30,6 @@ export function isArticleVersion(value: unknown): value is string {
   return (
     typeof value === 'string' &&
     /^[1-9][0-9]{0,18}$/.test(value) &&
-    BigInt(value) <= 9_223_372_036_854_775_807n
+    BigInt(value) <= BigInt(MAX_ARTICLE_VERSION)
   );
 }

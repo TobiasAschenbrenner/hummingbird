@@ -1,3 +1,4 @@
+import { API_REQUEST_TIMEOUT_MS, SESSION_CHECK_TIMEOUT_MS } from '../request-timeouts';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { inject, Injectable, signal } from '@angular/core';
 import {
@@ -54,7 +55,7 @@ export class Auth {
       this.cancelRestore.next();
       this.sessionStatus.set('checking');
       return this.http.get<UserResponse>('/api/auth/me', { withCredentials: true }).pipe(
-        timeout(5000),
+        timeout(SESSION_CHECK_TIMEOUT_MS),
         takeUntil(this.cancelRestore),
         map(readUser),
         tap((user) => this.setSession(user)),
@@ -124,7 +125,7 @@ export class Auth {
           this.sessionStatus.set(this.user() ? 'authenticated' : 'unavailable');
       }
       return request().pipe(
-        timeout(10_000),
+        timeout(API_REQUEST_TIMEOUT_MS),
         finalize(() => this.mutationPending.set(false)),
       );
     });

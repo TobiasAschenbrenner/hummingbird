@@ -69,13 +69,21 @@ export class ArticleComments {
         this.nextCursor.set(null);
         this.message.set('');
         this.mutationNotice.set('');
-        this.load();
+        this.refreshComments();
       });
     });
   }
-  protected load(older = false): void {
-    if (this.pending() || (older && this.nextCursor() === null)) return;
-    const before = older ? this.nextCursor()! : undefined;
+  protected refreshComments(): void {
+    this.loadComments();
+  }
+
+  protected loadOlderComments(): void {
+    const cursor = this.nextCursor();
+    if (cursor !== null) this.loadComments(cursor);
+  }
+
+  private loadComments(before?: number): void {
+    if (this.pending()) return;
     this.pending.set(true);
     this.message.set('');
     this.api
@@ -88,7 +96,7 @@ export class ArticleComments {
       .subscribe({
         next: (page) => {
           this.comments.update((current) =>
-            older
+            before !== undefined
               ? [
                   ...current,
                   ...page.comments.filter(
@@ -119,7 +127,7 @@ export class ArticleComments {
     this.mutationNotice.set(
       result === 'deleted' ? 'Comment deleted.' : 'This comment is no longer available.',
     );
-    this.load();
+    this.refreshComments();
     afterNextRender(() => this.mutationStatus()?.nativeElement.focus(), {
       injector: this.injector,
     });
@@ -138,6 +146,6 @@ export class ArticleComments {
         ...current.filter((existing) => existing.id !== comment.id),
       ]);
     // Refresh the authoritative count and newest page after a confirmed post or replay.
-    this.load();
+    this.refreshComments();
   }
 }

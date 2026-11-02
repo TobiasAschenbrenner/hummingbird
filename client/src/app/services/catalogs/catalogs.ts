@@ -1,3 +1,4 @@
+import { API_REQUEST_TIMEOUT_MS } from '../request-timeouts';
 import { HttpClient } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { forkJoin, map, Observable, timeout } from 'rxjs';
@@ -17,6 +18,6 @@ export class CatalogsApi {
       tags: this.http
         .get<unknown>('/api/tags')
         .pipe(map((data) => readCatalogResponse(data, 'tags'))),
-    }).pipe(timeout(10_000));
+    }).pipe(timeout(API_REQUEST_TIMEOUT_MS));
   }
 }

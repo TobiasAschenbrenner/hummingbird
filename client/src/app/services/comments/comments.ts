@@ -1,3 +1,4 @@
+import { API_REQUEST_TIMEOUT_MS } from '../request-timeouts';
 import { HttpClient } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { defer, map, Observable, timeout } from 'rxjs';
@@ -27,7 +28,7 @@ export class CommentsApi {
           params: before === undefined ? {} : { before },
         })
         .pipe(
-          timeout(10000),
+          timeout(API_REQUEST_TIMEOUT_MS),
           map((response) => readCommentPage(response, articleId, before)),
         );
     });
@@ -44,7 +45,7 @@ export class CommentsApi {
           observe: 'response',
         })
         .pipe(
-          timeout(10000),
+          timeout(API_REQUEST_TIMEOUT_MS),
           map((response) => {
             if (response.status !== 204) throw new Error('Unexpected comment deletion response.');
           }),
@@ -70,7 +71,7 @@ export class CommentsApi {
           observe: 'response',
         })
         .pipe(
-          timeout(10000),
+          timeout(API_REQUEST_TIMEOUT_MS),
           map((response) => {
             if (![200, 201].includes(response.status))
               throw new Error('Unexpected comment creation response.');

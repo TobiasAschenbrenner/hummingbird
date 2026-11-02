@@ -1,3 +1,5 @@
+import { API_REQUEST_TIMEOUT_MS, COVER_UPLOAD_TIMEOUT_MS } from '../request-timeouts';
+import { isSupportedCoverFile } from '../../validators/cover.validator';
 import { HttpClient } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { defer, map, Observable, timeout } from 'rxjs';
@@ -37,7 +39,7 @@ export class ArticlesApi {
           headers: { 'X-Hummingbird-Request': '1' },
         })
         .pipe(
-          timeout(10_000),
+          timeout(API_REQUEST_TIMEOUT_MS),
           map((response) => readArticleDetailResponse(response, body.slug)),
         );
     });
@@ -61,7 +63,7 @@ export class ArticlesApi {
           headers: { 'X-Hummingbird-Request': '1' },
         })
         .pipe(
-          timeout(10_000),
+          timeout(API_REQUEST_TIMEOUT_MS),
           map((response) => {
             const article = readArticleDetailResponse(response, slug);
             if (article.version !== (BigInt(body.version) + 1n).toString())
@@ -87,7 +89,7 @@ export class ArticlesApi {
           responseType: 'text',
         })
         .pipe(
-          timeout(10_000),
+          timeout(API_REQUEST_TIMEOUT_MS),
           map((response) => {
             if (response.status !== 204 || (response.body !== null && response.body !== ''))
               throw new Error('Unexpected article deletion response.');
@@ -107,7 +109,7 @@ export class ArticlesApi {
           params: { page, pageSize: ARTICLE_PAGE_SIZE, ...validated },
         })
         .pipe(
-          timeout(10_000),
+          timeout(API_REQUEST_TIMEOUT_MS),
           map((response) => readArticlePageResponse(response, page)),
         );
     });
@@ -135,13 +137,7 @@ export class ArticlesApi {
         article.id > 2147483647
       )
         throw new Error('Invalid cover target.');
-      if (
-        method === 'PUT' &&
-        (!file ||
-          !['image/jpeg', 'image/png', 'image/webp'].includes(file.type) ||
-          file.size === 0 ||
-          file.size > 5 * 1024 * 1024)
-      )
+      if (method === 'PUT' && (!file || !isSupportedCoverFile(file)))
         throw new Error('Invalid image file.');
       const headers: Record<string, string> = {
         'X-Hummingbird-Request': '1',
@@ -156,7 +152,7 @@ export class ArticlesApi {
           withCredentials: true,
         })
         .pipe(
-          timeout(45_000),
+          timeout(COVER_UPLOAD_TIMEOUT_MS),
           map((response) => {
             const saved = readArticleDetailResponse(response, article.slug);
             if (
@@ -175,7 +171,7 @@ export class ArticlesApi {
     return defer(() => {
       if (!isArticleSlug(slug)) throw new Error('Invalid article slug.');
       return this.http.get<unknown>(`/api/articles/${encodeURIComponent(slug)}`).pipe(
-        timeout(10_000),
+        timeout(API_REQUEST_TIMEOUT_MS),
         map((response) => readArticleDetailResponse(response, slug)),
       );
     });

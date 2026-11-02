@@ -1,7 +1,9 @@
+import { COVER_IMAGE_TYPES, isSupportedCoverFile } from '../../validators/cover.validator';
+import { readCoverChangeError } from '../../services/articles/cover-error';
+import { Observable } from 'rxjs';
 import { SessionNotice } from '../session-notice/session-notice';
 import { createSessionCheck } from '../../services/auth/session-check';
 import { Button } from '../button/button';
-import { HttpErrorResponse } from '@angular/common/http';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -19,7 +21,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Subject, finalize, takeUntil } from 'rxjs';
-import { ArticleDetail } from '../../models/article.model';
+import { ArticleDetail, MAX_ARTICLE_VERSION } from '../../models/article.model';
 import { ArticlesApi } from '../../services/articles/articles';
 import { Auth } from '../../services/auth/auth';
 
@@ -39,8 +41,8 @@ export class ArticleCover {
   protected readonly checkSession = createSessionCheck(this.auth, this.destroyRef, () =>
     this.pending(),
   );
-  private readonly cancel = new Subject<void>();
-  private context = '';
+  private readonly cancelRequests = new Subject<void>();
+  private articleIdentity = '';
   private readonly injector = inject(Injector);
   private readonly removeButton = viewChild<unknown, ElementRef<HTMLButtonElement>>(
     'removeButton',
@@ -63,38 +65,39 @@ export class ArticleCover {
   private readonly picker = viewChild<unknown, ElementRef<HTMLInputElement>>('coverPicker', {
     read: ElementRef,
   });
+  protected readonly acceptedTypes = COVER_IMAGE_TYPES.join(',');
   protected readonly file = signal<File | null>(null);
   protected readonly pending = signal(false);
   protected readonly message = signal('');
   protected readonly needsReview = signal(false);
   protected readonly confirming = signal(false);
   protected readonly opened = signal(false);
-  protected readonly owner = computed(
+  protected readonly ownsArticle = computed(
     () =>
       this.auth.status() === 'authenticated' && this.auth.user()?.id === this.article().author.id,
   );
   protected readonly disabled = computed(
     () =>
-      !this.owner() ||
+      !this.ownsArticle() ||
       this.pending() ||
       this.auth.pending() ||
-      this.article().version === '9223372036854775807',
+      this.article().version === MAX_ARTICLE_VERSION,
   );
 
   constructor() {
     effect(() => {
       const article = this.article();
       const key = `${article.id}:${article.slug}`;
-      if (key !== this.context) {
-        this.context = key;
-        this.cancel.next();
+      if (key !== this.articleIdentity) {
+        this.articleIdentity = key;
+        this.cancelRequests.next();
         this.clearFile();
         this.message.set('');
         this.needsReview.set(false);
         this.confirming.set(false);
         this.opened.set(false);
       }
-      if (this.owner()) this.opened.set(true);
+      if (this.ownsArticle()) this.opened.set(true);
     });
   }
 
@@ -105,14 +108,10 @@ export class ArticleCover {
   }
 
   protected selectFile(event: Event): void {
-    const input = event.target as HTMLInputElement;
+    const input = event.target;
+    if (!(input instanceof HTMLInputElement)) return;
     const file = input.files?.[0] ?? null;
-    if (
-      file &&
-      (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) ||
-        file.size === 0 ||
-        file.size > 5 * 1024 * 1024)
-    ) {
+    if (file && !isSupportedCoverFile(file)) {
       this.file.set(null);
       input.value = '';
       this.message.set('Choose a JPEG, PNG or WebP image up to 5 MiB.');
@@ -122,11 +121,11 @@ export class ArticleCover {
     if (!this.needsReview()) this.message.set('');
   }
 
-  protected upload(event: Event): void {
+  protected uploadCover(event: Event): void {
     event.preventDefault();
     const file = this.file();
     if (this.disabled() || this.needsReview() || !file) return;
-    this.change(false);
+    this.changeCover(this.api.saveCover(this.article(), file), 'Cover uploaded.');
   }
 
   protected requestRemoval(): void {
@@ -147,19 +146,18 @@ export class ArticleCover {
   }
   protected remove(): void {
     if (this.disabled() || this.needsReview() || !this.confirming()) return;
-    this.change(true);
+    this.changeCover(
+      this.api.removeCover(this.article()),
+      'Cover removed. Its stored file is queued for cleanup.',
+    );
   }
 
-  private change(remove: boolean): void {
-    const article = this.article();
+  private changeCover(request: Observable<ArticleDetail>, successMessage: string): void {
     this.pending.set(true);
     this.message.set('');
-    const request = remove
-      ? this.api.removeCover(article)
-      : this.api.saveCover(article, this.file()!);
     request
       .pipe(
-        takeUntil(this.cancel),
+        takeUntil(this.cancelRequests),
         takeUntilDestroyed(this.destroyRef),
         finalize(() => this.pending.set(false)),
       )
@@ -169,24 +167,13 @@ export class ArticleCover {
           this.confirming.set(false);
           this.needsReview.set(false);
           this.changed.emit(saved);
-          this.message.set(
-            remove ? 'Cover removed. Its stored file is queued for cleanup.' : 'Cover uploaded.',
-          );
+          this.message.set(successMessage);
         },
         error: (error: unknown) => {
-          const status = error instanceof HttpErrorResponse ? error.status : 0;
-          if (status === 401) this.auth.expireSession();
-          const knownRejection = [400, 413, 415, 429, 503].includes(status);
-          this.needsReview.set(!knownRejection);
-          this.message.set(
-            status === 503
-              ? 'Image uploads are not configured on the server.'
-              : status === 400 || status === 413 || status === 415
-                ? 'Choose a valid, static JPEG, PNG or WebP image up to 5 MiB and 20 million pixels.'
-                : status === 429
-                  ? 'Too many image changes. Wait a minute before trying again.'
-                  : 'The image change could not be confirmed. Reload and review the article before trying again.',
-          );
+          const result = readCoverChangeError(error);
+          if (result.sessionExpired) this.auth.expireSession();
+          this.needsReview.set(result.needsReview);
+          this.message.set(result.message);
         },
       });
   }
@@ -197,7 +184,7 @@ export class ArticleCover {
     this.api
       .detail(this.article().slug)
       .pipe(
-        takeUntil(this.cancel),
+        takeUntil(this.cancelRequests),
         takeUntilDestroyed(this.destroyRef),
         finalize(() => this.pending.set(false)),
       )
