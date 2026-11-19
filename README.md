@@ -147,40 +147,19 @@ Import the [Postman collections](postman/) to test the API manually.
 
 ---
 
-## 🗂️ Data Model
+## Data Model
 
-Hummingbird uses PostgreSQL tables for users, articles, categories, tags and comments.
-Articles and tags have a many-to-many relationship through `article_tags`.
+Hummingbird uses PostgreSQL tables for users, articles, categories, tags, comments and sessions. Foreign keys connect related records, with `article_tags` representing the many-to-many relationship between articles and tags.
 
-[![Hummingbird data model](docs/images/data-model.png)](docs/images/data-model.svg)
-
-<details>
-<summary>Additional indexes</summary>
-
-| Table          | Indexed columns, in order |
-| -------------- | ------------------------- |
-| `articles`     | `author_id`               |
-| `articles`     | `category_id`             |
-| `article_tags` | `tag_id`                  |
-| `comments`     | `article_id, id`          |
-| `comments`     | `author_id`               |
-| `cover_images` | `article_id, created_at`  |
-| `sessions`     | `user_id`                 |
-| `sessions`     | `expires_at`              |
-
-Primary-key and unique indexes are represented by **PK** and **UK** in the diagram.
-The two PK fields in `article_tags` form one composite primary key.
-
-</details>
+<img width="1580" height="1130" alt="Hummingbird Data Model" src="docs/images/data-model.png" />
 
 ---
 
 ## 📊 Data
 
-The demo dataset is created by a custom [seed script](server/prisma/seed.ts)
-using fixed, synthetic text and timestamps from [seed-data.ts](server/prisma/seed-data.ts).
+The database was populated using a custom **seed script** that creates synthetic demo data.
 
-It contains:
+The generated dataset contains:
 
 - 2 users
 - 3 articles
@@ -189,14 +168,13 @@ It contains:
 - 5 article–tag links
 - 2 comments
 
-From the repository root, run:
+This dataset is used to demonstrate the relational data model and query patterns.
+
+From the `server` directory, run:
 
 ```bash
 npm run db:seed:demo
 ```
-
-Repeated runs preserve existing content and create no duplicates. No external data
-or images are downloaded. Demo users cannot sign in; register your own account.
 
 ---
 
