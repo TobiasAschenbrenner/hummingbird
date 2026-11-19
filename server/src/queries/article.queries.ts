@@ -28,17 +28,17 @@ function toDetail(article: DetailRecord): ArticleDetail {
   return { ...toSummary(article), body: article.body, version: article.version.toString() };
 }
 
-function isSlugConstraint(error: Prisma.PrismaClientKnownRequestError): boolean {
+function readPostgresConstraint(error: Prisma.PrismaClientKnownRequestError) {
   const adapterError = error.meta?.driverAdapterError;
   const cause = adapterError instanceof Error ? adapterError.cause : undefined;
-  if (!cause || typeof cause !== 'object' || !('constraint' in cause)) return false;
-  const constraint = cause.constraint;
-  return (
-    !!constraint &&
-    typeof constraint === 'object' &&
-    'index' in constraint &&
-    constraint.index === 'articles_slug_key'
-  );
+  if (!cause || typeof cause !== 'object') return {};
+  const code = 'originalCode' in cause ? cause.originalCode : undefined;
+  const constraint = 'constraint' in cause ? cause.constraint : undefined;
+  const index =
+    constraint && typeof constraint === 'object' && 'index' in constraint
+      ? constraint.index
+      : undefined;
+  return { code, index };
 }
 
 type SummaryRecord = Prisma.ArticleGetPayload<{ select: typeof summarySelect }>;
@@ -84,12 +84,16 @@ async function validateRelationships(
 
 function throwWriteError(error: unknown): never {
   if (error instanceof Prisma.PrismaClientKnownRequestError) {
-    if (error.code === 'P2002' && isSlugConstraint(error)) {
+    const { code, index } = readPostgresConstraint(error);
+    if (
+      (error.code === 'P2002' || (error.code === 'P2010' && code === '23505')) &&
+      index === 'articles_slug_key'
+    ) {
       throw new HttpError(409, 'An article with this slug already exists.', {
         slug: 'Choose another article slug.',
       });
     }
-    if (error.code === 'P2003') {
+    if (error.code === 'P2003' || (error.code === 'P2010' && code === '23503')) {
       throw new HttpError(
         409,
         'Selected article relationships changed. Reload the options and try again.',
@@ -111,14 +115,20 @@ export function createArticleQueries(database: PrismaClient): ArticleQueries {
       try {
         return await database.$transaction(async (transaction) => {
           await validateRelationships(transaction, input.categoryId, tagIds);
-          const article = await transaction.article.create({ data: input, select: { id: true } });
+          const [article] = await transaction.$queryRaw<{ id: number }[]>`
+            INSERT INTO public.articles (slug, title, description, body, author_id, category_id)
+            VALUES (${input.slug}, ${input.title}, ${input.description}, ${input.body},
+              ${input.authorId}, ${input.categoryId})
+            RETURNING id
+          `;
           if (tagIds.length) {
-            await transaction.articleTag.createMany({
-              data: tagIds.map((tagId) => ({ articleId: article.id, tagId })),
-            });
+            await transaction.$executeRaw(Prisma.sql`
+              INSERT INTO public.article_tags (article_id, tag_id)
+              VALUES ${Prisma.join(tagIds.map((tagId) => Prisma.sql`(${article!.id}, ${tagId})`))}
+            `);
           }
           const saved = await transaction.article.findUniqueOrThrow({
-            where: { id: article.id },
+            where: { id: article!.id },
             select: detailSelect,
           });
           return toDetail(saved);

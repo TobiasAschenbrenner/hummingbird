@@ -144,6 +144,24 @@ async function createArticle() {
   return { author, category, article };
 }
 
+test('database connections use UTC and ORM timestamps match their stored SQL instant', async () => {
+  const fresh = createDatabaseClient(readTestDatabaseUrl());
+  try {
+    const [connection] = await fresh.$queryRaw<{ zone: string }[]>`
+      SELECT current_setting('TimeZone') AS zone
+    `;
+    assert.equal(connection?.zone, 'UTC');
+  } finally {
+    await fresh.$disconnect();
+  }
+  const { article } = await createArticle();
+  const [stored] = await database.$queryRaw<{ createdAt: Date }[]>`
+    SELECT created_at AT TIME ZONE 'UTC' AS "createdAt"
+    FROM public.articles WHERE id = ${article.id}
+  `;
+  assert.equal(stored!.createdAt.getTime(), article.createdAt.getTime());
+});
+
 test('Prisma stores and joins the six blog tables with a shared tag', async () => {
   const { author, category, article } = await createArticle();
   const second = await database.article.create({
@@ -1170,6 +1188,30 @@ test('publishing persists the signed-in author, category and shared tags and ret
   const list = await fetch(`${baseUrl}/api/articles`);
   const { body: _body, version: _version, ...summary } = article;
   assert.deepEqual((await list.json()).articles, [summary]);
+});
+
+test('publishing stores SQL-looking content literally while preserving related records', async () => {
+  const { user, tags, cookie, input } = await publicationContext();
+  const content = {
+    ...input,
+    title: "Quotes ' and SQL -- stay text",
+    description: '100% _ and backslash \\ remain text.',
+    body: "'); DELETE FROM users; DROP TABLE tags; --\nKeep the author's text.",
+  };
+  const response = await publishArticle(cookie, content);
+  assert.equal(response.status, 201);
+  const { article } = await response.json();
+  assert.equal(article.title, content.title);
+  assert.equal(article.description, content.description);
+  assert.equal(article.body, content.body);
+  const stored = await database.article.findUniqueOrThrow({ where: { id: article.id } });
+  assert.equal(stored.body, content.body);
+  assert.equal(stored.authorId, user.id);
+  assert.equal(await database.user.count(), 1);
+  assert.equal(await database.category.count(), 3);
+  assert.equal(await database.tag.count(), tags.length);
+  assert.equal(await database.article.count(), 1);
+  assert.equal(await database.articleTag.count(), tags.length);
 });
 
 test('publishing preserves Unicode boundary lengths and whitespace and permits articles without tags', async () => {
