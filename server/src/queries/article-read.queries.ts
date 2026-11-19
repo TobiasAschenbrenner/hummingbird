@@ -1,5 +1,10 @@
-import { Prisma } from '../generated/prisma/client.ts';
-import type { ArticleDetail, ArticleSummary } from '../models/article.model.ts';
+import { Prisma, type PrismaClient } from '../generated/prisma/client.ts';
+import type {
+  ArticleDetail,
+  ArticleListInput,
+  ArticlePage,
+  ArticleSummary,
+} from '../models/article.model.ts';
 
 type ArticleReadDatabase = Pick<Prisma.TransactionClient, '$queryRaw'>;
 type ArticleSummaryRow = Omit<ArticleSummary, 'createdAt' | 'commentCount'> & {
@@ -73,4 +78,64 @@ export async function readArticleBySlug(
   return article
     ? { ...toSummary(article), body: article.body, version: article.version.toString() }
     : null;
+}
+
+function articleConditions({ q, category, tag }: ArticleListInput): Prisma.Sql {
+  const conditions: Prisma.Sql[] = [];
+  if (q) {
+    const pattern = `%${q.replace(/[\\%_]/g, '\\$&')}%`;
+    conditions.push(
+      Prisma.sql`(article.title ILIKE ${pattern} OR article.description ILIKE ${pattern})`,
+    );
+  }
+  if (category) {
+    conditions.push(Prisma.sql`article.category_id = (
+      SELECT id FROM public.categories WHERE slug = ${category}
+    )`);
+  }
+  if (tag) {
+    conditions.push(Prisma.sql`EXISTS (
+      SELECT 1 FROM public.article_tags AS links
+      JOIN public.tags AS tag ON tag.id = links.tag_id
+      WHERE links.article_id = article.id AND tag.slug = ${tag}
+    )`);
+  }
+  return conditions.length ? Prisma.join(conditions, ' AND ') : Prisma.sql`TRUE`;
+}
+
+export async function readArticlePage(
+  database: PrismaClient,
+  input: ArticleListInput,
+): Promise<ArticlePage> {
+  const { page, pageSize } = input;
+  const conditions = articleConditions(input);
+  // Both statements see the same committed data, even when another request publishes.
+  return database.$transaction(
+    async (transaction) => {
+      const articles = await transaction.$queryRaw<ArticleSummaryRow[]>(Prisma.sql`
+        WITH selected_articles AS (
+          SELECT article.id, article.slug, article.title, article.description,
+            article.image_filename, article.created_at, article.author_id, article.category_id
+          FROM public.articles AS article
+          WHERE ${conditions}
+          ORDER BY article.created_at DESC, article.id DESC
+          LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}
+        ),
+        ${articleAggregates}
+        SELECT ${articleColumns}
+        FROM selected_articles AS article
+        ${articleJoins}
+        ORDER BY article.created_at DESC, article.id DESC
+      `);
+      const [count] = await transaction.$queryRaw<{ total: bigint }[]>(Prisma.sql`
+        SELECT COUNT(*) AS total FROM public.articles AS article WHERE ${conditions}
+      `);
+      const total = Number(count!.total);
+      return {
+        articles: articles.map(toSummary),
+        pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) },
+      };
+    },
+    { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+  );
 }

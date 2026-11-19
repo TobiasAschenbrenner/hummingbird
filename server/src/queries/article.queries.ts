@@ -1,12 +1,7 @@
 import { Prisma, type PrismaClient } from '../generated/prisma/client.ts';
 import { HttpError } from '../errors/http-error.ts';
-import { readArticleBySlug } from './article-read.queries.ts';
-import type {
-  ArticleDetail,
-  ArticleListInput,
-  ArticleQueries,
-  ArticleSummary,
-} from '../models/article.model.ts';
+import { readArticleBySlug, readArticlePage } from './article-read.queries.ts';
+import type { ArticleDetail, ArticleQueries, ArticleSummary } from '../models/article.model.ts';
 
 const summarySelect = {
   id: true,
@@ -110,23 +105,6 @@ function staleEdit(): never {
   });
 }
 
-function articleFilters({ q, category, tag }: ArticleListInput): Prisma.ArticleWhereInput {
-  // Prisma contains uses ILIKE: escape pattern characters so search text stays literal.
-  const search = q?.replace(/[\\%_]/g, '\\$&');
-  return {
-    ...(search
-      ? {
-          OR: [
-            { title: { contains: search, mode: 'insensitive' } },
-            { description: { contains: search, mode: 'insensitive' } },
-          ],
-        }
-      : {}),
-    ...(category ? { category: { slug: category } } : {}),
-    ...(tag ? { tags: { some: { tag: { slug: tag } } } } : {}),
-  };
-}
-
 export function createArticleQueries(database: PrismaClient): ArticleQueries {
   return {
     async createArticle({ tagIds, ...input }) {
@@ -210,28 +188,8 @@ export function createArticleQueries(database: PrismaClient): ArticleQueries {
         if (deleted.count !== 1) throw conflict();
       });
     },
-    async listArticles(input) {
-      const { page, pageSize } = input;
-      const where = articleFilters(input);
-      // Keep the page and its total on the same snapshot while other users publish.
-      const { articles, total } = await database.$transaction(
-        async (transaction) => {
-          const articles = await transaction.article.findMany({
-            select: summarySelect,
-            where,
-            orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-            skip: (page - 1) * pageSize,
-            take: pageSize,
-          });
-          const total = await transaction.article.count({ where });
-          return { articles, total };
-        },
-        { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
-      );
-      return {
-        articles: articles.map(toSummary),
-        pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) },
-      };
+    listArticles(input) {
+      return readArticlePage(database, input);
     },
     findArticleBySlug(slug) {
       return readArticleBySlug(database, slug);

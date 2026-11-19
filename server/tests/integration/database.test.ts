@@ -2387,6 +2387,19 @@ test('search treats SQL pattern characters, Unicode and SQL-looking input as lit
   assert.equal(await database.article.count(), 2);
 });
 
+test('article listing binds category and tag filters instead of interpreting them as SQL', async () => {
+  await seedDatabase(database, { demo: true });
+  const queries = createArticleQueries(database);
+  for (const filters of [{ category: "tech' OR 1=1 --" }, { tag: "web-development' OR 1=1 --" }]) {
+    const result = await queries.listArticles({ page: 1, pageSize: 12, ...filters });
+    assert.deepEqual(result, {
+      articles: [],
+      pagination: { page: 1, pageSize: 12, total: 0, totalPages: 0 },
+    });
+  }
+  assert.equal(await database.article.count(), 3);
+});
+
 test('filtered pagination counts articles once and keeps all tags and independent comment counts', async () => {
   await seedDatabase(database, { demo: true });
   await database.article.updateMany({ data: { createdAt: new Date('2026-10-01T09:00:00Z') } });
@@ -2420,24 +2433,22 @@ test('filtered rows and total share a snapshot when another connection publishes
   let inserted = false;
   const observing = database.$extends({
     query: {
-      article: {
-        async findMany({ args, query }) {
-          const rows = await query(args);
-          if (!inserted) {
-            inserted = true;
-            await database.article.create({
-              data: {
-                slug: 'concurrent-first',
-                title: 'First concurrent article',
-                description: 'Another match.',
-                body: 'Concurrent content.',
-                authorId: author.id,
-                categoryId: category.id,
-              },
-            });
-          }
-          return rows;
-        },
+      async $queryRaw({ args, query }) {
+        const rows = await query(args);
+        if (!inserted) {
+          inserted = true;
+          await database.article.create({
+            data: {
+              slug: 'concurrent-first',
+              title: 'First concurrent article',
+              description: 'Another match.',
+              body: 'Concurrent content.',
+              authorId: author.id,
+              categoryId: category.id,
+            },
+          });
+        }
+        return rows;
       },
     },
   });
