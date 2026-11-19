@@ -149,14 +149,54 @@ Import the [Postman collections](postman/) to test the API manually.
 
 ## 🗂️ Data Model
 
+Hummingbird uses PostgreSQL tables for users, articles, categories, tags and comments.
+Articles and tags have a many-to-many relationship through `article_tags`.
+
+[![Hummingbird data model](docs/images/data-model.png)](docs/images/data-model.svg)
+
+<details>
+<summary>Additional indexes</summary>
+
+| Table          | Indexed columns, in order |
+| -------------- | ------------------------- |
+| `articles`     | `author_id`               |
+| `articles`     | `category_id`             |
+| `article_tags` | `tag_id`                  |
+| `comments`     | `article_id, id`          |
+| `comments`     | `author_id`               |
+| `cover_images` | `article_id, created_at`  |
+| `sessions`     | `user_id`                 |
+| `sessions`     | `expires_at`              |
+
+Primary-key and unique indexes are represented by **PK** and **UK** in the diagram.
+The two PK fields in `article_tags` form one composite primary key.
+
+</details>
+
 ---
 
 ## 📊 Data
 
-The bundled demo contains **3 categories, 2 users, 3 articles, 3 tags,
-5 article–tag links and 2 comments**. It uses fixed, synthetic text and UTC
-creation dates from [seed-data.ts](server/prisma/seed-data.ts); no external data
-or images are downloaded. User-created content adds to these counts.
+The demo dataset is created by a custom [seed script](server/prisma/seed.ts)
+using fixed, synthetic text and timestamps from [seed-data.ts](server/prisma/seed-data.ts).
+
+It contains:
+
+- 2 users
+- 3 articles
+- 3 categories
+- 3 tags
+- 5 article–tag links
+- 2 comments
+
+From the repository root, run:
+
+```bash
+npm run db:seed:demo
+```
+
+Repeated runs preserve existing content and create no duplicates. No external data
+or images are downloaded. Demo users cannot sign in; register your own account.
 
 ---
 
