@@ -138,13 +138,11 @@ Frontend tests and checks are executed from the `client` folder:
 npm run check
 ```
 
-Database tests reset the dedicated `_test` database.
-
 ---
 
 ## Data Model
 
-Hummingbird uses PostgreSQL tables for users, articles, categories, tags, comments and sessions. Foreign keys connect related records, with `article_tags` representing the many-to-many relationship between articles and tags.
+Hummingbird uses PostgreSQL tables for users, articles, categories, tags, comments and sessions. Foreign keys define the relationships between these tables.
 
 <img width="1580" height="1130" alt="Hummingbird Data Model" src="docs/images/data-model.png" />
 
@@ -184,4 +182,4 @@ This application was built as a **university project** to learn about:
 
 ## 🤖 Use of AI Tools
 
-AI tools were used to support implementation, discuss architecture and refactoring options, understand errors and reason about relational database design. They also supported testing, deployment and project documentation. The author is responsible for reviewing the code and understanding the submitted work.
+AI tools were used to support implementation, discuss architecture and refactoring options, understand errors and reason about relational database design. They also supported testing and project documentation. All implementation decisions and final validations were performed by the author.
