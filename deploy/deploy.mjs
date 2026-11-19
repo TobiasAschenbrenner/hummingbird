@@ -27,20 +27,32 @@ export function verifiedRevision(head, run) {
     : null;
 }
 
-async function github(path) {
-  const response = await fetch(
-    `https://api.github.com/repos/${repository}/${path}`,
-    {
-      headers: {
-        Accept: "application/vnd.github+json",
-        "User-Agent": "hummingbird-deploy",
-      },
-      signal: AbortSignal.timeout(15_000),
-    },
-  );
-  if (!response.ok)
-    throw new Error(`GitHub release check returned HTTP ${response.status}.`);
-  return response.json();
+export async function readGithub(path, request = fetch, pause = delay) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const response = await request(
+        `https://api.github.com/repos/${repository}/${path}`,
+        {
+          headers: {
+            Accept: "application/vnd.github+json",
+            "User-Agent": "hummingbird-deploy",
+            // Builds block this short-lived process; avoid reusing a socket closed during a build.
+            Connection: "close",
+          },
+          signal: AbortSignal.timeout(15_000),
+        },
+      );
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      if (attempt === 2) {
+        throw new Error(
+          `GitHub release check failed after three attempts: ${error.cause?.code ?? error.message}.`,
+        );
+      }
+      await pause((attempt + 1) * 1_000);
+    }
+  }
 }
 
 export async function verifyRelease(revision, baseUrl, request = fetch) {
@@ -129,9 +141,9 @@ async function deploy() {
     application,
     readlinkSync(join(application, "current")),
   );
-  const head = (await github("commits/main")).sha;
+  const head = (await readGithub("commits/main")).sha;
   if (basename(previous).split("-")[0] === head) return;
-  const runs = await github(
+  const runs = await readGithub(
     "actions/workflows/checks.yml/runs?branch=main&event=push&per_page=1",
   );
   const revision = verifiedRevision(head, runs.workflow_runs?.[0]);
@@ -146,7 +158,7 @@ async function deploy() {
   try {
     run("chown", ["hummingbird:hummingbird", staging]);
     buildRelease(revision, staging);
-    if ((await github("commits/main")).sha !== revision) {
+    if ((await readGithub("commits/main")).sha !== revision) {
       console.log(
         "A newer commit reached main during the build; keeping the current release.",
       );

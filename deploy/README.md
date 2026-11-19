@@ -52,6 +52,8 @@ After reviewing these files, install them from a checked-out release as root:
 
 ```bash
 install -d -m 0755 /usr/local/lib/hummingbird
+install -d -o hummingbird -g hummingbird -m 0700 /srv/hummingbird/.cache /srv/hummingbird/.npm-cache
+chown root:root /srv/hummingbird /srv/hummingbird/releases
 install -m 0644 deploy/deploy.mjs /usr/local/lib/hummingbird/deploy.mjs
 install -m 0644 deploy/hummingbird-deploy.service deploy/hummingbird-deploy.timer /etc/systemd/system/
 systemctl daemon-reload

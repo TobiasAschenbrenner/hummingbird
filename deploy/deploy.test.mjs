@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { activateRelease, verifiedRevision, verifyRelease } from "./deploy.mjs";
+import {
+  activateRelease,
+  readGithub,
+  verifiedRevision,
+  verifyRelease,
+} from "./deploy.mjs";
 
 const revision = "a".repeat(40);
 const successfulRun = {
@@ -108,4 +113,34 @@ test("a stale release, broken database response or unavailable bundle cannot pas
       }),
     );
   }
+});
+
+test("GitHub checks retry dropped connections and refuse deployment if every attempt fails", async () => {
+  let attempts = 0;
+  const pause = async () => {};
+  const result = await readGithub(
+    "commits/main",
+    async (_url, options) => {
+      assert.equal(options.headers.Connection, "close");
+      if (++attempts === 1)
+        throw new TypeError("fetch failed", { cause: { code: "ECONNRESET" } });
+      return Response.json({ sha: revision });
+    },
+    pause,
+  );
+  assert.deepEqual(result, { sha: revision });
+  assert.equal(attempts, 2);
+  attempts = 0;
+  await assert.rejects(
+    readGithub(
+      "commits/main",
+      async () => {
+        attempts++;
+        return new Response("Unavailable", { status: 503 });
+      },
+      pause,
+    ),
+    /failed after three attempts: HTTP 503/,
+  );
+  assert.equal(attempts, 3);
 });
