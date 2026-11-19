@@ -3,6 +3,8 @@
 Hummingbird is a blogging application built with Angular, Express and PostgreSQL.
 Readers can browse articles, while registered users can publish posts and join the discussion.
 
+👉 [Live application](https://hummingbird.chirp.blog)
+
 ---
 
 ## ✨ Features
@@ -31,7 +33,8 @@ Readers can browse articles, while registered users can publish posts and join t
 hummingbird/
 ├── client/            # Angular frontend
 ├── server/            # Express API, Prisma migrations and database tests
-└── postman/           # API request collections
+├── postman/           # API request collections
+└── deploy/            # Hostinger service, HTTPS proxy and cleanup timer
 ```
 
 ---

@@ -195,6 +195,9 @@ hourly when Cloudinary is enabled. Cron must use the same private environment
 settings and Node.js 24 as the application. Keep source files, credentials and
 PostgreSQL outside the public static directory.
 
+The concrete [Hostinger VPS setup](../deploy/README.md) includes the service,
+proxy and hourly cleanup configuration.
+
 ## 👤 Register an account
 
 Send `POST /api/auth/register` with `Content-Type: application/json`:

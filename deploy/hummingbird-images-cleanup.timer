@@ -1,0 +1,11 @@
+[Unit]
+Description=Clean up detached Hummingbird covers hourly
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=5min
+Persistent=true
+Unit=hummingbird-images-cleanup.service
+
+[Install]
+WantedBy=timers.target
