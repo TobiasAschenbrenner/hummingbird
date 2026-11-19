@@ -80,16 +80,16 @@ it is ignored by Git. The frontend connects through `/api` and contains no secre
 ## 🗄️ Database Setup
 
 Create the local role and three databases using the [server setup](server/README.md#-postgresql-setup),
-then apply migrations and add the default categories:
+then apply migrations and load the sample data from the repository root:
 
 ```bash
-cd server
 npm run db:deploy
-npm run db:seed
+npm run db:seed:demo
 ```
 
-Optional: run `npm run db:seed:demo` for sample articles, tags and comments.
-Demo authors cannot sign in; register your own account.
+Repeated seeding preserves existing content and creates no duplicates.
+Demo authors cannot sign in; register your own account. For categories only,
+use `npm run db:seed`.
 
 ---
 
@@ -152,6 +152,11 @@ Import the [Postman collections](postman/) to test the API manually.
 ---
 
 ## 📊 Data
+
+The bundled demo contains **3 categories, 2 users, 3 articles, 3 tags,
+5 article–tag links and 2 comments**. It uses fixed, synthetic text and UTC
+creation dates from [seed-data.ts](server/prisma/seed-data.ts); no external data
+or images are downloaded. User-created content adds to these counts.
 
 ---
 

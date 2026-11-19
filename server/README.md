@@ -133,11 +133,18 @@ content. Repeated runs create no duplicates. Existing article slugs are skipped,
 including their tags and comments, so user edits and removed links stay unchanged.
 Demo emails already used by login accounts cause the entire seed to roll back.
 
-Demo mode requires `development` or `test`, a local host, and the database name
-`hummingbird_rewrite` or `hummingbird_rewrite_test`. Use a plain database URL or
-`?schema=public`, without connection overrides. Demo authors have a disabled
+Local demo mode requires `development` or `test`, a local host, and the database
+name `hummingbird_rewrite` or `hummingbird_rewrite_test`. Use a plain database URL
+or `?schema=public`, without connection overrides. Demo authors have a disabled
 password marker, not a shared login password. Register your own account through
-the API, then sign in with your own credentials.
+the app, then sign in with your own credentials.
+
+The repository root also supports `npm run db:seed:demo`. On Hostinger, adding
+`-- --confirm-production-database=hummingbird` explicitly permits the dedicated
+production target: `NODE_ENV=production`, a loopback host, port 5432, and both
+role and database named `hummingbird`. An ordinary `--demo` still refuses
+production writes. See [loading hosted demo data](../deploy/README.md#loading-example-data).
+The demo never runs automatically during installation, startup or migrations.
 
 Seeds [run explicitly](https://www.prisma.io/docs/orm/v7/prisma-migrate/workflows/seeding),
 not automatically during migrations. They do not change the schema or reset data.

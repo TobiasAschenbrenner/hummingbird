@@ -525,6 +525,46 @@ test('Prisma seed commands forward demo options and refuse production demo write
   assert.notEqual(production.status, 0);
   assert.match(production.stderr, /Seeding failed/);
   assert.deepEqual(await readSeedSnapshot(), before);
+  const wrongTarget = runSeed(
+    ['--', '--demo', '--confirm-production-database=hummingbird'],
+    'production',
+  );
+  assert.notEqual(wrongTarget.status, 0);
+  assert.deepEqual(await readSeedSnapshot(), before);
+});
+
+test('repository seed command populates local data once and forwards rejected target arguments', async () => {
+  const connectionString = readTestDatabaseUrl();
+  function runRootSeed(args: string[] = []) {
+    return spawnSync('npm', ['run', 'db:seed:demo', '--', ...args], {
+      cwd: fileURLToPath(new URL('../../../', import.meta.url)),
+      env: { ...process.env, DATABASE_URL: connectionString, NODE_ENV: 'test' },
+      encoding: 'utf8',
+      timeout: 30_000,
+    });
+  }
+  const first = runRootSeed();
+  assert.equal(first.status, 0, 'Repository demo seed command failed.');
+  assert.match(
+    first.stdout,
+    /3 categories, 2 users, 3 tags, 3 articles, 5 articleTags, 2 comments/,
+  );
+  const before = await readSeedSnapshot();
+  const repeated = runRootSeed();
+  assert.equal(repeated.status, 0);
+  assert.match(
+    repeated.stdout,
+    /0 categories, 0 users, 0 tags, 0 articles, 0 articleTags, 0 comments/,
+  );
+  assert.deepEqual(await readSeedSnapshot(), before);
+  for (const args of [
+    ['--unexpected-seed-argument'],
+    ['--confirm-production-database=hummingbird'],
+  ]) {
+    const rejected = runRootSeed(args);
+    assert.notEqual(rejected.status, 0, 'Repository seed command swallowed a target argument.');
+    assert.deepEqual(await readSeedSnapshot(), before);
+  }
 });
 
 function registerAccount(email = 'author@example.test', password = 'a long test password') {

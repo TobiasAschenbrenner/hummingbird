@@ -19,7 +19,7 @@ async function main() {
 
 main().catch(() => {
   console.error(
-    'Seeding failed. Check the database connection, migrations, demo restrictions and conflicting demo accounts.',
+    'Seeding failed. Check the database connection, migrations, demo restrictions, production confirmation and conflicting demo accounts.',
   );
   process.exitCode = 1;
 });

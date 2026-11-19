@@ -15,7 +15,7 @@
     "test:db": "npm run test:db --prefix server",
     "db:deploy": "npm run db:deploy --prefix server",
     "db:seed": "npm run db:seed --prefix server",
-    "db:seed:demo": "npm run db:seed:demo --prefix server",
+    "db:seed:demo": "npm run db:seed:demo --prefix server --",
     "images:cleanup": "npm run images:cleanup --prefix server"
   }
 }

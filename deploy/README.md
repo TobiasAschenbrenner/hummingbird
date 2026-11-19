@@ -33,6 +33,27 @@ Keep older releases for rollback. A code rollback does not reverse a database
 migration; review migration compatibility before deploying schema changes.
 Never copy a local `.env`, development database or `node_modules` into a release.
 
+## Loading example data
+
+Run this explicitly from the VPS console after deploying the seed command:
+
+```bash
+runuser -u hummingbird -- /bin/sh -c '
+  set -a
+  . /etc/hummingbird/hummingbird.env
+  set +a
+  export PATH=/opt/hummingbird/node/bin:$PATH
+  cd /srv/hummingbird/current
+  npm run db:seed:demo -- --confirm-production-database=hummingbird
+'
+```
+
+The confirmation is required only for this dedicated production database.
+It adds the same synthetic dataset as local seeding, preserves existing content
+and creates no duplicates on repeat runs. Demo accounts cannot sign in; create
+your own account through the app. The seed does not upload images or alter
+Cloudinary assets.
+
 ## Services
 
 Install the included `.service` and `.timer` files under `/etc/systemd/system/`.

@@ -160,6 +160,77 @@ test('demo seed guard permits only local rewrite development or test databases',
   assert.throws(() => readSeedOptions(['--demo'], {}), /DATABASE_URL must be/);
 });
 
+test('production demo seeding requires explicit confirmation of the dedicated local target', () => {
+  for (const host of ['localhost', 'LOCALHOST', '127.0.0.1', '[::1]']) {
+    for (const port of ['', ':5432']) {
+      const databaseUrl = `postgresql://hummingbird:secret@${host}${port}/hummingbird`;
+      for (const suffix of ['', '?schema=public']) {
+        assert.deepEqual(
+          readSeedOptions(['--demo', '--confirm-production-database=hummingbird'], {
+            NODE_ENV: 'production',
+            DATABASE_URL: databaseUrl + suffix,
+          }),
+          { demo: true },
+        );
+      }
+      assert.throws(
+        () => readSeedOptions(['--demo'], { NODE_ENV: 'production', DATABASE_URL: databaseUrl }),
+        /explicitly confirmed/,
+      );
+    }
+  }
+});
+
+test('production confirmation cannot target another environment, database, role or connection override', () => {
+  const databaseUrl = 'postgresql://hummingbird:secret@127.0.0.1:5432/hummingbird';
+  for (const url of [
+    'postgresql://hummingbird:secret@remote.example/hummingbird',
+    'postgresql://hummingbird:secret@localhost:5433/hummingbird',
+    'postgresql://postgres:secret@localhost/hummingbird',
+    'postgresql://hummingbird:secret@localhost/chirp',
+    'postgresql://hummingbird:secret@localhost/hummingbird_rewrite_test',
+    `${databaseUrl}?schema=other`,
+    `${databaseUrl}?schema=public&schema=other`,
+    `${databaseUrl}?host=remote.example`,
+    `${databaseUrl}?port=5433`,
+    `${databaseUrl}?options=-c%20search_path=other`,
+  ]) {
+    assert.throws(
+      () =>
+        readSeedOptions(['--demo', '--confirm-production-database=hummingbird'], {
+          NODE_ENV: 'production',
+          DATABASE_URL: url,
+        }),
+      /explicitly confirmed/,
+    );
+  }
+  for (const nodeEnv of ['development', 'test', 'staging', undefined]) {
+    assert.throws(
+      () =>
+        readSeedOptions(['--demo', '--confirm-production-database=hummingbird'], {
+          NODE_ENV: nodeEnv,
+          DATABASE_URL: databaseUrl,
+        }),
+      /explicitly confirmed/,
+    );
+  }
+  for (const name of ['', 'chirp', 'hummingbird_rewrite', ' hummingbird', 'hummingbird ']) {
+    assert.throws(
+      () =>
+        readSeedOptions(['--demo', `--confirm-production-database=${name}`], {
+          NODE_ENV: 'production',
+          DATABASE_URL: databaseUrl,
+        }),
+      /explicitly confirmed/,
+    );
+  }
+  assert.throws(
+    () => readSeedOptions(['--confirm-production-database=hummingbird']),
+    /requires --demo/,
+  );
+  assert.throws(() => readSeedOptions(['--demo', '--confirm-production-database']));
+});
+
 const cloudinaryEnvironment = {
   CLOUDINARY_CLOUD_NAME: 'hummingbird-test-cloud',
   CLOUDINARY_API_KEY: '123456789012345',
