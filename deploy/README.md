@@ -20,18 +20,47 @@ variables. The PostgreSQL database and role are both named `hummingbird`.
 PostgreSQL and the application port listen locally; Nginx exposes HTTPS.
 Production needs neither a shadow database nor a test database.
 
-## Deploying an update
+## Automatic deployment
 
-1. Upload a new committed release into its own directory under `releases/`.
-2. Using the isolated Node.js runtime, run root `npm ci` and `npm run build` as
-   the `hummingbird` Linux user.
-3. Apply `npm run db:deploy` with the private production environment loaded.
-4. Point `current` at the completed release and restart only `hummingbird`.
-5. Check `/api/health`, article browsing, login and a refreshed article URL.
+Push changes to `main`. [GitHub Actions](https://github.com/TobiasAschenbrenner/hummingbird/actions/workflows/checks.yml)
+runs the frontend, backend, database and deployment tests and both builds.
+The VPS checks every two minutes and deploys the current `main` commit only after
+its push workflow passes. Other branches and failed checks do not deploy.
 
-Keep older releases for rollback. A code rollback does not reverse a database
-migration; review migration compatibility before deploying schema changes.
-Never copy a local `.env`, development database or `node_modules` into a release.
+Each release builds separately as the `hummingbird` user, applies migrations,
+then switches the running application. Version, frontend and database-backed API
+checks must pass; otherwise the previous application release is restored.
+A code rollback does not undo database migrations, so keep migrations compatible
+with the previous release. Deployment never resets or seeds the database.
+
+No VPS key, Cloudinary secret or production database password is stored in GitHub.
+The updater reads this public repository; making it private requires updating
+that access first. The deployed commit is visible at `/release.json`.
+
+```bash
+systemctl status hummingbird-deploy.timer
+journalctl -u hummingbird-deploy.service -n 50 --no-pager
+systemctl start hummingbird-deploy.service
+```
+
+To pause automatic updates, run `systemctl disable --now hummingbird-deploy.timer`.
+Re-enable them with `systemctl enable --now hummingbird-deploy.timer`.
+
+### Installing the updater
+
+After reviewing these files, install them from a checked-out release as root:
+
+```bash
+install -d -m 0755 /usr/local/lib/hummingbird
+install -m 0644 deploy/deploy.mjs /usr/local/lib/hummingbird/deploy.mjs
+install -m 0644 deploy/hummingbird-deploy.service deploy/hummingbird-deploy.timer /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now hummingbird-deploy.timer
+```
+
+The deployment controller is owned by root and is not automatically replaced
+with repository code. Changes to it require repeating the reviewed installation.
+Run its focused tests with `node --test deploy/*.test.mjs`.
 
 ## Loading example data
 

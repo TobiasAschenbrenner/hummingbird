@@ -1,0 +1,15 @@
+[Unit]
+Description=Deploy verified Hummingbird main releases
+Wants=network-online.target
+After=network-online.target postgresql.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/hummingbird/node/bin/node /usr/local/lib/hummingbird/deploy.mjs
+TimeoutStartSec=20min
+UMask=0022
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/srv/hummingbird

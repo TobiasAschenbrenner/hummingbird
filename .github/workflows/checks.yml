@@ -1,0 +1,59 @@
+name: Checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://hummingbird_rewrite:ci-only@127.0.0.1:5432/hummingbird_rewrite
+      SHADOW_DATABASE_URL: postgresql://hummingbird_rewrite:ci-only@127.0.0.1:5432/hummingbird_rewrite_shadow
+      TEST_DATABASE_URL: postgresql://hummingbird_rewrite:ci-only@127.0.0.1:5432/hummingbird_rewrite_test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Create disposable databases
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE hummingbird_rewrite LOGIN PASSWORD 'ci-only' NOSUPERUSER NOCREATEDB NOCREATEROLE;
+          CREATE DATABASE hummingbird_rewrite OWNER hummingbird_rewrite;
+          CREATE DATABASE hummingbird_rewrite_shadow OWNER hummingbird_rewrite;
+          CREATE DATABASE hummingbird_rewrite_test OWNER hummingbird_rewrite;
+          SQL
+      - run: npm ci
+      - run: npm run check
+      - run: npm run test:db
+      - run: node --test deploy/*.test.mjs
