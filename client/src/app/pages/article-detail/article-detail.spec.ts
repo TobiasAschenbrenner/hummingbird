@@ -86,19 +86,6 @@ describe('ArticleDetail', () => {
     pages.complete();
   });
 
-  it('preserves the originating list page and updates the back link without refetching', async () => {
-    http.expectOne('/api/articles/article-1').flush({ article: articleFixture() });
-    await fixture.whenStable();
-    expect(element.querySelector('.back-link')?.getAttribute('href')).toBe('/?page=2');
-    query.next(convertToParamMap({ page: '3' }));
-    await fixture.whenStable();
-    expect(element.querySelector('.back-link')?.getAttribute('href')).toBe('/?page=3');
-    query.next(convertToParamMap({ page: '0' }));
-    await fixture.whenStable();
-    expect(element.querySelector('.back-link')?.getAttribute('href')).toBe('/');
-    http.expectNone('/api/articles/article-1');
-  });
-
   it('renders angle brackets and script-like bodies as plain text', async () => {
     const body = '<img src=x onerror=alert(1)>\n\n<script>unsafe()</script>';
     http.expectOne('/api/articles/article-1').flush({ article: articleFixture({ body }) });
@@ -161,7 +148,7 @@ describe('ArticleDetail', () => {
     expect(element.querySelector('.article-body')).toBeNull();
   });
 
-  it('cancels the old slug request and clears stale content when the slug changes', async () => {
+  it('clears stale content and cancels pending requests on slug changes and destruction', async () => {
     const first = http.expectOne('/api/articles/article-1');
     params.next(convertToParamMap({ slug: 'article-2' }));
     expect(first.cancelled).toBe(true);
@@ -178,12 +165,10 @@ describe('ArticleDetail', () => {
       .expectOne('/api/articles/article-3')
       .flush({ article: articleFixture({ id: 3, slug: 'article-3', title: 'Article 3' }) });
     await fixture.whenStable();
-  });
-
-  it('cancels pending article loads when the page is destroyed', () => {
-    const request = http.expectOne('/api/articles/article-1');
+    params.next(convertToParamMap({ slug: 'article-4' }));
+    const pending = http.expectOne('/api/articles/article-4');
     fixture.destroy();
-    expect(request.cancelled).toBe(true);
+    expect(pending.cancelled).toBe(true);
   });
 
   it('shows the edit link only for the signed-in author and preserves the list page', async () => {
@@ -300,8 +285,20 @@ describe('ArticleDetail', () => {
       '/articles/article-1/edit?page=2&q=SQL&category=tech&tag=databases',
     );
     http.expectNone('/api/articles/article-1');
+    query.next(convertToParamMap({ page: '3', q: 'SQL', category: 'tech', tag: 'databases' }));
+    await fixture.whenStable();
+    expect(element.querySelector('.back-link')?.getAttribute('href')).toBe(
+      '/?page=3&q=SQL&category=tech&tag=databases',
+    );
+    expect(element.querySelector('a[href*="/edit"]')?.getAttribute('href')).toBe(
+      '/articles/article-1/edit?page=3&q=SQL&category=tech&tag=databases',
+    );
+    query.next(convertToParamMap({ page: '0' }));
+    await fixture.whenStable();
+    expect(element.querySelector('.back-link')?.getAttribute('href')).toBe('/');
     query.next(convertToParamMap({ q: ['one', 'two'] }));
     await fixture.whenStable();
     expect(element.querySelector('.back-link')?.getAttribute('href')).toBe('/');
+    http.expectNone('/api/articles/article-1');
   });
 });

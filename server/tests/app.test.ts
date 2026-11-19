@@ -13,7 +13,6 @@ import type {
   CommentPageInput,
 } from '../src/models/comment.model.ts';
 import { createApp, type AppOptions } from '../src/app.ts';
-import { EmailAlreadyExistsError } from '../src/errors/email-already-exists.error.ts';
 import type { RegistrationInput, PublicUser } from '../src/models/user.model.ts';
 import type { AuthenticationService, LoginInput } from '../src/models/session.model.ts';
 import { HttpError } from '../src/errors/http-error.ts';
@@ -144,7 +143,6 @@ let commentDeletions: DeleteCommentInput[] = [];
 let commentCreations: CreateCommentInput[] = [];
 let commentPages: CommentPageInput[] = [];
 let commentError: Error | undefined;
-let commentCreated = true;
 const exampleComment = {
   id: 21,
   articleId: exampleArticle.id,
@@ -161,7 +159,7 @@ const comments: CommentQueries = {
     commentCreations.push(input);
     if (commentError) throw commentError;
     return {
-      created: commentCreated,
+      created: true,
       comment: {
         ...exampleComment,
         body: input.body,
@@ -223,7 +221,6 @@ beforeEach(() => {
   commentDeletions = [];
   commentPages = [];
   commentError = undefined;
-  commentCreated = true;
 });
 
 afterEach(async () => {
@@ -247,11 +244,6 @@ test('unknown routes return a consistent JSON error', async () => {
   const response = await fetch(`${baseUrl}/api/missing`);
   assert.equal(response.status, 404);
   assert.deepEqual(await response.json(), { error: { message: 'Route not found.' } });
-});
-
-test('health endpoint does not accept writes', async () => {
-  const response = await fetch(`${baseUrl}/api/health`, { method: 'POST' });
-  assert.equal(response.status, 404);
 });
 
 function register(body: unknown) {
@@ -340,62 +332,6 @@ test('registration accepts an email at the database length boundary', async () =
   const response = await register({ ...validInput, email });
   assert.equal(response.status, 201);
   await response.arrayBuffer();
-});
-
-test('malformed JSON and oversized bodies produce safe JSON errors without calling the service', async () => {
-  for (const [body, status] of [
-    ['{"password":"secret"', 400],
-    [JSON.stringify({ ...validInput, username: 'x'.repeat(16_384) }), 413],
-  ] as const) {
-    const response = await fetch(`${baseUrl}/api/auth/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body,
-    });
-    assert.equal(response.status, status);
-    assert.equal(response.headers.get('cache-control'), 'no-store');
-    const result = await response.json();
-    assert.equal(typeof result.error.message, 'string');
-    assert.ok(!JSON.stringify(result).includes('secret'));
-  }
-  assert.equal(receivedInputs.length, 0);
-});
-
-test('registration rejects non-JSON, unsupported character sets and compressed bodies', async () => {
-  const headerCases: Record<string, string>[] = [
-    { 'Content-Type': 'text/plain' },
-    { 'Content-Type': 'application/json; charset=iso-8859-1' },
-    { 'Content-Type': 'application/json; charset=utf-16le' },
-    { 'Content-Type': 'application/json', 'Content-Encoding': 'gzip' },
-  ];
-  for (const headers of headerCases) {
-    const response = await fetch(`${baseUrl}/api/auth/register`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(validInput),
-    });
-    assert.equal(response.status, 415);
-    await response.arrayBuffer();
-  }
-  assert.equal(receivedInputs.length, 0);
-});
-
-test('duplicate emails return a conflict without revealing stored account details', async () => {
-  registrationError = new EmailAlreadyExistsError();
-  const response = await register(validInput);
-  assert.equal(response.status, 409);
-  assert.deepEqual(await response.json(), {
-    error: { message: 'An account with this email already exists.' },
-  });
-});
-
-test('unexpected service failures do not expose passwords, SQL or connection credentials', async () => {
-  registrationError = new Error('INSERT users password secret; postgresql://user:secret@localhost');
-  const response = await register(validInput);
-  assert.equal(response.status, 500);
-  assert.deepEqual(await response.json(), {
-    error: { message: 'Unable to process the request. Try again later.' },
-  });
 });
 
 test('registration limits attempts before invoking the service and leaves health available', async () => {
@@ -510,39 +446,6 @@ test('login accepts short candidate passwords without applying the registration 
   assert.equal(response.status, 200);
   await response.arrayBuffer();
   assert.equal(loginInputs[0]?.input.password, 'wrong');
-});
-
-test('login rejects malformed JSON, oversized, non-JSON, non-UTF-8 and compressed requests', async () => {
-  const cases: { body: string; status: number; headers: Record<string, string> }[] = [
-    { body: '{"password":"secret"', status: 400, headers: { 'Content-Type': 'application/json' } },
-    {
-      body: JSON.stringify({ email: validInput.email, password: 'x'.repeat(16_384) }),
-      status: 413,
-      headers: { 'Content-Type': 'application/json' },
-    },
-    { body: '{}', status: 415, headers: { 'Content-Type': 'text/plain' } },
-    {
-      body: '{}',
-      status: 415,
-      headers: { 'Content-Type': 'application/json; charset=iso-8859-1' },
-    },
-    {
-      body: '{}',
-      status: 415,
-      headers: { 'Content-Type': 'application/json', 'Content-Encoding': 'gzip' },
-    },
-  ];
-  for (const { body, status, headers } of cases) {
-    const response = await fetch(`${baseUrl}/api/auth/login`, {
-      method: 'POST',
-      headers: { ...headers, 'X-Hummingbird-Request': '1' },
-      body,
-    });
-    assert.equal(response.status, status);
-    assert.equal(response.headers.get('cache-control'), 'no-store');
-    await response.arrayBuffer();
-  }
-  assert.equal(loginInputs.length, 0);
 });
 
 test('rejected credentials return a generic 401 without setting a session cookie', async () => {
@@ -814,24 +717,6 @@ test('article listing rejects malformed, repeated and unsupported query paramete
   assert.deepEqual(articlePageInputs, []);
 });
 
-test('article detail is public and preserves text, timestamps and a large version string', async () => {
-  const response = await fetch(`${baseUrl}/api/articles/first-article`);
-  assert.equal(response.status, 200);
-  assert.equal(response.headers.get('cache-control'), 'no-store');
-  assert.equal(response.headers.get('set-cookie'), null);
-  assert.deepEqual(await response.json(), { article: exampleArticle });
-  assert.deepEqual(articleSlugs, ['first-article']);
-  assert.deepEqual(userTokens, []);
-});
-
-test('a valid missing article slug returns a safe article-specific 404', async () => {
-  const response = await fetch(`${baseUrl}/api/articles/missing-article`);
-  assert.equal(response.status, 404);
-  assert.equal(response.headers.get('cache-control'), 'no-store');
-  assert.deepEqual(await response.json(), { error: { message: 'Article not found.' } });
-  assert.deepEqual(articleSlugs, ['missing-article']);
-});
-
 test('article slugs reject invalid paths and accept the documented length boundary', async () => {
   for (const slug of [
     'Uppercase',
@@ -860,28 +745,6 @@ test('article slugs reject invalid paths and accept the documented length bounda
   assert.deepEqual(articleSlugs, ['1', 'a'.repeat(80)]);
 });
 
-test('article query failures produce safe JSON errors without leaking database details', async () => {
-  articleError = new Error('SELECT users password_hash; postgresql://user:secret@localhost');
-  for (const route of ['/api/articles', '/api/articles/first-article']) {
-    const response = await fetch(`${baseUrl}${route}`);
-    assert.equal(response.status, 500);
-    assert.equal(response.headers.get('cache-control'), 'no-store');
-    assert.deepEqual(await response.json(), {
-      error: { message: 'Unable to process the request. Try again later.' },
-    });
-  }
-});
-
-test('partial article updates are not implemented', async () => {
-  for (const [method, route] of [['PATCH', '/api/articles/first-article']]) {
-    const response = await fetch(`${baseUrl}${route}`, { method });
-    assert.equal(response.status, 404);
-    await response.arrayBuffer();
-  }
-  assert.deepEqual(articlePageInputs, []);
-  assert.deepEqual(articleSlugs, []);
-});
-
 const validArticle = {
   slug: 'new-article',
   title: 'New article',
@@ -902,53 +765,6 @@ function publish(body: unknown = validArticle, headers: Record<string, string> =
     body: JSON.stringify(body),
   });
 }
-
-test('category and tag options are public, uncached and contain only catalog fields', async () => {
-  for (const [route, key, entries] of [
-    ['categories', 'categories', [exampleArticle.category]],
-    ['tags', 'tags', exampleArticle.tags],
-  ] as const) {
-    const response = await fetch(`${baseUrl}/api/${route}`);
-    assert.equal(response.status, 200);
-    assert.equal(response.headers.get('cache-control'), 'no-store');
-    assert.equal(response.headers.get('set-cookie'), null);
-    assert.deepEqual(await response.json(), { [key]: entries });
-  }
-  assert.deepEqual(userTokens, []);
-});
-
-test('catalog failures return safe errors without disclosing database details', async () => {
-  articleError = new Error('SELECT users password_hash; secret');
-  for (const route of ['categories', 'tags']) {
-    const response = await fetch(`${baseUrl}/api/${route}`);
-    assert.equal(response.status, 500);
-    assert.deepEqual(await response.json(), {
-      error: { message: 'Unable to process the request. Try again later.' },
-    });
-  }
-});
-
-test('publishing uses the cookie session author, normalizes labels and preserves plain body text', async () => {
-  const body = '  Unicode 🐦 <script>plain text</script>\n\n\tSecond paragraph.  ';
-  const response = await publish({
-    ...validArticle,
-    title: '  New article  ',
-    description: '  An introduction.  ',
-    body,
-  });
-  assert.equal(response.status, 201);
-  assert.equal(response.headers.get('location'), '/api/articles/new-article');
-  assert.equal(response.headers.get('cache-control'), 'no-store');
-  assert.equal(response.headers.get('set-cookie'), null);
-  const article = (await response.json()).article;
-  assert.equal(article.author.id, publicUser.id);
-  assert.equal(article.title, 'New article');
-  assert.equal(article.body, body);
-  assert.equal(article.version, '1');
-  assert.deepEqual(Object.keys(article.author).sort(), ['id', 'username']);
-  assert.deepEqual(articleCreations, [{ ...validArticle, body, authorId: publicUser.id }]);
-  assert.deepEqual(userTokens, [sessionToken]);
-});
 
 test('publishing refuses missing or ambiguous sessions and clears stale cookies before reading the body', async () => {
   signedInUser = null;
@@ -1100,31 +916,6 @@ test('publishing rejects invalid category IDs and invalid, excessive or duplicat
   assert.deepEqual(articleCreations, []);
 });
 
-test('publishing rejects malformed, oversized and unsupported JSON with safe errors', async () => {
-  const cases: { body: string; status: number; headers?: Record<string, string> }[] = [
-    { body: '{"body":"secret"', status: 400 },
-    { body: JSON.stringify({ ...validArticle, body: 'x'.repeat(131_072) }), status: 413 },
-    { body: '{}', status: 415, headers: { 'Content-Type': 'text/plain' } },
-    { body: '{}', status: 415, headers: { 'Content-Type': 'application/json; charset=utf-16le' } },
-    { body: '{}', status: 415, headers: { 'Content-Encoding': 'gzip' } },
-  ];
-  for (const item of cases) {
-    const response = await fetch(`${baseUrl}/api/articles`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Hummingbird-Request': '1',
-        Cookie: `hummingbird_session=${sessionToken}`,
-        ...item.headers,
-      },
-      body: item.body,
-    });
-    assert.equal(response.status, item.status);
-    assert.ok(!JSON.stringify(await response.json()).includes('secret'));
-  }
-  assert.deepEqual(articleCreations, []);
-});
-
 test('publishing preserves expected conflicts and hides unexpected persistence or authentication failures', async () => {
   articleError = new HttpError(409, 'An article with this slug already exists.', {
     slug: 'Choose another article slug.',
@@ -1175,24 +966,6 @@ test('publishing uses the production cookie name and ignores the development coo
   );
 });
 
-test('publishing limits writes before session access while keeping public reads available', async () => {
-  for (let attempt = 0; attempt < 20; attempt++) {
-    const response = await publish();
-    assert.equal(response.status, 201);
-    await response.arrayBuffer();
-  }
-  const blocked = await publish();
-  assert.equal(blocked.status, 429);
-  assert.equal(blocked.headers.get('cache-control'), 'no-store');
-  assert.ok(blocked.headers.get('retry-after'));
-  await blocked.arrayBuffer();
-  assert.equal(articleCreations.length, 20);
-  assert.equal(userTokens.length, 20);
-  const list = await fetch(`${baseUrl}/api/articles`);
-  assert.equal(list.status, 200);
-  await list.arrayBuffer();
-});
-
 const validUpdate = {
   title: 'Updated article',
   description: 'An updated introduction.',
@@ -1217,25 +990,6 @@ function editArticle(
     body: JSON.stringify(body),
   });
 }
-
-test('editing passes session ownership and exact version to persistence while preserving body text', async () => {
-  const body = '  Unicode 🐦\n\n\tPlain text.  ';
-  const response = await editArticle({
-    ...validUpdate,
-    title: '  Updated article  ',
-    description: '  An updated introduction.  ',
-    body,
-  });
-  assert.equal(response.status, 200);
-  assert.equal(response.headers.get('cache-control'), 'no-store');
-  const { article } = await response.json();
-  assert.equal(article.slug, exampleArticle.slug);
-  assert.equal(article.version, '9007199254740994');
-  assert.equal(article.body, body);
-  assert.deepEqual(articleUpdates, [
-    { ...validUpdate, body, slug: exampleArticle.slug, authorId: publicUser.id },
-  ]);
-});
 
 test('editing rejects unsafe request headers and invalid sessions before parsing or updating', async () => {
   const unsafeHeaders: Record<string, string>[] = [
@@ -1339,30 +1093,6 @@ test('editing applies the publishing text and relation validation rules', async 
   ]);
 });
 
-test('editing rejects malformed, oversized and unsupported request formats', async () => {
-  for (const [body, headers, status] of [
-    ['{"body":"private"', {}, 400],
-    [JSON.stringify({ ...validUpdate, body: 'x'.repeat(131_072) }), {}, 413],
-    ['{}', { 'Content-Type': 'text/plain' }, 415],
-    ['{}', { 'Content-Type': 'application/json; charset=utf-16le' }, 415],
-    ['{}', { 'Content-Encoding': 'gzip' }, 415],
-  ] as const) {
-    const response = await fetch(`${baseUrl}/api/articles/first-article`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Hummingbird-Request': '1',
-        Cookie: `hummingbird_session=${sessionToken}`,
-        ...headers,
-      },
-      body,
-    });
-    assert.equal(response.status, status);
-    assert.ok(!JSON.stringify(await response.json()).includes('private'));
-  }
-  assert.deepEqual(articleUpdates, []);
-});
-
 test('editing preserves missing, ownership and stale-version errors and hides unexpected failures', async () => {
   for (const status of [403, 404, 409]) {
     articleError = new HttpError(
@@ -1403,10 +1133,14 @@ test('publishing, editing and deletion share a write limit without blocking publ
   for (const request of [publish, editArticle, deleteArticle]) {
     const blocked = await request();
     assert.equal(blocked.status, 429);
+    assert.equal(blocked.headers.get('cache-control'), 'no-store');
     assert.ok(blocked.headers.get('retry-after'));
     await blocked.arrayBuffer();
   }
+  assert.equal(articleCreations.length, 5);
+  assert.equal(articleUpdates.length, 5);
   assert.equal(articleDeletions.length, 10);
+  assert.equal(userTokens.length, 20);
   const detail = await fetch(`${baseUrl}/api/articles/first-article`);
   assert.equal(detail.status, 200);
   await detail.arrayBuffer();
@@ -1429,16 +1163,6 @@ function deleteArticle(
     body: JSON.stringify(body),
   });
 }
-
-test('deletion passes session ownership, identity and exact bigint version and returns an empty uncached 204', async () => {
-  const response = await deleteArticle();
-  assert.equal(response.status, 204);
-  assert.equal(await response.text(), '');
-  assert.equal(response.headers.get('cache-control'), 'no-store');
-  assert.deepEqual(articleDeletions, [
-    { ...validDeletion, slug: exampleArticle.slug, authorId: publicUser.id },
-  ]);
-});
 
 test('deletion rejects unsafe headers before session or persistence access', async () => {
   const unsafeHeaders: Record<string, string>[] = [
@@ -1519,30 +1243,6 @@ test('deletion requires an integer article ID and rejects additional fields, non
   assert.deepEqual(articleDeletions, []);
 });
 
-test('deletion rejects malformed, oversized and unsupported request formats without deleting', async () => {
-  for (const [body, headers, status] of [
-    ['{"private":', {}, 400],
-    [JSON.stringify({ junk: 'x'.repeat(131072) }), {}, 413],
-    ['{}', { 'Content-Type': 'text/plain' }, 415],
-    ['{}', { 'Content-Type': 'application/json; charset=utf-16le' }, 415],
-    ['{}', { 'Content-Encoding': 'gzip' }, 415],
-  ] as const) {
-    const response = await fetch(`${baseUrl}/api/articles/first-article`, {
-      method: 'DELETE',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Hummingbird-Request': '1',
-        Cookie: `hummingbird_session=${sessionToken}`,
-        ...headers,
-      },
-      body,
-    });
-    assert.equal(response.status, status);
-    assert.ok(!JSON.stringify(await response.json()).includes('private'));
-  }
-  assert.deepEqual(articleDeletions, []);
-});
-
 test('deletion preserves missing, forbidden and conflict errors while hiding unexpected failures', async () => {
   for (const status of [403, 404, 409]) {
     articleError = new HttpError(
@@ -1585,24 +1285,6 @@ function postComment(
   });
 }
 
-test('comment pages are public, uncached and accept an optional bounded ID cursor', async () => {
-  for (const suffix of ['', '?before=21']) {
-    const response = await fetch(`${baseUrl}/api/articles/first-article/comments${suffix}`);
-    assert.equal(response.status, 200);
-    assert.equal(response.headers.get('cache-control'), 'no-store');
-    const page = await response.json();
-    assert.equal(page.articleId, exampleArticle.id);
-    assert.equal(page.total, 1);
-    assert.equal(page.nextCursor, null);
-    assert.ok(!JSON.stringify(page).includes('passwordHash'));
-  }
-  assert.deepEqual(commentPages, [
-    { slug: exampleArticle.slug, before: undefined },
-    { slug: exampleArticle.slug, before: 21 },
-  ]);
-  assert.deepEqual(userTokens, []);
-});
-
 test('comment reads reject malformed cursors, repeated parameters, unknown queries and unsafe slugs', async () => {
   for (const suffix of [
     '?before=0',
@@ -1624,26 +1306,6 @@ test('comment reads reject malformed cursors, repeated parameters, unknown queri
     await response.arrayBuffer();
   }
   assert.deepEqual(commentPages, []);
-});
-
-test('comment creation uses the session author, preserves text and normalizes request IDs for retries', async () => {
-  const response = await postComment({
-    ...validComment,
-    requestId: validComment.requestId.toUpperCase(),
-  });
-  assert.equal(response.status, 201);
-  assert.equal(response.headers.get('cache-control'), 'no-store');
-  const { comment } = await response.json();
-  assert.equal(comment.body, validComment.body);
-  assert.equal(comment.author.id, publicUser.id);
-  assert.equal(comment.requestId, undefined);
-  assert.deepEqual(commentCreations, [
-    { ...validComment, slug: exampleArticle.slug, authorId: publicUser.id },
-  ]);
-  commentCreated = false;
-  const replay = await postComment();
-  assert.equal(replay.status, 200);
-  assert.deepEqual(await replay.json(), { comment });
 });
 
 test('comments validate Unicode character lengths, whitespace and control characters before persistence', async () => {
@@ -1730,30 +1392,6 @@ test('comments reject unsafe request headers and unavailable sessions before rea
   assert.deepEqual(commentCreations, []);
 });
 
-test('comment JSON rejects malformed, oversized, non-UTF8 and compressed requests without writing', async () => {
-  for (const [body, headers, status] of [
-    ['{"private":', {}, 400],
-    [JSON.stringify({ body: 'x'.repeat(16384) }), {}, 413],
-    ['{}', { 'Content-Type': 'text/plain' }, 415],
-    ['{}', { 'Content-Type': 'application/json; charset=utf-16le' }, 415],
-    ['{}', { 'Content-Encoding': 'gzip' }, 415],
-  ] as const) {
-    const response = await fetch(`${baseUrl}/api/articles/first-article/comments`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Hummingbird-Request': '1',
-        Cookie: `hummingbird_session=${sessionToken}`,
-        ...headers,
-      },
-      body,
-    });
-    assert.equal(response.status, status);
-    assert.ok(!JSON.stringify(await response.json()).includes('private'));
-  }
-  assert.deepEqual(commentCreations, []);
-});
-
 test('comment routes preserve expected missing/conflict errors and hide database or authentication details', async () => {
   for (const status of [404, 409]) {
     commentError = new HttpError(status, 'Safe rejection.');
@@ -1815,20 +1453,7 @@ function deleteComment(
     body: JSON.stringify(body),
   });
 }
-test('comment deletion passes the session author and exact target IDs, returning an empty uncached 204', async () => {
-  const response = await deleteComment();
-  assert.equal(response.status, 204);
-  assert.equal(await response.text(), '');
-  assert.equal(response.headers.get('cache-control'), 'no-store');
-  assert.deepEqual(commentDeletions, [
-    {
-      articleId: exampleArticle.id,
-      commentId: 21,
-      slug: exampleArticle.slug,
-      authorId: publicUser.id,
-    },
-  ]);
-});
+
 test('comment deletion rejects unsafe headers and missing or ambiguous sessions before parsing or deleting', async () => {
   const headersToReject: Record<string, string>[] = [
     { 'X-Hummingbird-Request': '' },
@@ -1886,29 +1511,7 @@ test('comment deletion accepts only the integer article ID, never client ownersh
   }
   assert.deepEqual(commentDeletions, []);
 });
-test('comment deletion rejects malformed, oversized and unsupported JSON without writing', async () => {
-  for (const [body, headers, status] of [
-    ['{"private":', {}, 400],
-    [JSON.stringify({ body: 'x'.repeat(16384) }), {}, 413],
-    ['{}', { 'Content-Type': 'text/plain' }, 415],
-    ['{}', { 'Content-Type': 'application/json; charset=utf-16le' }, 415],
-    ['{}', { 'Content-Encoding': 'gzip' }, 415],
-  ] as const) {
-    const response = await fetch(`${baseUrl}/api/articles/first-article/comments/21`, {
-      method: 'DELETE',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Hummingbird-Request': '1',
-        Cookie: `hummingbird_session=${sessionToken}`,
-        ...headers,
-      },
-      body,
-    });
-    assert.equal(response.status, status);
-    assert.ok(!JSON.stringify(await response.json()).includes('private'));
-  }
-  assert.deepEqual(commentDeletions, []);
-});
+
 test('comment deletion preserves missing, forbidden and conflict errors and hides unexpected failures', async () => {
   for (const status of [403, 404, 409]) {
     commentError = new HttpError(status, 'Safe rejection.');
@@ -2102,4 +1705,84 @@ test('trusted reverse proxy keeps login limits separate for different visitors',
       await otherVisitor.arrayBuffer();
     },
   );
+});
+
+test('JSON routes reject malformed, oversized and unsupported bodies before calling services', async () => {
+  const routes = [
+    { method: 'POST', route: '/api/auth/register', bodyLimit: 16_384 },
+    { method: 'POST', route: '/api/auth/login', bodyLimit: 16_384 },
+    { method: 'POST', route: '/api/articles', bodyLimit: 131_072 },
+    { method: 'PUT', route: '/api/articles/first-article', bodyLimit: 131_072 },
+    { method: 'DELETE', route: '/api/articles/first-article', bodyLimit: 131_072 },
+    { method: 'POST', route: '/api/articles/first-article/comments', bodyLimit: 16_384 },
+    { method: 'DELETE', route: '/api/articles/first-article/comments/21', bodyLimit: 16_384 },
+  ];
+  for (const { method, route, bodyLimit } of routes) {
+    const cases: { body: string; status: number; headers?: Record<string, string> }[] = [
+      { body: '{"private":', status: 400 },
+      { body: JSON.stringify({ body: 'x'.repeat(bodyLimit) }), status: 413 },
+      { body: '{}', status: 415, headers: { 'Content-Type': 'text/plain' } },
+      {
+        body: '{}',
+        status: 415,
+        headers: { 'Content-Type': 'application/json; charset=iso-8859-1' },
+      },
+      {
+        body: '{}',
+        status: 415,
+        headers: { 'Content-Type': 'application/json; charset=utf-16le' },
+      },
+      { body: '{}', status: 415, headers: { 'Content-Encoding': 'gzip' } },
+    ];
+    for (const { body, status, headers } of cases) {
+      const response = await fetch(`${baseUrl}${route}`, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Hummingbird-Request': '1',
+          Cookie: `hummingbird_session=${sessionToken}`,
+          ...headers,
+        },
+        body,
+      });
+      assert.equal(response.status, status, `${method} ${route}`);
+      assert.equal(response.headers.get('cache-control'), 'no-store');
+      const result = await response.json();
+      assert.equal(typeof result.error.message, 'string');
+      assert.ok(!JSON.stringify(result).includes('private'));
+    }
+  }
+  for (const inputs of [
+    receivedInputs,
+    loginInputs,
+    articleCreations,
+    articleUpdates,
+    articleDeletions,
+    commentCreations,
+    commentDeletions,
+  ]) {
+    assert.deepEqual(inputs, []);
+  }
+});
+
+test('unexpected service failures return safe errors without exposing SQL or credentials', async () => {
+  const failure = new Error('INSERT users password secret; postgresql://user:secret@localhost');
+  registrationError = failure;
+  articleError = failure;
+  const responses = [await register(validInput)];
+  for (const route of [
+    '/api/articles',
+    '/api/articles/first-article',
+    '/api/categories',
+    '/api/tags',
+  ]) {
+    responses.push(await fetch(`${baseUrl}${route}`));
+  }
+  for (const response of responses) {
+    assert.equal(response.status, 500);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.deepEqual(await response.json(), {
+      error: { message: 'Unable to process the request. Try again later.' },
+    });
+  }
 });

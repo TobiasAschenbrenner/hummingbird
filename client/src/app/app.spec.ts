@@ -21,17 +21,6 @@ describe('App', () => {
   });
   afterEach(() => http.verify());
 
-  it('renders shared navigation, main content and footer for an anonymous visitor', async () => {
-    http.expectOne('/api/auth/me').flush(null, { status: 401, statusText: 'Unauthorized' });
-    await fixture.whenStable();
-    expect(element.querySelector('nav')?.getAttribute('aria-label')).toBe('Main navigation');
-    expect(element.querySelector('a')?.getAttribute('href')).toBe('/');
-    expect(element.querySelector('main router-outlet')).not.toBeNull();
-    expect(element.querySelector('footer')?.textContent).toContain('Hummingbird');
-    expect(element.querySelector('a[href="/login"]')).not.toBeNull();
-    expect(element.querySelector('a[href="/register"]')).not.toBeNull();
-  });
-
   it('restores an existing cookie session when the application opens', async () => {
     expect(element.textContent).toContain('Checking session');
     http

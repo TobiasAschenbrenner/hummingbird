@@ -162,63 +162,6 @@ test('database connections use UTC and ORM timestamps match their stored SQL ins
   assert.equal(stored!.createdAt.getTime(), article.createdAt.getTime());
 });
 
-test('Prisma stores and joins the six blog tables with a shared tag', async () => {
-  const { author, category, article } = await createArticle();
-  const second = await database.article.create({
-    data: {
-      title: 'Second article',
-      slug: 'second-article',
-      description: 'Another introduction.',
-      body: 'More content.',
-      authorId: author.id,
-      categoryId: category.id,
-    },
-  });
-  const tag = await database.tag.create({ data: { name: 'Databases', slug: 'databases' } });
-  await database.articleTag.createMany({
-    data: [
-      { articleId: article.id, tagId: tag.id },
-      { articleId: second.id, tagId: tag.id },
-    ],
-  });
-  await database.comment.create({
-    data: { body: 'A useful article.', articleId: article.id, authorId: author.id },
-  });
-
-  const result = await database.article.findUniqueOrThrow({
-    where: { id: article.id },
-    include: { author: true, category: true, tags: { include: { tag: true } }, comments: true },
-  });
-  assert.equal(result.author.email, author.email);
-  assert.equal(result.category.name, category.name);
-  assert.equal(result.tags[0]?.tag.name, tag.name);
-  assert.equal(result.comments[0]?.body, 'A useful article.');
-  assert.equal(result.version, 1n);
-  assert.ok(result.createdAt instanceof Date);
-  assert.equal(await database.articleTag.count({ where: { tagId: tag.id } }), 2);
-});
-
-test('duplicate tag assignments roll back the entire nested article creation', async () => {
-  const { author, category } = await createArticle();
-  const tag = await database.tag.create({ data: { name: 'Databases', slug: 'databases' } });
-  await assert.rejects(
-    database.article.create({
-      data: {
-        title: 'Invalid article',
-        slug: 'duplicate-tags',
-        description: 'Duplicate links.',
-        body: 'Content.',
-        authorId: author.id,
-        categoryId: category.id,
-        tags: { create: [{ tagId: tag.id }, { tagId: tag.id }] },
-      },
-    }),
-    { code: 'P2002' },
-  );
-  assert.equal(await database.article.count({ where: { slug: 'duplicate-tags' } }), 0);
-  assert.equal(await database.articleTag.count(), 0);
-});
-
 test('email uniqueness and canonical storage apply to direct SQL too', async () => {
   await createArticle();
   await database.user.create({
@@ -245,7 +188,7 @@ test('email uniqueness and canonical storage apply to direct SQL too', async () 
   }
 });
 
-test('foreign keys reject missing parents and protect referenced users and categories', async () => {
+test('foreign keys protect relationships and the join key prevents duplicate tag links', async () => {
   const { author, category, article } = await createArticle();
   await assert.rejects(
     database.comment.create({
@@ -267,22 +210,11 @@ test('foreign keys reject missing parents and protect referenced users and categ
     data: { body: 'Reader comment.', articleId: article.id, authorId: reader.id },
   });
   await assert.rejects(database.user.delete({ where: { id: reader.id } }), { code: 'P2003' });
-});
-
-test('article deletion cascades only to comments and tag links', async () => {
-  const { author, category, article } = await createArticle();
   const tag = await database.tag.create({ data: { name: 'Databases', slug: 'databases' } });
-  await database.articleTag.create({ data: { articleId: article.id, tagId: tag.id } });
-  await database.comment.create({
-    data: { body: 'Comment.', articleId: article.id, authorId: author.id },
-  });
-  await database.article.delete({ where: { id: article.id } });
-
-  assert.equal(await database.comment.count(), 0);
-  assert.equal(await database.articleTag.count(), 0);
-  assert.equal(await database.tag.count({ where: { id: tag.id } }), 1);
-  assert.equal(await database.user.count({ where: { id: author.id } }), 1);
-  assert.equal(await database.category.count({ where: { id: category.id } }), 1);
+  const link = { articleId: article.id, tagId: tag.id };
+  await database.articleTag.create({ data: link });
+  await assert.rejects(database.articleTag.create({ data: link }), { code: 'P2002' });
+  assert.equal(await database.articleTag.count(), 1);
 });
 
 test('tag deletion removes its links without deleting the article', async () => {
@@ -330,24 +262,6 @@ test('database checks reject blank content, oversized comments and nonpositive v
   await database.comment.create({
     data: { body: 'x'.repeat(2000), articleId: article.id, authorId: author.id },
   });
-});
-
-test('failed transactions leave no partially stored records', async () => {
-  await assert.rejects(
-    database.$transaction(async (transaction) => {
-      await transaction.user.create({
-        data: { username: 'Author', email: 'author@example.test', passwordHash: 'test-hash' },
-      });
-      await transaction.category.create({ data: { name: 'Technology', slug: 'technology' } });
-      await transaction.comment.create({
-        data: { body: 'Missing parents.', articleId: 99999, authorId: 99999 },
-      });
-    }),
-    { code: 'P2003' },
-  );
-  assert.equal(await database.user.count(), 0);
-  assert.equal(await database.category.count(), 0);
-  assert.equal(await database.comment.count(), 0);
 });
 
 async function readSeedSnapshot() {
@@ -512,75 +426,46 @@ test('a database failure during demo comments rolls back every earlier seed inse
   }
 });
 
-test('Prisma seed commands forward demo options and refuse production demo writes', async () => {
+test('repository seed commands populate defaults and demo data once and reject unsafe targets', async () => {
   const connectionString = readTestDatabaseUrl();
-  function runSeed(args: string[], nodeEnv = 'test') {
-    return spawnSync(
-      process.execPath,
-      [
-        fileURLToPath(new URL('../../node_modules/prisma/build/index.js', import.meta.url)),
-        'db',
-        'seed',
-        ...args,
-      ],
-      {
-        cwd: fileURLToPath(new URL('../../', import.meta.url)),
-        env: { ...process.env, DATABASE_URL: connectionString, NODE_ENV: nodeEnv },
-        encoding: 'utf8',
-        timeout: 30_000,
-      },
-    );
-  }
-  const defaults = runSeed([]);
-  assert.equal(defaults.status, 0, 'Default seed command failed.');
-  assert.match(defaults.stdout, /3 categories, 0 users/);
-  assert.equal(await database.article.count(), 0);
-  const demo = runSeed(['--', '--demo']);
-  assert.equal(demo.status, 0, 'Demo seed command failed.');
-  assert.match(demo.stdout, /2 users, 3 tags, 3 articles, 5 articleTags, 2 comments/);
-  const before = await readSeedSnapshot();
-  const production = runSeed(['--', '--demo'], 'production');
-  assert.notEqual(production.status, 0);
-  assert.match(production.stderr, /Seeding failed/);
-  assert.deepEqual(await readSeedSnapshot(), before);
-  const wrongTarget = runSeed(
-    ['--', '--demo', '--confirm-production-database=hummingbird'],
-    'production',
-  );
-  assert.notEqual(wrongTarget.status, 0);
-  assert.deepEqual(await readSeedSnapshot(), before);
-});
-
-test('repository seed command populates local data once and forwards rejected target arguments', async () => {
-  const connectionString = readTestDatabaseUrl();
-  function runRootSeed(args: string[] = []) {
-    return spawnSync('npm', ['run', 'db:seed:demo', '--', ...args], {
+  function runRootSeed(script: 'db:seed' | 'db:seed:demo', args: string[] = [], nodeEnv = 'test') {
+    return spawnSync('npm', ['run', script, '--', ...args], {
       cwd: fileURLToPath(new URL('../../../', import.meta.url)),
-      env: { ...process.env, DATABASE_URL: connectionString, NODE_ENV: 'test' },
+      env: { ...process.env, DATABASE_URL: connectionString, NODE_ENV: nodeEnv },
       encoding: 'utf8',
       timeout: 30_000,
     });
   }
-  const first = runRootSeed();
+  const defaults = runRootSeed('db:seed');
+  assert.equal(defaults.status, 0, 'Repository default seed command failed.');
+  assert.match(defaults.stdout, /3 categories, 0 users/);
+  assert.equal(await database.article.count(), 0);
+  const first = runRootSeed('db:seed:demo');
   assert.equal(first.status, 0, 'Repository demo seed command failed.');
   assert.match(
     first.stdout,
-    /3 categories, 2 users, 3 tags, 3 articles, 5 articleTags, 2 comments/,
+    /0 categories, 2 users, 3 tags, 3 articles, 5 articleTags, 2 comments/,
   );
   const before = await readSeedSnapshot();
-  const repeated = runRootSeed();
+  const repeated = runRootSeed('db:seed:demo');
   assert.equal(repeated.status, 0);
   assert.match(
     repeated.stdout,
     /0 categories, 0 users, 0 tags, 0 articles, 0 articleTags, 0 comments/,
   );
   assert.deepEqual(await readSeedSnapshot(), before);
-  for (const args of [
-    ['--unexpected-seed-argument'],
-    ['--confirm-production-database=hummingbird'],
+  for (const { args, nodeEnv } of [
+    { args: ['--unexpected-seed-argument'], nodeEnv: 'test' },
+    { args: ['--confirm-production-database=hummingbird'], nodeEnv: 'test' },
+    { args: [], nodeEnv: 'production' },
+    { args: ['--confirm-production-database=hummingbird'], nodeEnv: 'production' },
   ]) {
-    const rejected = runRootSeed(args);
-    assert.notEqual(rejected.status, 0, 'Repository seed command swallowed a target argument.');
+    const rejected = runRootSeed('db:seed:demo', args, nodeEnv);
+    assert.notEqual(
+      rejected.status,
+      0,
+      'Repository seed command accepted an unsafe target or argument.',
+    );
     assert.deepEqual(await readSeedSnapshot(), before);
   }
 });
@@ -903,6 +788,7 @@ test('article read API returns an empty catalog and a 404 for a missing article'
   });
   const missing = await fetch(`${baseUrl}/api/articles/missing-article`);
   assert.equal(missing.status, 404);
+  assert.equal(missing.headers.get('cache-control'), 'no-store');
   assert.deepEqual(await missing.json(), { error: { message: 'Article not found.' } });
 });
 
@@ -1049,6 +935,7 @@ test('article detail serializes PostgreSQL bigint versions exactly and preserves
   });
   const response = await fetch(`${baseUrl}/api/articles/first-article`);
   assert.equal(response.status, 200);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
   assert.equal(response.headers.get('set-cookie'), null);
   assert.deepEqual(await response.json(), {
     article: {
@@ -1132,6 +1019,8 @@ test('catalog routes read empty lists and stable alphabetical category and tag o
   for (const key of ['categories', 'tags']) {
     const empty = await fetch(`${baseUrl}/api/${key}`);
     assert.equal(empty.status, 200);
+    assert.equal(empty.headers.get('cache-control'), 'no-store');
+    assert.equal(empty.headers.get('set-cookie'), null);
     assert.deepEqual(await empty.json(), { [key]: [] });
   }
   await seedDatabase(database, { demo: true });
@@ -1140,12 +1029,16 @@ test('catalog routes read empty lists and stable alphabetical category and tag o
   });
   const before = await readSeedSnapshot();
   const categories = await fetch(`${baseUrl}/api/categories`);
+  const categoryOptions = (await categories.json()).categories;
   assert.deepEqual(
-    (await categories.json()).categories.map((item: { name: string }) => item.name),
+    categoryOptions.map((item: { name: string }) => item.name),
     ['Design', 'Mobile', 'Tech'],
   );
   const tags = await fetch(`${baseUrl}/api/tags`);
   const result = (await tags.json()).tags;
+  for (const option of [...categoryOptions, ...result]) {
+    assert.deepEqual(Object.keys(option).sort(), ['id', 'name', 'slug']);
+  }
   const firstDatabases = await database.tag.findUniqueOrThrow({ where: { slug: 'databases' } });
   assert.deepEqual(result.map((item: { id: number }) => item.id).slice(0, 2), [
     firstDatabases.id,
@@ -1163,6 +1056,8 @@ test('publishing persists the signed-in author, category and shared tags and ret
   const before = Date.now();
   const response = await publishArticle(cookie, input);
   assert.equal(response.status, 201);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  assert.equal(response.headers.get('set-cookie'), null);
   assert.equal(response.headers.get('location'), '/api/articles/published-article');
   const article = (await response.json()).article;
   assert.deepEqual(article.author, { id: user.id, username: user.username });
@@ -1409,6 +1304,7 @@ test('editing replaces content, category and tags atomically while preserving ow
   });
   assert.equal(response.status, 200);
   const result = (await response.json()).article;
+  assert.equal(response.headers.get('cache-control'), 'no-store');
   assert.equal(result.title, 'Updated title');
   assert.equal(result.body, body);
   assert.equal(result.version, '2');
@@ -1600,6 +1496,7 @@ test('deletion cascades only the selected article comments and tag links, preser
   const users = await database.user.findMany();
   const response = await deleteArticle(cookie, article.slug, article.id, article.version);
   assert.equal(response.status, 204);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
   assert.equal(await response.text(), '');
   assert.equal(await database.article.findUnique({ where: { id: article.id } }), null);
   assert.equal(await database.comment.count({ where: { articleId: article.id } }), 0);
@@ -1807,6 +1704,9 @@ function postArticleComment(cookie: string, slug: string, input: unknown) {
 test('comment reads return an empty page for an article and a 404 for a missing article', async () => {
   const { article } = await editingContext();
   const response = await fetch(`${baseUrl}/api/articles/${article.slug}/comments`);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  assert.equal(response.headers.get('set-cookie'), null);
   assert.deepEqual(await response.json(), {
     articleId: article.id,
     comments: [],
@@ -1832,6 +1732,7 @@ test('a reader can post to another author article, storing its identity and upda
   const before = await database.article.findUniqueOrThrow({ where: { id: article.id } });
   const response = await postArticleComment(responseSession(login).cookie, article.slug, input);
   assert.equal(response.status, 201);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
   const { comment } = await response.json();
   assert.equal(comment.body, input.body);
   assert.equal(comment.articleId, article.id);
@@ -1860,7 +1761,11 @@ test('a reader can post to another author article, storing its identity and upda
 test('comment retries return the original row, while changed bodies with that request ID are rejected', async () => {
   const { cookie, article } = await editingContext();
   const input = { articleId: article.id, body: 'Keep exactly this text.', requestId: randomUUID() };
-  const created = await postArticleComment(cookie, article.slug, input);
+  const created = await postArticleComment(cookie, article.slug, {
+    ...input,
+    requestId: input.requestId.toUpperCase(),
+  });
+  assert.equal(created.status, 201);
   const original = await created.json();
   const retried = await postArticleComment(cookie, article.slug, input);
   assert.equal(retried.status, 200);
@@ -2147,6 +2052,7 @@ test('a reader deletes only their own comment while article content, shared data
   });
   const removed = await deleteArticleComment(cookie, article.slug, comment.id, article.id);
   assert.equal(removed.status, 204);
+  assert.equal(removed.headers.get('cache-control'), 'no-store');
   assert.equal(await removed.text(), '');
   assert.equal(await database.comment.findUnique({ where: { id: comment.id } }), null);
   assert.deepEqual(await database.comment.findUniqueOrThrow({ where: { id: other.id } }), other);

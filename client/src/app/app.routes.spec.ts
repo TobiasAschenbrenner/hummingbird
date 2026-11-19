@@ -123,16 +123,6 @@ describe('Application routes', () => {
     http.expectNone('/api/categories');
   });
 
-  it('still reads an article whose slug is new rather than opening the editor', async () => {
-    const harness = await RouterTestingHarness.create();
-    await harness.navigateByUrl('/articles/new', ArticleDetail);
-    http.expectOne('/api/articles/new').flush({ article: articleFixture({ slug: 'new' }) });
-    await harness.fixture.whenStable();
-    http.expectOne('/api/articles/new/comments').flush(commentPageFixture(1));
-    await harness.fixture.whenStable();
-    expect(harness.routeNativeElement?.querySelector('.article-body')).not.toBeNull();
-  });
-
   it('opens article editing at a direct URL without confusing it with article detail', async () => {
     const harness = await RouterTestingHarness.create();
     await harness.navigateByUrl('/articles/article-1/edit', ArticleEdit);

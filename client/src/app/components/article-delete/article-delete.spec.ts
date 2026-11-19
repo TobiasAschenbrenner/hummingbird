@@ -30,11 +30,9 @@ describe('ArticleDelete', () => {
     button('Delete article').click();
     await fixture.whenStable();
   }
-  async function reject(status: number): Promise<void> {
+  async function respondToDeletion(status: number, body = 'private SQL details'): Promise<void> {
     confirm();
-    http
-      .expectOne('/api/articles/article-1')
-      .flush('private SQL details', { status, statusText: 'Rejected' });
+    http.expectOne('/api/articles/article-1').flush(body, { status, statusText: 'Response' });
     await fixture.whenStable();
   }
   beforeEach(async () => {
@@ -109,7 +107,7 @@ describe('ArticleDelete', () => {
   it('blocks stale deletion until a reload and fresh explicit confirmation', async () => {
     await session();
     await open();
-    await reject(409);
+    await respondToDeletion(409);
     expect(element.textContent).toContain('This article changed');
     expect(button('Permanently delete').disabled).toBe(true);
     confirm();
@@ -133,13 +131,13 @@ describe('ArticleDelete', () => {
     await fixture.whenStable();
   });
 
-  it('treats server and network failures as uncertain without leaking details or repeating a request', async () => {
-    for (const status of [500, 0]) {
+  it('requires review after server, network or unexpected success responses without repeating deletion', async () => {
+    for (const status of [500, 0, 200]) {
       fixture.componentRef.setInput('article', articleFixture());
       await fixture.whenStable();
       await session();
       await open();
-      await reject(status);
+      await respondToDeletion(status, status === 200 ? '' : 'private SQL details');
       expect(element.textContent).toContain('We couldn’t confirm deletion');
       expect(element.textContent).not.toContain('private SQL');
       expect(button('Permanently delete').disabled).toBe(true);
@@ -149,21 +147,10 @@ describe('ArticleDelete', () => {
     }
   });
 
-  it('requires review for an unexpected success status instead of claiming deletion', async () => {
-    await session();
-    await open();
-    confirm();
-    http.expectOne('/api/articles/article-1').flush('', { status: 200, statusText: 'OK' });
-    await fixture.whenStable();
-    expect(element.textContent).toContain('We couldn’t confirm deletion');
-    expect(button('Permanently delete').disabled).toBe(true);
-    expect(removed).not.toHaveBeenCalled();
-  });
-
   it('keeps the expired-session explanation and requires author login and a reload', async () => {
     await session();
     await open();
-    await reject(401);
+    await respondToDeletion(401);
     expect(auth.status()).toBe('anonymous');
     expect(element.textContent).toContain('Your session expired');
     expect(element.querySelector('a')?.getAttribute('target')).toBe('_blank');
@@ -182,7 +169,7 @@ describe('ArticleDelete', () => {
   it('reports an already missing article separately from a confirmed deletion', async () => {
     await session();
     await open();
-    await reject(404);
+    await respondToDeletion(404);
     expect(removed).toHaveBeenCalledExactlyOnceWith('not-found');
     expect(element.querySelector('button')).toBeNull();
   });
@@ -190,7 +177,7 @@ describe('ArticleDelete', () => {
   it('blocks a forbidden deletion and requires reloading even if local ownership still matches', async () => {
     await session();
     await open();
-    await reject(403);
+    await respondToDeletion(403);
     expect(element.textContent).toContain('You cannot delete this article');
     expect(button('Permanently delete').disabled).toBe(true);
     confirm();
@@ -200,7 +187,7 @@ describe('ArticleDelete', () => {
   it('permits only an explicit retry after the write limit rejects a request', async () => {
     await session();
     await open();
-    await reject(429);
+    await respondToDeletion(429);
     expect(element.textContent).toContain('Wait a minute');
     expect(button('Permanently delete').disabled).toBe(false);
     http.expectNone((request) => request.method === 'DELETE');
@@ -218,7 +205,7 @@ describe('ArticleDelete', () => {
       await fixture.whenStable();
       await session();
       await open();
-      await reject(status);
+      await respondToDeletion(status);
       expect(button('Permanently delete').disabled).toBe(true);
       expect(button('Reload article')).toBeDefined();
       expect(element.textContent).not.toContain('private SQL');
@@ -228,7 +215,7 @@ describe('ArticleDelete', () => {
   it('cannot bypass a stale confirmation by cancelling and reopening', async () => {
     await session();
     await open();
-    await reject(409);
+    await respondToDeletion(409);
     button('Cancel').click();
     await fixture.whenStable();
     expect(button('Delete article').disabled).toBe(true);

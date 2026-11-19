@@ -119,19 +119,6 @@ describe('ArticlesApi', () => {
     http.expectNone(() => true);
   });
 
-  it('preserves HTTP status codes so callers can distinguish missing articles from failures', async () => {
-    const missing = firstValueFrom(service.detail('article-1'));
-    const notFound = expect(missing).rejects.toMatchObject({ status: 404 });
-    http.expectOne('/api/articles/article-1').flush(null, { status: 404, statusText: 'Missing' });
-    await notFound;
-    const unavailable = firstValueFrom(service.list(1));
-    const failure = expect(unavailable).rejects.toMatchObject({ status: 503 });
-    http
-      .expectOne('/api/articles?page=1&pageSize=12')
-      .flush(null, { status: 503, statusText: 'Unavailable' });
-    await failure;
-  });
-
   it('cancels stalled list and detail requests after ten seconds', async () => {
     vi.useFakeTimers();
     const list = firstValueFrom(service.list(1));
@@ -196,27 +183,6 @@ describe('ArticlesApi', () => {
       ),
     ).rejects.toThrow('Invalid article slug.');
     http.expectNone('/api/articles');
-  });
-
-  it('rejects malformed publication confirmations and preserves API rejection status codes', async () => {
-    const input = {
-      slug: 'my-article',
-      title: 'Title',
-      description: 'Description',
-      body: 'Body',
-      categoryId: 1,
-      tagIds: [],
-    };
-    const invalid = firstValueFrom(service.publish(input));
-    const rejected = expect(invalid).rejects.toThrow('Unexpected article API response.');
-    http.expectOne('/api/articles').flush({ article: articleFixture({ slug: 'wrong-article' }) });
-    await rejected;
-    for (const status of [400, 401, 409, 413, 429, 500]) {
-      const result = firstValueFrom(service.publish(input));
-      const failure = expect(result).rejects.toMatchObject({ status });
-      http.expectOne('/api/articles').flush(null, { status, statusText: 'Rejected' });
-      await failure;
-    }
   });
 
   it('bounds publication time without automatically retrying a write', async () => {

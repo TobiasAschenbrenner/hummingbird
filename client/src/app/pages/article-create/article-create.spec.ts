@@ -349,10 +349,12 @@ describe('ArticleCreate', () => {
     expect(element.querySelector('a[href="/articles/my-first-sql-post"]')).not.toBeNull();
     expect(publishButton().disabled).toBe(false);
     http.expectNone('/api/articles');
-    submit();
-    http.expectOne('/api/articles').flush({ article: { id: 1 } });
-    await fixture.whenStable();
-    expect(element.textContent).toContain('couldn’t confirm publication');
+    for (const article of [{ id: 1 }, articleFixture({ slug: 'wrong-article' })]) {
+      submit();
+      http.expectOne('/api/articles').flush({ article });
+      await fixture.whenStable();
+      expect(element.textContent).toContain('couldn’t confirm publication');
+    }
   });
 
   it('explains rejected, oversized and rate-limited requests without revealing internal messages', async () => {
