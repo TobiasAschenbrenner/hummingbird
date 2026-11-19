@@ -1,4 +1,4 @@
-# Hummingbird 🐦
+# Hummingbird 🪽
 
 Hummingbird is a blogging web application built with Angular, Express and PostgreSQL.\
 It allows users to publish articles, browse posts and join discussions.
@@ -41,11 +41,6 @@ A live version of the application is available at:\
 - PostgreSQL (Prisma ORM)
 - Cloudinary (image uploads)
 - Node.js built-in test runner
-
-### Development and Deployment
-
-- Prettier
-- Hostinger VPS
 
 ---
 
