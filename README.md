@@ -1,40 +1,63 @@
 # Hummingbird 🐦
 
-Hummingbird is a blogging application built with Angular, Express and PostgreSQL.
-Readers can browse articles, while registered users can publish posts and join the discussion.
+Hummingbird is a blogging web application built with Angular, Express and PostgreSQL.\
+It allows users to publish articles, browse posts and join discussions.
 
-👉 [Live application](https://hummingbird.chirp.blog)
+---
+
+## 🌍 Live Demo
+
+A live version of the application is available at:\
+👉 [https://hummingbird.chirp.blog](https://hummingbird.chirp.blog)
 
 ---
 
 ## ✨ Features
 
-- Register, log in, and log out
-- Create, edit, and delete your own articles with cover images
+- Register, log in and log out
+- Create, edit and delete your own articles
 - Organize articles with categories and tags
 - Search and filter articles with pagination
-- Post comments and delete your own comments
+- Comment on articles and delete your own comments
+- Image uploads via Cloudinary
 - Responsive frontend
 
 ---
 
 ## 🛠 Tech Stack
 
-- **Frontend:** Angular, TypeScript and SCSS
-- **Backend:** Node.js, Express and TypeScript
-- **Database:** PostgreSQL and Prisma ORM
-- **Images:** Cloudinary
+### Frontend
+
+- Angular
+- TypeScript
+- SCSS
+- RxJS
+- Vitest
+
+### Backend
+
+- Node.js
+- Express
+- PostgreSQL (Prisma ORM)
+- Cloudinary (image uploads)
+- Node.js built-in test runner
+
+### Development and Deployment
+
+- Prettier
+- Hostinger VPS
 
 ---
 
 ## 📁 Project Structure
 
-```text
+```bash
 hummingbird/
-├── client/            # Angular frontend
-├── server/            # Express API, Prisma migrations and database tests
-├── postman/           # API request collections
-└── deploy/            # Hostinger service, HTTPS proxy and cleanup timer
+├── client/                 # Angular frontend
+├── server/                 # Express API, Prisma schema and seed script
+├── docs/                   # Data model diagram
+├── postman/                # API request collections
+└── deploy/                 # Hostinger VPS configuration
 ```
 
 ---
@@ -43,107 +66,84 @@ hummingbird/
 
 ### Prerequisites
 
-- Node.js 24 (24.12.0 or newer) and npm; use nvm with the included `.nvmrc`
-- A running PostgreSQL server
-- Cloudinary credentials for optional cover uploads
-
-Run these commands from the repository root:
-
-```bash
-nvm install
-nvm use
-npm ci
-```
+- Node.js 24 (24.12.0 or newer)
+- npm
+- PostgreSQL server
+- Cloudinary account (for image uploads)
 
 ---
 
 ## 🔧 Environment Variables
 
-For a fresh setup, copy the server example and fill in your local credentials:
+The backend requires a `.env` file inside the `server` folder.
+This file is **ignored by Git** and must be created manually.
+
+### `server/.env`
 
 ```bash
-cp server/.env.example server/.env
+PORT=3000
+NODE_ENV=development
+TRUST_PROXY=0
+
+DATABASE_URL=postgresql://hummingbird_rewrite:your_password@localhost:5432/hummingbird_rewrite
+SHADOW_DATABASE_URL=postgresql://hummingbird_rewrite:your_password@localhost:5432/hummingbird_rewrite_shadow
+TEST_DATABASE_URL=postgresql://hummingbird_rewrite:your_password@localhost:5432/hummingbird_rewrite_test
+
+CLOUDINARY_CLOUD_NAME=your_cloud_name
+CLOUDINARY_API_KEY=your_api_key
+CLOUDINARY_API_SECRET=your_api_secret
 ```
-
-| Variable                                                               | Purpose                                                  |
-| ---------------------------------------------------------------------- | -------------------------------------------------------- |
-| `DATABASE_URL`                                                         | Development database                                     |
-| `SHADOW_DATABASE_URL`                                                  | Separate disposable database for creating migrations     |
-| `TEST_DATABASE_URL`                                                    | Separate disposable database ending in `_test`           |
-| `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | Optional cover uploads; leave all three blank to disable |
-
-The API defaults to port `3000` in development. Keep `server/.env` private;
-it is ignored by Git. The frontend connects through `/api` and contains no secrets.
-
----
-
-## 🗄️ Database Setup
-
-Create the local role and three databases using the [server setup](server/README.md#-postgresql-setup),
-then apply migrations and load the sample data from the repository root:
-
-```bash
-npm run db:deploy
-npm run db:seed:demo
-```
-
-Repeated seeding preserves existing content and creates no duplicates.
-Demo authors cannot sign in; register your own account. For categories only,
-use `npm run db:seed`.
 
 ---
 
 ## ▶️ Running the Application
 
-Start the API from the repository root:
+### Backend
+
+Create the local databases using the [PostgreSQL setup](server/README.md#-postgresql-setup).
 
 ```bash
 cd server
+npm install
+npm run db:deploy
+npm run db:seed
 npm run dev
 ```
 
-In another terminal, starting at the repository root:
+Backend runs on:
+👉 [http://127.0.0.1:3000](http://127.0.0.1:3000)
+
+---
+
+### Frontend
 
 ```bash
 cd client
+npm install
 npm start
 ```
 
-Open [Hummingbird](http://127.0.0.1:4200). Use Ctrl+C in each terminal to stop.
-More details: [client setup](client/README.md) · [server setup](server/README.md).
+Frontend runs on:
+👉 [http://127.0.0.1:4200](http://127.0.0.1:4200)
 
 ---
 
-## ☁️ Production
+## 🧪 Running Tests and Quality Checks
 
-Build and run both parts from the repository root:
-
-```bash
-npm ci
-npm run build
-npm run db:deploy
-npm run db:seed
-npm start
-```
-
-Configure `NODE_ENV=production`, `DATABASE_URL` and the optional Cloudinary
-credentials on the host. Serve the application over HTTPS. See the
-[production setup](server/README.md#-production-hosting) for proxy and cleanup settings.
-
----
-
-## 🧪 Tests and Quality Checks
-
-Run from the repository root:
+Backend tests and checks are executed from the `server` folder:
 
 ```bash
-npm run check --prefix client
-npm run check --prefix server
-npm run test:db --prefix server
+npm run check
+npm run test:db
 ```
 
-Database tests erase their disposable `_test` database. Keep it separate from development.
-Import the [Postman collections](postman/) to test the API manually.
+Frontend tests and checks are executed from the `client` folder:
+
+```bash
+npm run check
+```
+
+Database tests reset the dedicated `_test` database.
 
 ---
 
@@ -180,12 +180,13 @@ npm run db:seed:demo
 
 ## 🎓 Project Context
 
-Hummingbird was built as a university project to learn basic web technologies
-and is being extended to explore relational database design and development.
+This application was built as a **university project** to learn about:
+
+- Basic web technologies and full-stack development
+- Relational database design and SQL
 
 ---
 
 ## 🤖 Use of AI Tools
 
-AI tools support implementation, refactoring, testing, debugging, and documentation.
-The author is responsible for reviewing the code and understanding the submitted work.
+AI tools were used to support implementation, discuss architecture and refactoring options, understand errors and reason about relational database design. They also supported testing, deployment and project documentation. The author is responsible for reviewing the code and understanding the submitted work.
