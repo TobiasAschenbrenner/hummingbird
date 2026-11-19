@@ -999,6 +999,22 @@ test('article summaries keep shared tags unique, sort them by name and count com
   assert.equal(result.articles.length, 1);
   assert.deepEqual(result.articles[0].tags, [tags[1], tags[2], tags[0]]);
   assert.equal(result.articles[0].commentCount, 2);
+
+  const detail = await fetch(`${baseUrl}/api/articles/${article.slug}`);
+  assert.equal(detail.status, 200);
+  const saved = (await detail.json()).article;
+  assert.deepEqual(saved.tags, [tags[1], tags[2], tags[0]]);
+  assert.equal(saved.commentCount, 2);
+});
+
+test('article detail binds SQL-looking slugs as values and exposes only public author fields', async () => {
+  const { article, author } = await createArticle();
+  const queries = createArticleQueries(database);
+  assert.equal(await queries.findArticleBySlug("first-article' OR 1=1 --"), null);
+  const detail = await queries.findArticleBySlug(article.slug);
+  assert.ok(detail);
+  assert.deepEqual(detail.author, { id: author.id, username: author.username });
+  assert.equal(await database.article.count(), 1);
 });
 
 test('article detail serializes PostgreSQL bigint versions exactly and preserves stored text', async () => {

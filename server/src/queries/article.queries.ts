@@ -1,5 +1,6 @@
 import { Prisma, type PrismaClient } from '../generated/prisma/client.ts';
 import { HttpError } from '../errors/http-error.ts';
+import { readArticleBySlug } from './article-read.queries.ts';
 import type {
   ArticleDetail,
   ArticleListInput,
@@ -232,13 +233,8 @@ export function createArticleQueries(database: PrismaClient): ArticleQueries {
         pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) },
       };
     },
-    async findArticleBySlug(slug) {
-      const article = await database.article.findUnique({
-        where: { slug },
-        select: detailSelect,
-      });
-      if (!article) return null;
-      return toDetail(article);
+    findArticleBySlug(slug) {
+      return readArticleBySlug(database, slug);
     },
   };
 }
