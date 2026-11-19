@@ -1,0 +1,21 @@
+{
+  "name": "hummingbird",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.12.0 <25"
+  },
+  "packageManager": "npm@11.6.2",
+  "scripts": {
+    "postinstall": "npm ci --prefix server --include=dev && npm ci --prefix client --include=dev",
+    "build": "npm run build --prefix client && npm run build --prefix server",
+    "start": "npm start --prefix server",
+    "check": "npm run check --prefix client && npm run check --prefix server",
+    "test:db": "npm run test:db --prefix server",
+    "db:deploy": "npm run db:deploy --prefix server",
+    "db:seed": "npm run db:seed --prefix server",
+    "db:seed:demo": "npm run db:seed:demo --prefix server",
+    "images:cleanup": "npm run images:cleanup --prefix server"
+  }
+}

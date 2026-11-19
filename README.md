@@ -49,8 +49,7 @@ Run these commands from the repository root:
 ```bash
 nvm install
 nvm use
-npm ci --prefix server
-npm ci --prefix client
+npm ci
 ```
 
 ---
@@ -109,6 +108,24 @@ npm start
 
 Open [Hummingbird](http://127.0.0.1:4200). Use Ctrl+C in each terminal to stop.
 More details: [client setup](client/README.md) · [server setup](server/README.md).
+
+---
+
+## ☁️ Production
+
+Build and run both parts from the repository root:
+
+```bash
+npm ci
+npm run build
+npm run db:deploy
+npm run db:seed
+npm start
+```
+
+Configure `NODE_ENV=production`, `DATABASE_URL` and the optional Cloudinary
+credentials on the host. Serve the application over HTTPS. See the
+[production setup](server/README.md#-production-hosting) for proxy and cleanup settings.
 
 ---
 

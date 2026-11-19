@@ -172,6 +172,29 @@ on `0.0.0.0`, or set `HOST=127.0.0.1` when a local reverse proxy handles public
 traffic. Set `TRUST_PROXY` to match that proxy: `loopback` for a local proxy or
 the known number of proxy hops. Keep `0` for direct connections.
 
+## ☁️ Production hosting
+
+Use Node.js 24 and deploy the repository root, including `client/` and `server/`.
+The root `npm ci` installs both projects using their committed lock files; build
+tools are installed even when the host sets `NODE_ENV=production` during installation.
+Root `npm run build` builds Angular and the API; root `npm start` runs the API and
+serves the built Angular client from the same origin.
+
+Set `NODE_ENV=production`, `DATABASE_URL` and optional Cloudinary credentials in
+the host's private environment settings. Apply migrations with root
+`npm run db:deploy`, then run `npm run db:seed` once for the default categories.
+Only development migrations and tests need shadow and test database URLs.
+
+Use HTTPS and set `TRUST_PROXY` to match the hosting proxy. For a VPS with a local
+reverse proxy, bind `HOST=127.0.0.1` and use `TRUST_PROXY=loopback`. Managed hosts
+can use the production bind default, with the known proxy hop count configured.
+Never set an arbitrary hop count if visitors can bypass that proxy.
+
+Use `/api/health` as a liveness check, and schedule root `npm run images:cleanup`
+hourly when Cloudinary is enabled. Cron must use the same private environment
+settings and Node.js 24 as the application. Keep source files, credentials and
+PostgreSQL outside the public static directory.
+
 ## 👤 Register an account
 
 Send `POST /api/auth/register` with `Content-Type: application/json`:
