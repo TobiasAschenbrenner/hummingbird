@@ -1,3 +1,5 @@
+import { fileURLToPath } from 'node:url';
+
 import { createCoverQueries } from './queries/cover.queries.ts';
 import { createCoverService } from './services/cover.service.ts';
 import { createCloudinaryStorage } from './services/cloudinary.service.ts';
@@ -29,8 +31,13 @@ const server = createApp({
   registerUser,
   authentication,
   secureCookies: config.nodeEnv === 'production',
-}).listen(config.port, '127.0.0.1', () => {
-  console.log(`Hummingbird API listening at http://127.0.0.1:${config.port}`);
+  trustProxy: config.trustProxy,
+  clientDirectory:
+    config.nodeEnv === 'production'
+      ? fileURLToPath(new URL('../../client/dist/hummingbird-client/browser/', import.meta.url))
+      : undefined,
+}).listen(config.port, config.host, () => {
+  console.log(`Hummingbird listening at http://${config.host}:${config.port}`);
 });
 
 server.on('error', () => {

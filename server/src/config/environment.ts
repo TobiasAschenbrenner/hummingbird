@@ -10,5 +10,17 @@ export function readConfig(environment: NodeJS.ProcessEnv = process.env) {
     throw new Error('NODE_ENV must be development, test, or production.');
   }
 
-  return { port, nodeEnv };
+  const host = environment.HOST ?? (nodeEnv === 'production' ? '0.0.0.0' : '127.0.0.1');
+  if (!['127.0.0.1', '0.0.0.0'].includes(host)) {
+    throw new Error('HOST must be 127.0.0.1 or 0.0.0.0.');
+  }
+
+  const proxyValue = environment.TRUST_PROXY ?? '0';
+  if (proxyValue !== 'loopback' && !/^[0-5]$/.test(proxyValue)) {
+    throw new Error('TRUST_PROXY must be loopback or a hop count from 0 to 5.');
+  }
+  const trustProxy: number | 'loopback' =
+    proxyValue === 'loopback' ? 'loopback' : Number(proxyValue);
+
+  return { port, nodeEnv, host, trustProxy };
 }

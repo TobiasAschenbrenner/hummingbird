@@ -8,7 +8,12 @@ import { readTestDatabaseUrl } from './helpers/database.ts';
 import { readSeedOptions } from '../prisma/seed-options.ts';
 
 test('uses local development defaults without optional configuration', () => {
-  assert.deepEqual(readConfig({}), { port: 3000, nodeEnv: 'development' });
+  assert.deepEqual(readConfig({}), {
+    port: 3000,
+    nodeEnv: 'development',
+    host: '127.0.0.1',
+    trustProxy: 0,
+  });
 });
 
 test('accepts configured ports and supported environments', () => {
@@ -17,6 +22,8 @@ test('accepts configured ports and supported environments', () => {
       assert.deepEqual(readConfig({ PORT: port, NODE_ENV: nodeEnv }), {
         port: Number(port),
         nodeEnv,
+        host: nodeEnv === 'production' ? '0.0.0.0' : '127.0.0.1',
+        trustProxy: 0,
       });
     }
   }
@@ -231,4 +238,20 @@ test('Cloudinary rejects unsafe cloud names, invalid keys and whitespace or cont
     () => readCloudinaryConfig({ ...cloudinaryEnvironment, NODE_ENV: 'staging' }),
     /NODE_ENV must be/,
   );
+});
+
+test('hosting can choose a bind address and explicit trusted proxy boundary', () => {
+  for (const host of ['127.0.0.1', '0.0.0.0']) {
+    for (const proxy of ['0', '1', '2', '5', 'loopback']) {
+      const config = readConfig({ NODE_ENV: 'production', HOST: host, TRUST_PROXY: proxy });
+      assert.equal(config.host, host);
+      assert.equal(config.trustProxy, proxy === 'loopback' ? 'loopback' : Number(proxy));
+    }
+  }
+  for (const host of ['', 'localhost', ' https://example.com ', '192.0.2.1']) {
+    assert.throws(() => readConfig({ HOST: host }), /HOST must be/);
+  }
+  for (const proxy of ['', 'true', 'false', '-1', '6', '1.5', '01', ' 1 ']) {
+    assert.throws(() => readConfig({ TRUST_PROXY: proxy }), /TRUST_PROXY must be/);
+  }
 });

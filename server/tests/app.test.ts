@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { Server } from 'node:http';
 import { afterEach, beforeEach, test } from 'node:test';
 
@@ -9,12 +12,11 @@ import type {
   CreateCommentInput,
   CommentPageInput,
 } from '../src/models/comment.model.ts';
-import { createApp } from '../src/app.ts';
+import { createApp, type AppOptions } from '../src/app.ts';
 import { EmailAlreadyExistsError } from '../src/errors/email-already-exists.error.ts';
 import type { RegistrationInput, PublicUser } from '../src/models/user.model.ts';
 import type { AuthenticationService, LoginInput } from '../src/models/session.model.ts';
 import { HttpError } from '../src/errors/http-error.ts';
-import type { AuthOptions } from '../src/routes/auth.routes.ts';
 import type {
   ArticleDetail,
   CreateArticleInput,
@@ -656,7 +658,10 @@ test('authentication failures return safe errors without issuing or clearing an 
   }
 });
 
-async function withApp(options: AuthOptions, check: (url: string) => Promise<void>) {
+async function withApp(
+  options: Omit<AppOptions, 'articles' | 'catalogs' | 'comments'>,
+  check: (url: string) => Promise<void>,
+) {
   const temporaryServer = createApp({ ...options, articles, catalogs, comments }).listen(
     0,
     '127.0.0.1',
@@ -2007,4 +2012,94 @@ test('cover uploads require a session and report absent configuration without pr
   assert.deepEqual(await response.json(), {
     error: { message: 'Image uploads are not configured.' },
   });
+});
+
+test('hosted client serves assets and refreshed Angular routes while keeping API errors separate', async () => {
+  const clientDirectory = await mkdtemp(join(tmpdir(), 'hummingbird-client-'));
+  const index = '<!doctype html><html><body><app-root></app-root></body></html>';
+  try {
+    await writeFile(join(clientDirectory, 'index.html'), index);
+    await writeFile(join(clientDirectory, 'main-ABC123.js'), 'console.log("client");');
+    await writeFile(join(clientDirectory, '.env'), 'PRIVATE_VALUE=hidden');
+    await withApp(
+      { authentication, registerUser: async () => publicUser, clientDirectory },
+      async (url) => {
+        for (const path of [
+          '/',
+          '/articles/first-article',
+          '/articles/first-article/edit',
+          '/login',
+        ]) {
+          const response = await fetch(`${url}${path}`, { headers: { Accept: 'text/html' } });
+          assert.equal(response.status, 200);
+          assert.match(response.headers.get('content-type') ?? '', /text\/html/);
+          assert.equal(response.headers.get('cache-control'), 'no-cache');
+          assert.equal(await response.text(), index);
+        }
+        const script = await fetch(`${url}/main-ABC123.js`);
+        assert.equal(script.status, 200);
+        assert.equal(await script.text(), 'console.log("client");');
+        const health = await fetch(`${url}/api/health`);
+        assert.deepEqual(await health.json(), { status: 'ok' });
+        for (const path of ['/api/missing', '/api', '/missing.js', '/.env']) {
+          const missing = await fetch(`${url}${path}`, { headers: { Accept: 'text/html' } });
+          assert.equal(missing.status, 404);
+          assert.deepEqual(await missing.json(), { error: { message: 'Route not found.' } });
+        }
+        const write = await fetch(`${url}/login`, { method: 'POST' });
+        assert.equal(write.status, 404);
+        await write.arrayBuffer();
+        const json = await fetch(`${url}/login`, { headers: { Accept: 'application/json' } });
+        assert.equal(json.status, 404);
+        await json.arrayBuffer();
+      },
+    );
+  } finally {
+    await rm(clientDirectory, { recursive: true, force: true });
+  }
+});
+
+test('hosting refuses to start with an unbuilt client', () => {
+  assert.throws(
+    () =>
+      createApp({
+        articles,
+        catalogs,
+        comments,
+        authentication,
+        registerUser: async () => publicUser,
+        clientDirectory: join(tmpdir(), 'hummingbird-unbuilt-client', 'missing'),
+      }),
+    /Build the Angular client/,
+  );
+});
+
+test('trusted reverse proxy keeps login limits separate for different visitors', async () => {
+  await withApp(
+    { authentication, registerUser: async () => publicUser, trustProxy: 'loopback' },
+    async (url) => {
+      async function proxiedLogin(ip: string) {
+        return fetch(`${url}/api/auth/login`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Hummingbird-Request': '1',
+            'X-Forwarded-For': ip,
+          },
+          body: JSON.stringify({ email: validInput.email, password: validInput.password }),
+        });
+      }
+      for (let attempt = 0; attempt < 20; attempt++) {
+        const response = await proxiedLogin('192.0.2.1');
+        assert.equal(response.status, 200);
+        await response.arrayBuffer();
+      }
+      const blocked = await proxiedLogin('192.0.2.1');
+      assert.equal(blocked.status, 429);
+      await blocked.arrayBuffer();
+      const otherVisitor = await proxiedLogin('192.0.2.2');
+      assert.equal(otherVisitor.status, 200);
+      await otherVisitor.arrayBuffer();
+    },
+  );
 });

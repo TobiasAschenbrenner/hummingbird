@@ -23,13 +23,15 @@ Copy `.env.example` to `.env` inside `server/`, unless it already exists.
 Replace `replace-me` in the three database URLs with your role's password.
 Percent-encode special characters in URL credentials (for example, `@` becomes `%40`).
 
-| Variable              | Purpose                                               |
-| --------------------- | ----------------------------------------------------- |
-| `PORT`                | API port; defaults to `3000`                          |
-| `NODE_ENV`            | `development` (default), `test` or `production`       |
-| `DATABASE_URL`        | Required application database connection              |
-| `SHADOW_DATABASE_URL` | Separate, disposable database for creating migrations |
-| `TEST_DATABASE_URL`   | Separate, disposable database ending in `_test`       |
+| Variable              | Purpose                                                |
+| --------------------- | ------------------------------------------------------ |
+| `PORT`                | API port; defaults to `3000`                           |
+| `NODE_ENV`            | `development` (default), `test` or `production`        |
+| `HOST`                | `127.0.0.1` in development; `0.0.0.0` in production    |
+| `TRUST_PROXY`         | `0` by default; trusted proxy hops (1–5) or `loopback` |
+| `DATABASE_URL`        | Required application database connection               |
+| `SHADOW_DATABASE_URL` | Separate, disposable database for creating migrations  |
+| `TEST_DATABASE_URL`   | Separate, disposable database ending in `_test`        |
 
 Run the scripts from `server/`. They load its optional `.env`.
 Environment files stay out of Git.
@@ -165,7 +167,10 @@ npm run dev
 
 Open [the health endpoint](http://127.0.0.1:3000/api/health). It returns
 `{"status":"ok"}`. This checks that the API is running, not database availability.
-The server currently listens only on your own computer (`127.0.0.1`).
+Development listens only on your own computer (`127.0.0.1`). Production listens
+on `0.0.0.0`, or set `HOST=127.0.0.1` when a local reverse proxy handles public
+traffic. Set `TRUST_PROXY` to match that proxy: `loopback` for a local proxy or
+the known number of proxy hops. Keep `0` for direct connections.
 
 ## 👤 Register an account
 
@@ -227,7 +232,10 @@ signed in. Logout invalidates copied cookies too. Sessions survive API restarts.
 Without a valid session, `/me` returns `401` and clears the stale cookie.
 Logout is safe to repeat. All account responses use `Cache-Control: no-store`.
 Set `NODE_ENV=production` behind HTTPS to use a Secure `__Host-` cookie; local
-HTTP development uses `hummingbird_session`. Hosting configuration comes later.
+HTTP development uses `hummingbird_session`. Production also serves the built
+Angular client from `client/dist/hummingbird-client/browser`; build the client
+before starting the production server. Article URLs fall back to Angular on
+refresh, while unknown `/api` routes and missing assets retain their `404` responses.
 See [OWASP session guidance](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html)
 for the cookie and session design.
 

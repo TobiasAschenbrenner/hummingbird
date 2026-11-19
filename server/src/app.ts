@@ -1,4 +1,5 @@
-import express from 'express';
+import express, { type RequestHandler } from 'express';
+import { createClientRouter } from './middleware/client-files.ts';
 import { createCoverRouter } from './routes/cover.routes.ts';
 import type { CoverService } from './services/cover.service.ts';
 
@@ -17,11 +18,14 @@ export interface AppOptions extends AuthOptions {
   comments: CommentQueries;
   catalogs: CatalogQueries;
   covers?: CoverService;
+  clientDirectory?: string;
+  trustProxy?: number | 'loopback';
 }
 
 export function createApp(options: AppOptions) {
   const app = express();
   app.disable('x-powered-by');
+  app.set('trust proxy', options.trustProxy ?? 0);
   app.use('/api', healthRouter);
   app.use('/api/auth', createAuthRouter(options));
   app.use('/api/articles/:slug/comments', createCommentRouter(options));
@@ -29,10 +33,16 @@ export function createApp(options: AppOptions) {
   app.use('/api/articles', createArticleRouter(options));
   app.use('/api', createCatalogRouter(options.catalogs));
 
-  app.use((_request, response) => {
-    response.status(404).json({ error: { message: 'Route not found.' } });
-  });
+  app.use('/api', notFound);
+  if (options.clientDirectory) {
+    app.use(createClientRouter(options.clientDirectory));
+  }
+  app.use(notFound);
   app.use(errorHandler);
 
   return app;
 }
+
+const notFound: RequestHandler = (_request, response) => {
+  response.status(404).json({ error: { message: 'Route not found.' } });
+};
